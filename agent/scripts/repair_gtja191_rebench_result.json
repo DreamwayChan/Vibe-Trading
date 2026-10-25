@@ -1,0 +1,510 @@
+{
+  "status": "ok",
+  "zoo": "gtja191",
+  "universe": "csi300",
+  "period": "2023-2026",
+  "alive": 43,
+  "reversed": 6,
+  "dead": 140,
+  "n_alphas_tested": 189,
+  "n_skipped": 2,
+  "wall_seconds": 22.1,
+  "alive_list": [
+    {
+      "id": "gtja191_120",
+      "ic_mean": 0.058649,
+      "ir": 0.2184,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "rank(vwap-close)/rank(vwap+close)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_159",
+      "ic_mean": 0.057273,
+      "ir": 0.2035,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_185",
+      "ic_mean": 0.04938,
+      "ir": 0.2015,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "rank(-1*(1-open/close)^2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_114",
+      "ic_mean": 0.048686,
+      "ir": 0.1764,
+      "theme": [
+        "volume",
+        "volatility"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_158",
+      "ic_mean": 0.041658,
+      "ir": 0.1673,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "((h-sma(c,15,2))-(l-sma(c,15,2)))/c",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_129",
+      "ic_mean": 0.051784,
+      "ir": 0.1601,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "sum(abs(c-delay(c,1)) if dc<0 else 0,12)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_167",
+      "ic_mean": 0.047589,
+      "ir": 0.1593,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "sum(max(0,c-delay(c,1)),12)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_124",
+      "ic_mean": 0.044173,
+      "ir": 0.1572,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "(close-vwap)/decay_linear(rank(tsmax(close,30)),2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_171",
+      "ic_mean": 0.042914,
+      "ir": 0.1554,
+      "theme": [
+        "microstructure"
+      ],
+      "formula_latex": "-1*((l-c)*(o^5))/((c-h)*(c^5))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_175",
+      "ic_mean": 0.047808,
+      "ir": 0.1526,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "mean(true_range,6)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_189",
+      "ic_mean": 0.046802,
+      "ir": 0.1524,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "mean(abs(c-mean(c,6)),6)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_174",
+      "ic_mean": 0.047649,
+      "ir": 0.1519,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "sma((c>delay(c,1)?std(c,20):0),20,1)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_054",
+      "ic_mean": 0.038669,
+      "ir": 0.1516,
+      "theme": [
+        "volatility",
+        "microstructure"
+      ],
+      "formula_latex": "((-1*RANK((STD(ABS(CLOSE-OPEN),10)+(CLOSE-OPEN))+CORR(CLOSE,OPEN,10))))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_161",
+      "ic_mean": 0.047327,
+      "ir": 0.1506,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "mean(true_range,12)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_093",
+      "ic_mean": 0.047602,
+      "ir": 0.1488,
+      "theme": [
+        "microstructure"
+      ],
+      "formula_latex": "SUM((OPEN>=DELAY(OPEN,1)?0:MAX(OPEN-LOW,OPEN-DELAY(OPEN,1))),20)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_030",
+      "ic_mean": 0.042172,
+      "ir": 0.1474,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "WMA((REGRESI(CLOSE/DELAY(CLOSE,1)-1, MKT_RET, SMB, HML, 60))^2, 20)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_127",
+      "ic_mean": 0.043704,
+      "ir": 0.1467,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "sqrt(mean((100*(c-tsmax(c,12))/tsmax(c,12))^2,12))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_010",
+      "ic_mean": 0.041906,
+      "ir": 0.1462,
+      "theme": [
+        "volatility",
+        "reversal"
+      ],
+      "formula_latex": "RANK(MAX(((RET<0)?STD(RET,20):CLOSE)^2,5))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_164",
+      "ic_mean": 0.044781,
+      "ir": 0.1449,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_160",
+      "ic_mean": 0.047864,
+      "ir": 0.1446,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "sma((c<=delay(c,1)?std(c,20):0),20,1)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_187",
+      "ic_mean": 0.043773,
+      "ir": 0.1437,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_017",
+      "ic_mean": 0.042845,
+      "ir": 0.14,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "(RANK(VWAP - MAX(VWAP,15))^DELTA(CLOSE,5))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_143",
+      "ic_mean": 0.039031,
+      "ir": 0.1353,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "cumprod(1 + (c/delay(c,1)-1) if c>delay(c,1) else 0)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_012",
+      "ic_mean": 0.038944,
+      "ir": 0.1297,
+      "theme": [
+        "reversal",
+        "microstructure"
+      ],
+      "formula_latex": "(RANK((OPEN - (SUM(VWAP,10)/10))) * (-1 * RANK(ABS((CLOSE - VWAP)))))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_153",
+      "ic_mean": 0.038319,
+      "ir": 0.1272,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "(mean(c,3)+mean(c,6)+mean(c,12)+mean(c,24))/4",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_156",
+      "ic_mean": 0.030362,
+      "ir": 0.1262,
+      "theme": [
+        "volume"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_178",
+      "ic_mean": 0.035175,
+      "ir": 0.1255,
+      "theme": [
+        "momentum",
+        "volume"
+      ],
+      "formula_latex": "(c-delay(c,1))/delay(c,1)*v",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_149",
+      "ic_mean": 0.037658,
+      "ir": 0.1214,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_081",
+      "ic_mean": 0.031166,
+      "ir": 0.1212,
+      "theme": [
+        "volume"
+      ],
+      "formula_latex": "SMA(VOLUME,21,2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_013",
+      "ic_mean": 0.036403,
+      "ir": 0.1209,
+      "theme": [
+        "microstructure"
+      ],
+      "formula_latex": "(((HIGH*LOW)^0.5) - VWAP)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_126",
+      "ic_mean": 0.036404,
+      "ir": 0.1209,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "(c+h+l)/3",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_173",
+      "ic_mean": 0.036134,
+      "ir": 0.1204,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "3*sma(c,13,2)-2*sma(sma(c,13,2),13,2)+sma(sma(sma(log(c),13,2),13,2),13,2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_111",
+      "ic_mean": 0.031913,
+      "ir": 0.1174,
+      "theme": [
+        "volume",
+        "microstructure"
+      ],
+      "formula_latex": "sma(v*((c-l)-(h-c))/(h-l),11,2)-sma(v*((c-l)-(h-c))/(h-l),4,2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_163",
+      "ic_mean": 0.031845,
+      "ir": 0.1162,
+      "theme": [
+        "volume"
+      ],
+      "formula_latex": "rank(((-1*ret)*mean(v,20))*vwap*(high-close))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_077",
+      "ic_mean": 0.029471,
+      "ir": 0.115,
+      "theme": [
+        "volume"
+      ],
+      "formula_latex": "MIN(RANK(DECAYLINEAR(((HIGH+LOW)/2+HIGH-(VWAP+HIGH)),20)),RANK(DECAYLINEAR(CORR(((HIGH+LOW)/2),MEAN(VOLUME,40),3),6)))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_100",
+      "ic_mean": 0.027797,
+      "ir": 0.1147,
+      "theme": [
+        "volatility",
+        "volume"
+      ],
+      "formula_latex": "STD(VOLUME,20)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_041",
+      "ic_mean": 0.030902,
+      "ir": 0.1142,
+      "theme": [
+        "microstructure"
+      ],
+      "formula_latex": "(RANK(MAX(DELTA(VWAP,3),5))*-1)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_007",
+      "ic_mean": 0.032166,
+      "ir": 0.1134,
+      "theme": [
+        "volume",
+        "microstructure"
+      ],
+      "formula_latex": "((RANK(MAX((VWAP-CLOSE),3)) + RANK(MIN((VWAP-CLOSE),3))) * RANK(DELTA(VOLUME,3)))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_097",
+      "ic_mean": 0.027214,
+      "ir": 0.1129,
+      "theme": [
+        "volatility",
+        "volume"
+      ],
+      "formula_latex": "STD(VOLUME,10)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_002",
+      "ic_mean": 0.029537,
+      "ir": 0.1073,
+      "theme": [
+        "reversal",
+        "microstructure"
+      ],
+      "formula_latex": "(-1 * DELTA(((CLOSE - LOW) - (HIGH - CLOSE)) / (HIGH - LOW), 1))",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_070",
+      "ic_mean": 0.026668,
+      "ir": 0.1067,
+      "theme": [
+        "volatility",
+        "volume"
+      ],
+      "formula_latex": "STD(AMOUNT,6)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_095",
+      "ic_mean": 0.024727,
+      "ir": 0.0939,
+      "theme": [
+        "volatility",
+        "volume"
+      ],
+      "formula_latex": "STD(AMOUNT,20)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_075",
+      "ic_mean": 0.024817,
+      "ir": 0.0832,
+      "theme": [
+        "sentiment",
+        "momentum"
+      ],
+      "formula_latex": "COUNT((CLOSE>OPEN & BENCHMARKINDEXCLOSE<DELAY(BENCHMARKINDEXCLOSE,1)),50)/COUNT(BENCHMARKINDEXCLOSE<DELAY(BENCHMARKINDEXCLOSE,1),50)",
+      "category": "alive"
+    }
+  ],
+  "top5_by_ir": [
+    {
+      "id": "gtja191_120",
+      "ic_mean": 0.058649,
+      "ir": 0.2184,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "rank(vwap-close)/rank(vwap+close)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_159",
+      "ic_mean": 0.057273,
+      "ir": 0.2035,
+      "theme": [
+        "momentum"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_185",
+      "ic_mean": 0.04938,
+      "ir": 0.2015,
+      "theme": [
+        "reversal"
+      ],
+      "formula_latex": "rank(-1*(1-open/close)^2)",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_114",
+      "ic_mean": 0.048686,
+      "ir": 0.1764,
+      "theme": [
+        "volume",
+        "volatility"
+      ],
+      "formula_latex": "see body",
+      "category": "alive"
+    },
+    {
+      "id": "gtja191_158",
+      "ic_mean": 0.041658,
+      "ir": 0.1673,
+      "theme": [
+        "volatility"
+      ],
+      "formula_latex": "((h-sma(c,15,2))-(l-sma(c,15,2)))/c",
+      "category": "alive"
+    }
+  ]
+}

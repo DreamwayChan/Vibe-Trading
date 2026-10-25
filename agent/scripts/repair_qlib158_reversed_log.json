@@ -1,0 +1,209 @@
+{
+  "universe": "csi300",
+  "period": "2023-2026",
+  "results": [
+    {
+      "id": "qlib158_cntn20",
+      "attempt": "sign_flip_smooth5",
+      "category": "alive",
+      "ic_mean": 0.0325,
+      "ic_positive_ratio": 0.554,
+      "ir": 0.113,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_cntn30",
+      "attempt": "sign_flip_smooth10",
+      "category": "alive",
+      "ic_mean": 0.0351,
+      "ic_positive_ratio": 0.553,
+      "ir": 0.116,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_cntn60",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0383,
+      "ic_positive_ratio": 0.557,
+      "ir": 0.119,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_cord20",
+      "attempt": "sign_flip_smooth30",
+      "category": "alive",
+      "ic_mean": 0.0369,
+      "ic_positive_ratio": 0.578,
+      "ir": 0.147,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_cord30",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.032,
+      "ic_positive_ratio": 0.55,
+      "ir": 0.128,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_cord60",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0443,
+      "ic_positive_ratio": 0.567,
+      "ir": 0.171,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_klen",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.042,
+      "ic_positive_ratio": 0.576,
+      "ir": 0.169,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_klow",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0381,
+      "ic_positive_ratio": 0.552,
+      "ir": 0.157,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_kmid",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0307,
+      "ic_positive_ratio": 0.559,
+      "ir": 0.107,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_kmid2",
+      "attempt": "sign_flip_tsrank4",
+      "category": "alive",
+      "ic_mean": 0.0253,
+      "ic_positive_ratio": 0.56,
+      "ir": 0.095,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_ksft",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0387,
+      "ic_positive_ratio": 0.582,
+      "ir": 0.132,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_ksft2",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0427,
+      "ic_positive_ratio": 0.565,
+      "ir": 0.152,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_max10",
+      "attempt": "sign_flip_smooth5",
+      "category": "alive",
+      "ic_mean": 0.0384,
+      "ic_positive_ratio": 0.558,
+      "ir": 0.126,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_max20",
+      "attempt": "sign_flip_smooth10",
+      "category": "alive",
+      "ic_mean": 0.0414,
+      "ic_positive_ratio": 0.563,
+      "ir": 0.134,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_max30",
+      "attempt": "sign_flip_smooth30",
+      "category": "alive",
+      "ic_mean": 0.0411,
+      "ic_positive_ratio": 0.578,
+      "ir": 0.13,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_max60",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0374,
+      "ic_positive_ratio": 0.556,
+      "ir": 0.117,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_qtlu60",
+      "attempt": "sign_flip_tsmin11",
+      "category": "alive",
+      "ic_mean": 0.0348,
+      "ic_positive_ratio": 0.57,
+      "ir": 0.108,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_std10",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0413,
+      "ic_positive_ratio": 0.569,
+      "ir": 0.155,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_std20",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0402,
+      "ic_positive_ratio": 0.573,
+      "ir": 0.152,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_std30",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0442,
+      "ic_positive_ratio": 0.561,
+      "ir": 0.162,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_std5",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0395,
+      "ic_positive_ratio": 0.56,
+      "ir": 0.151,
+      "action": "applied"
+    },
+    {
+      "id": "qlib158_std60",
+      "attempt": "sign_flip",
+      "category": "alive",
+      "ic_mean": 0.0425,
+      "ic_positive_ratio": 0.554,
+      "ir": 0.147,
+      "action": "applied"
+    }
+  ],
+  "summary": {
+    "applied": 22,
+    "abandon": 0,
+    "alive_rows": 22
+  }
+}
