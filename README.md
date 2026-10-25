@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <sub><b>A-share research fork</b> of <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a> (upstream base <b>v0.1.12</b>) — the full upstream engine is kept intact, plus a closed A-share sector research loop: <b>Market Pick</b> · <b>Sector Pick</b> · <b>Monitor</b> · <b>Decision Compose</b></sub>
+</p>
+
+<p align="center">
   <a href="https://trendshift.io/repositories/25527" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25527" alt="HKUDS%2FVibe-Trading | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
 
@@ -33,6 +37,7 @@
   <a href="https://vibetrading.wiki/docs/">Docs</a> &nbsp;&middot;&nbsp;
   <a href="#-news">News</a> &nbsp;&middot;&nbsp;
   <a href="#-key-features">Features</a> &nbsp;&middot;&nbsp;
+  <a href="#ashare-loop">A-Share Loop</a> &nbsp;&middot;&nbsp;
   <a href="#-shadow-account">Shadow Account</a> &nbsp;&middot;&nbsp;
   <a href="#-demo">Demo</a> &nbsp;&middot;&nbsp;
   <a href="#-quick-start">Quick Start</a> &nbsp;&middot;&nbsp;
@@ -51,6 +56,15 @@
 ## 📰 News
 
 > ⚠️ **Security warning:** The X account `VibeTrading_HKU`, Virtuals project `101845`, and token contract `0x640BDBF77b6447E8b7DB7894cED84BD1c40571f4` are not official Vibe-Trading assets. We have never launched or endorsed any token or memecoin. Do not buy, connect a wallet, or sign anything. [Details](SECURITY.md#official-channels--impersonation).
+
+**This fork's own changes** — upstream release notes are collapsed below because they are not fork-specific:
+
+- **2026-09** 🧭 **Decision compose + multi-horizon regime** — `agent/src/process/` adds the Mandate/overlay waterfall and the CSI 300 short/medium/long split with a MA250 year-line guard; the Monitor board gains a 10-day k-NN analog forecast with saved snapshots and history replay.
+- **2026-08** 🎯 **Sector Pick + factor survival store** — the curated 「最优」catalog, the single-theme ThemeLock (2-day challenger streak + > 0.25 score gap), `factors/survival_store.py`, the strict bench runner, and polarity/decay repairs for 54 GTJA191/Qlib factors.
+- **2026-07** 🀄 **Market Pick + the A-share loop** — board-level dual-track screening, the executable-pick vs observation-map split, the 7-factor `custom` zoo, and the first sector research prompts (`agent/prop_国泰君安_*.md`).
+
+<details>
+<summary><b>Upstream release notes</b> <sub>HKUDS/Vibe-Trading, through v0.1.12 — kept for traceability, not fork-specific</sub></summary>
 
 - **2026-07-23** 🔧 **Reliability sweep + strict alpha-bench surfaced + opt-in memory lifecycle**: A 22-PR contributor batch. A broad **reliability sweep** fixes timeframe handling end to end — yfinance `1M`→monthly (not minute), CCXT `1W`/`1M`, akshare/india-broker rejecting unsupported intervals instead of silent daily, and the Tiger/Alpaca/OKX/Shoonya/Longbridge connectors keeping `1H`/`4H` as hour bars — plus trade-journal Excel-date normalization (eastmoney float `YYYYMMDD`, Futu/Tonghuashun serial dates), finite-JSON `report_audit`, blank `holding_days` validation, and Feishu/CLI markdown table edges ([#778](https://github.com/HKUDS/Vibe-Trading/pull/778)–[#794](https://github.com/HKUDS/Vibe-Trading/pull/794), thanks @santhreal). **MT5** `trading_history` now coerces numpy scalars so JSON serialization no longer dies on `int64` ([#776](https://github.com/HKUDS/Vibe-Trading/pull/776), closes [#774](https://github.com/HKUDS/Vibe-Trading/issues/774), thanks @shadowinlife), and **PIT fundamentals** dedup restated rows and stop the snapshot regressing to an older fiscal period on a late restatement ([#772](https://github.com/HKUDS/Vibe-Trading/pull/772), closes [#771](https://github.com/HKUDS/Vibe-Trading/issues/771), thanks @klmtseng). New: **`alpha bench --strict`** finally wires the strict same-universe random-control + OOS gate that shipped unreachable since 0.1.9 ([#796](https://github.com/HKUDS/Vibe-Trading/pull/796), closes [#773](https://github.com/HKUDS/Vibe-Trading/issues/773), thanks @he-yufeng), an opt-in **memory lifecycle** (quality scoring, Ebbinghaus decay, archive-only GC — all off by default) ([#733](https://github.com/HKUDS/Vibe-Trading/pull/733), closes [#732](https://github.com/HKUDS/Vibe-Trading/issues/732), thanks @shadowinlife), and backtest **rebalance-notes** artifacts + turnover metrics ([#795](https://github.com/HKUDS/Vibe-Trading/pull/795), thanks @he-yufeng).
 - **2026-07-22** 🚀 **v0.1.12 released** ([Release notes](https://github.com/HKUDS/Vibe-Trading/releases/tag/v0.1.12), `pip install -U vibe-trading-ai`): The **correlation regime timeline** adds a `GET /correlation/regime` endpoint + an opt-in Correlation-tab strip — edge density run through a causal hysteresis state machine that marks FUSED market episodes, descriptive risk context rather than a signal ([#756](https://github.com/HKUDS/Vibe-Trading/pull/756), closes [#719](https://github.com/HKUDS/Vibe-Trading/issues/719), thanks @ebujinovch). Provider endpoint resolution now falls back to each provider's canonical base URL and gracefully handles non-SSE endpoints, fixing the native **zai** provider on glm-5.1 ([#758](https://github.com/HKUDS/Vibe-Trading/issues/758)). Plus a strict-JSON / finite-number **reliability sweep** across metrics, factors, pattern, session, and journal ([#761](https://github.com/HKUDS/Vibe-Trading/pull/761)–[#770](https://github.com/HKUDS/Vibe-Trading/pull/770), thanks @santhreal) and a Binance maintenance-bracket decouple that keeps `-PERP` backtests zero-credential ([#757](https://github.com/HKUDS/Vibe-Trading/pull/757), thanks @honginp). Rolls up ~90 fixes since 0.1.11.
@@ -189,6 +203,169 @@
 
 </details>
 
+</details>
+
+---
+
+<a id="ashare-loop"></a>
+## 🀄 A-Share Research Loop <sub>(this fork)</sub>
+
+This repository is a fork of [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading). The upstream engine is kept intact — the ReAct loop, 88 skills, 79 default-registered tools, 469 alphas, 30 swarm presets, the data-loader fallback chains and the broker-connector layer all still work as documented below. On top of it, this fork adds a **closed A-share sector research loop** built around Eastmoney boards, the GTJA191 factor family and a long-only retail constitution.
+
+Everything in this loop is **research and simulation only**. No module here places an order; the only path to a broker remains the upstream live/mandate layer.
+
+```text
+agent/prop_国泰君安_<sector>_最优.md        ← research prompt + hard constraints
+            │  vibe-trading run
+            ▼
+Backtest:  F0 (momentum + IR-weighted confirm legs)
+           vs  F1 (+ custom MAX veto)
+            │  excess vs board EW · Sharpe · maxDD · MC permutation p
+            ▼
+「最优」catalog — agent/src/sector_pick/catalog.py (21 sectors)
+            │
+     ┌──────┴───────────────────────────────┐
+     ▼                                      ▼
+市场优选 Market Pick                  优选板块 Sector Pick
+CSI300 regime → stance                score 21 rows → ThemeLock
+board dual-track scan                 → bound SignalEngine holdings
+     │                                      │
+     └───────────────┬──────────────────────┘
+                     ▼
+        监控看板 Monitor — persistent board, daily scan,
+        live provisional bar, 10-day analog forecast
+                     ▼
+        决策合成 Process — Mandate + F0 stance + structure (+analog)
+                            → one Decision (tighten-only)
+```
+
+| Surface | Route | Module | CLI |
+|---|---|---|---|
+| 市场优选 Market Pick | `/market-pick` | `agent/src/market_pick/` | — (Web UI + REST) |
+| 优选板块 Sector Pick | `/sector-pick` | `agent/src/sector_pick/` | — (Web UI + REST) |
+| 监控看板 Monitor | `/monitor` | `agent/src/monitor/` | — (Web UI + REST) |
+| 决策合成 Decision compose | library | `agent/src/process/` | — (library + REST) |
+
+The three boards are **Web UI and REST surfaces**, not CLI subcommands. Start `vibe-trading serve` and open `/market-pick`, `/sector-pick` or `/monitor`.
+
+### 1. Market Pick — 市场优选
+
+A dual-track board screen: the index decides **whether** to take risk, the boards decide **where**.
+
+| Stage | Rule |
+|---|---|
+| Board universe | Eastmoney industry boards (`m:90+t:2`) + concept boards (`m:90+t:3`), with full constituent lists |
+| Board filter | drops board names containing ST / 退市 / 次新 / 预盈预增 / 昨日涨停 / 昨日连板 / 高送转 / 举牌 / 微盘 / 破净 |
+| Symbol filter | drops Beijing Stock Exchange codes and B-shares |
+| Regime | CSI 300 (`000300.SH`) on MA20/60/120 + 120-day momentum → `bull` / `chop` / `bear`, split into short (5/10/20), medium (20/60/120) and long (MA250 year-line guard) horizons |
+| Stance | `full` (add risk) / `half_watch` (half size) / `none` (no new risk); a bear medium regime recommends **no** board at all |
+| Board score | `live_score = rs_share − knife_share` — the share of constituents with their own MA bull stack minus the share in the "knife" bucket. Boards with fewer than 8 classifiable names are skipped with a written reason |
+| Output | `recommended_bk` (the executable pick), `map_bk` (the observation map), plus per-board rank, 20-day return, timing multiplier and a Chinese skip reason |
+
+The scan pulls a single OHLCV panel for the union of all constituents. When a Tushare token is configured it **forces the Tushare batch path**, because walking thousands of symbols through the per-symbol free chain would take hours; without a token it falls back to the normal A-share chain.
+
+### 2. Sector Pick — 优选板块
+
+Sector Pick ranks **already researched** sectors — the candidate set is the curated 「最优」catalog, never an automatic sweep of every backtest run.
+
+| Concept | Behaviour |
+|---|---|
+| Catalog | 21 rows. Each binds a board (or a `∪` union of boards), the winning variant, its confirm legs, the research prompt, and the `agent/runs/<run_id>` holding the validated `signal_engine.py` |
+| Live score | equal-weight board price vs MA20 timing multiplier + 20-day return + confirm-leg pass rate |
+| ThemeLock | rank-1 is the **observation map**; the persisted lock is the **order**. A healthy book is kept until it fails the leftover-book gate, or a challenger leads for **2 consecutive scans** *and* beats it by a real score gap (**> 0.25**) |
+| Index bear | still ticks the challenger streak and may switch the lock key, but never opens a new book |
+| Holdings | copied from the bound run's SignalEngine, then re-scored with today's structure |
+| Output | `recommended_key`, `locked_key`, `map_key`, `challenger_days`, `stance`, a Chinese reason, and holdings with a per-name action |
+
+Catalog coverage: 人形机器人 · 存储芯片 · 食品饮料 · 算力硬件 · 创新药 · 医疗研发外包(CRO) · CRO · AI应用 · 工业母机 · 虚拟现实 · 其他专用设备 · 其他汽车零部件 · 金属铜 · 中药Ⅲ · 农化制品 · 空调 · 零食 · 软饮料 · 券商 · 商用载货车 · 半导体设备材料.
+
+### 3. Monitor — 监控看板
+
+A persistent board bound to one strategy, plus a deterministic daily scan.
+
+| Piece | Behaviour |
+|---|---|
+| Board | one strategy (`run_id`) + its universe + scan config; persisted under `~/.vibe-trading/` and surviving restarts |
+| Daily scan | re-runs the bound SignalEngine → target weights → per-name action (`enter` / `add` / `hold` / `reduce` / `exit`) |
+| Structure | each holding is classified `bull` / `chop` / `bear` by its own MA stack, plus a swing position (`oversold` / `mid` / `overbought`) inside its recent range |
+| Live bar | intraday, a provisional daily bar is assembled from Eastmoney → Tencent → Sina (health-ranked, with cooldown). A provisional bar **cannot authorise new risk** |
+| Forecast | k-NN analog search over up to 800 days of history → **10** future trading days of up/down scenario paths with a MA5/10/20 overlay. It reports how many independent analog segments voted, abstains when confidence is low, and is explicitly a scenario band — not a price target |
+| History | every scan, plus every saved forecast snapshot, is replayable by `as_of` |
+
+### 4. Decision compose — 决策合成
+
+`agent/src/process/` collapses market regime, F0 stance, structure and the optional analog forecast into **one** official decision, through a waterfall where later gates may only tighten:
+
+```text
+Mandate → Structure → F0 stance → Analog (optional) → Size cap → Decision
+```
+
+| Mandate knob | Default | Meaning |
+|---|---|---|
+| `book_nav_cap` | `0.40` | max fraction of NAV this theme book may occupy |
+| `max_name_weight` | `0.50` | max single-name weight after clipping |
+| `max_themes` | `1` | one theme book at a time (enforced as the ThemeLock) |
+| `half_watch_mult` | `0.50` | size multiplier under `half_watch` |
+| `allow_short` | `false` | retail A-share accounts cannot short |
+| `provisional_is_decision` | `false` | an intraday proxy bar may warn but cannot authorise new risk |
+| `analog_on_daily_scan` | `false` | daily scans skip the k-NN analog; forecast recompose may add it |
+
+`ProcessMandate.fingerprint()` is stored with every snapshot, so a historical decision always knows which constitution produced it. The action set is long-only — `enter` / `add` / `hold` / `reduce` / `exit` — and size is treated as a **cap**, never a target to lever into. A later analog pass cannot reopen a wait or grow a position.
+
+### 5. Sector research methodology (F0 / F1)
+
+Every catalog row was earned through the same written contract; the `agent/prop_国泰君安_<sector>_*.md` prompts are the source of truth for how a row was produced.
+
+| Element | Contract |
+|---|---|
+| Factor pool | GTJA191 only (`gtja191_*`), cross-sectional percentile → 5-day smoothing |
+| Ranking | `S` = smoothed momentum factor |
+| Confirmation | `C` = IR-weighted confirm legs (e.g. `124+178`, `171+054`); IR weights come from the bench, missing legs are dropped and the rest renormalised |
+| New-entry filter | `C` ≥ the 40th percentile of that day's cross-section; no filter on days where every leg is missing |
+| Portfolio | N = 6 equal weight, with a Top 9 retention band (N × 1.5) |
+| Rebalance | first trading day of each week. The engine must print `is_rebalance.sum()`; more than 1.5 × the calendar week count is treated as a failed (pseudo-weekly) run |
+| Turnover | hard 20% cap — keep old names first, stop buying once the cap would break |
+| Minimum hold | 5 days; a name is not sold merely for leaving the retention band before that |
+| Exits | peak drawdown ≥ 15% → take profit ≥ 35% → held ≥ 20 days with rank worsening ≥ 10 places → out of Top 9 on a rebalance day |
+| Timing | board equal-weight price vs MA20 → multiplier 1.0 / 0.5, updated only on rebalance days |
+| F0 vs F1 | F1 adds the `custom_max_inv` veto. It is adopted **only** when it strictly beats F0 on the same pool (`Δexcess`, `ΔSharpe`); otherwise the F0' variant stands |
+| Honesty gate | excess return vs the board's equal-weight benchmark, the Monte-Carlo permutation `p_sharpe` (threshold 0.2), and the Δ against the previous baseline must all be reported. A negative excess or a p above 0.2 has to be stated explicitly in the output |
+
+### 6. A-share trading-rule adaption
+
+The A-share engine (`agent/backtest/engines/china_a.py`) is routed automatically for `\d{6}\.(SZ|SH|BJ)` codes and the A-share ETF prefixes 51 / 15 / 56.
+
+| Constraint | Implementation |
+|---|---|
+| T+1 | shares bought today cannot be sold today |
+| Long-only | short orders are rejected outright; leverage is forced to 1.0 |
+| Price limits | no buy at the limit-up price, no sell at the limit-down price |
+| Board lots | quantities rounded down to 100 shares |
+| Fees | commission 0.025% (min ¥5) + transfer fee 0.001% on both sides + stamp duty 0.05% on sells only |
+| Slippage | fixed 0.001 by default, configurable |
+
+**Known implementation edges** — stated so this document does not over-claim:
+
+- ST ±5% and the Beijing `43xxxx` / `92xxxx` prefixes currently fall back to the 10% band in `_price_limit`.
+- The call auction, 一字板 and sealed-order-book (封单量 / 炸板) modelling are **not** implemented; the limit test reads `close` / `pct_chg` only.
+- The live gate recognises `AssetClass.CN_EQUITY`, but its market-cap and liquidity floors are US-only (A-share names fail closed), and the daily order counter resets on a **UTC** day.
+- There is no mainland-broker direct connection; A-share orders can only reach a broker through the upstream connector layer (Futu / Tiger / Longbridge …).
+
+Institutional knowledge for those gaps lives in the `regulatory-knowledge`, `ashare-pre-st-filter`, `execution-model` and `market-microstructure` skills rather than being hard-coded.
+
+### Fork-local at a glance
+
+| Item | Count | Where |
+|---|---|---|
+| New top-level modules | 4 — `market_pick`, `sector_pick`, `monitor`, `process` | `agent/src/` |
+| Researched sector recipes | 21 | `agent/src/sector_pick/catalog.py` |
+| Sector research prompts | 55 `prop_国泰君安_*.md` | `agent/` |
+| Fork-local alphas | 7 (`custom` family) → registry 469 | `agent/src/factors/zoo/custom/` |
+| Factors with polarity/decay repairs | 54 (`REPAIR CSI300 2023-2026`) | `agent/src/factors/zoo/{gtja191,qlib158}/` |
+| New REST routes | 21 (4 market-pick, 7 sector-pick, 10 monitor) | `agent/src/api/` |
+| New frontend pages | 3 (`/market-pick`, `/sector-pick`, `/monitor`) | `frontend/src/pages/` |
+| Research scripts | 40 `research_*.py` / `run_*.py` / `repair_*.py` | `agent/scripts/` |
+
 ---
 
 ## ✨ Key Features
@@ -235,6 +412,24 @@
       </div>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%" valign="top">
+      <h3>🀄 A-Share Research Loop</h3>
+      <div align="left">
+        • Market Pick: CSI 300 regime + board dual-track screen<br>
+        • Sector Pick: 21 researched boards, single-theme ThemeLock<br>
+        • Monitor: holdings, live bars, a 10-day analog forecast
+      </div>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <h3>🧭 Tighten-Only Decisions</h3>
+      <div align="left">
+        • ProcessMandate caps NAV share, name weight and theme count<br>
+        • T+1, price limits, 100-share lots, the A-share fee stack<br>
+        • Long-only waterfall — later gates never reopen a wait
+      </div>
+    </td>
+  </tr>
 </table>
 </div>
 
@@ -258,8 +453,10 @@ It is designed for research, simulation, and backtesting — and, when you choos
 | **Run analyst teams** | Multi-agent research reviews for investment, quant, crypto, macro, and risk workflows. |
 | **Put research into IM channels** | Run the same session runtime through WebSocket, Telegram, Slack, Discord, Matrix, WhatsApp, Signal, QQ/NapCat, WeChat/WeCom, Feishu/Lark, DingTalk, Teams, email, and Mochat with CLI, REST, and Web UI controls. |
 | **Ship usable artifacts** | Reports, TradingView Pine Script, TDX, MetaTrader 5, MCP tools, and later research sessions. |
-| **Bench a pre-built alpha zoo** | One-line IC + alive/reversed/dead categorisation across 462 alphas (Qlib 158 + Kakushadze 101 + GTJA 191 + academic + PIT-safe fundamental) on your universe. |
+| **Bench a pre-built alpha zoo** | One-line IC + alive/reversed/dead categorisation across 469 alphas (Qlib Alpha158 154 + Kakushadze 101 + GTJA 191 + academic 12 + PIT-safe fundamental 4 + 7 fork-local `custom`) on your universe. |
 | **Spot correlation regimes** | An edge-density + hysteresis timeline on the `/correlation` surface showing when markets fuse into one bloc — descriptive risk context, not a signal. |
+| **Pick a theme for today** | A CSI 300 regime read (`full` / `half_watch` / `none`) plus a ranked board screen with one executable pick and one observation map. |
+| **Track a theme book** | A locked sector, its engine holdings, per-name structure, intraday provisional bars, a 10-day analog forecast, and one tighten-only decision. |
 
 ---
 
@@ -273,6 +470,14 @@ vibe-trading run -p "Backtest a BTC-USDT 20/50 moving-average strategy for 2024,
 
 # Bench a pre-built alpha zoo (one line)
 vibe-trading alpha bench --zoo gtja191 --universe csi300 --period 2018-2025 --top 20
+```
+
+```bash
+# A-share research loop (Web UI surfaces)
+vibe-trading serve --port 8899
+# → /market-pick   CSI 300 regime + ranked boards, one executable pick
+# → /sector-pick   score the 21 researched boards, keep the ThemeLock
+# → /monitor       holdings, per-name structure, 10-day analog forecast
 ```
 
 ```bash
@@ -511,13 +716,14 @@ alongside the bundled roster (same-name files override it, like user skills) and
 </details>
 
 <details>
-<summary><b>Alpha Zoo</b> <sub>462 pre-built quant alphas across 5 families</sub></summary>
+<summary><b>Alpha Zoo</b> <sub>469 pre-built quant alphas across 6 families</sub></summary>
 
-- 🧬 462 cross-sectional alphas, lookahead-banned at the operator layer
+- 🧬 469 cross-sectional alphas, lookahead-banned at the operator layer
 - 📈 IC + IR + alive/reversed/dead categorisation in one CLI command
 - 🔬 AST purity gate + 300-row lookahead sentinel test + `pytest-socket` network kill-switch
 - 📦 Apache-2 attribution for Qlib; per-zoo `LICENSE.md` declaring formulas as mathematical content
 - 🤝 Developer Certificate of Origin (DCO) sign-off workflow for community PRs
+- 🀄 Fork-local layer: a 7-factor `custom` family, polarity/decay repairs on 54 GTJA191/Qlib factors (each keeps its original `_compute_raw` and records pre/post IC), and a survival store + strict bench runner
 
 | Zoo | Count | Source | License |
 |-----|-------|--------|---------|
@@ -526,6 +732,7 @@ alongside the bundled roster (same-name files override it, like user skills) and
 | **gtja191** | 191 | Guotai Junan (2014), "191 Short-period Trading Alpha Factors" | Formulas are mathematical content |
 | **academic** | 12 | Fama-French 5 + Carhart momentum + Jegadeesh reversal + George-Hwang 52-week-high + Amihud illiquidity + Harvey-Siddique skew + Frazzini-Pedersen betting-against-beta + correlation-rewiring stability (price-based proxies) | Public academic literature |
 | **fundamental** | 4 | PIT-safe SEC company facts — earnings yield, ROE, gross profitability, asset growth (filed-date anchored) | Public financial data |
+| **custom** *(fork-local)* | 7 | `max_inv` (lottery/MAX), `ivol_inv`, `abn_to_inv` (abnormal turnover), `comp_low`, `near_low`, `risk_mom`, `vp_corr` — designed around retail-heavy A-share flow | Formulas are mathematical content |
 
 Run `vibe-trading alpha list` to browse, `vibe-trading alpha show <id>` for formulas + source, `vibe-trading alpha bench --zoo X --universe Y --period Z` to score a whole zoo, and `vibe-trading alpha compare --all` to rank zoos side by side.
 
@@ -588,6 +795,9 @@ vibe-trading init
 vibe-trading run -p "Backtest a BTC-USDT 20/50 moving-average strategy for 2024 and summarize return and drawdown"
 ```
 
+> [!IMPORTANT]
+> **This is a fork — PyPI ships upstream.** `pip install vibe-trading-ai` installs the published HKUDS release, which does **not** include the A-share loop (Market Pick / Sector Pick / Monitor / Decision Compose). To run this fork, install from source (Path B) or build the Docker image (Path A) of `DreamwayChan/Vibe-Trading`.
+
 > **Upgrading from an older version?** 0.1.10 moved to LangChain 1.x. If imports break after `pip install -U vibe-trading-ai` over a pre-0.1.10 install (e.g. langgraph fails to import), recreate the venv or run `pip install --force-reinstall vibe-trading-ai`. A fresh install is unaffected.
 
 > **Package name vs commands:** The PyPI package is `vibe-trading-ai`. Once installed, you get three commands:
@@ -628,7 +838,7 @@ vibe-trading-mcp               # start MCP server (stdio)
 ### Path A: Docker (zero setup)
 
 ```bash
-git clone https://github.com/HKUDS/Vibe-Trading.git
+git clone https://github.com/DreamwayChan/Vibe-Trading.git
 cd Vibe-Trading
 cp agent/.env.example agent/.env
 # Edit agent/.env — uncomment your LLM provider and set API key
@@ -647,7 +857,7 @@ Your data survives updates: persistent memory, the cross-session search index, u
 ### Path B: Local install
 
 ```bash
-git clone https://github.com/HKUDS/Vibe-Trading.git
+git clone https://github.com/DreamwayChan/Vibe-Trading.git
 cd Vibe-Trading
 python -m venv .venv
 
@@ -743,7 +953,7 @@ The interactive TUI (`vibe-trading`) now uses a terminal-native transcript: a st
 vibe-trading               # interactive TUI
 vibe-trading run -p "..."  # single run
 vibe-trading serve         # API server
-vibe-trading alpha list    # browse 462 pre-built alphas; show / bench / compare / export-manifest sub-commands available
+vibe-trading alpha list    # browse 469 pre-built alphas; show / bench / compare / export-manifest sub-commands available
 vibe-trading channels status --local  # inspect IM channel config and install hints
 vibe-trading provider doctor  # print redacted provider/proxy/package diagnostics
 ```
@@ -964,6 +1174,22 @@ vibe-trading serve --port 8899
 | `GET` | `/alpha/{alpha_id}` | Alpha metadata + source code |
 | `POST` | `/alpha/bench` | Start a bench job (returns `job_id`) |
 | `GET` | `/alpha/bench/{job_id}/stream` | SSE progress stream |
+| `GET` | `/market-pick` | Latest Market Pick scan (regime, stance, ranked boards) |
+| `POST` | `/market-pick/scan` | Run a Market Pick scan (`as_of`, `lookback_days`, `source`, `refresh_lists`) |
+| `GET` | `/market-pick/history` · `/history/{as_of}` | Snapshot history / one snapshot |
+| `GET` | `/sector-pick` | Latest Sector Pick result (catalog scores, ThemeLock, holdings) |
+| `PUT` | `/sector-pick` | Persist the enabled catalog keys |
+| `POST` | `/sector-pick/scan` | Score the enabled sectors and refresh the lock |
+| `POST` | `/sector-pick/holdings` | Preview one sector's engine holdings |
+| `GET` | `/sector-pick/history` · `/history/series` · `/history/{as_of}` | History, score series, one snapshot |
+| `GET` | `/monitor` | Read the monitor board |
+| `PUT` | `/monitor` | Update universe / strategy binding / scan config |
+| `POST` | `/monitor/scan` | Run the deterministic daily scan |
+| `POST` | `/monitor/reset` | Reset the board |
+| `POST` | `/monitor/forecast` | k-NN analog forecast for the current holdings |
+| `GET` / `POST` | `/monitor/forecast/saves` | List / save forecast snapshots |
+| `GET` | `/monitor/forecast/saves/{snapshot_id}` | One saved forecast |
+| `GET` | `/monitor/history` · `/history/{as_of}` | Monitor history / one snapshot |
 | `GET` | `/settings/llm` | Read Web UI LLM settings |
 | `PUT` | `/settings/llm` | Update local LLM settings |
 | `GET` | `/settings/data-sources` | Read local data source settings |
@@ -1368,7 +1594,9 @@ Vibe-Trading/
 ├── agent/                          # Backend (Python)
 │   ├── cli/                        # CLI package — interactive TUI + subcommands
 │   ├── api_server.py               # FastAPI server — runs, sessions, upload, swarm, SSE
-│   ├── mcp_server.py               # MCP server — 54 tools for OpenClaw / Claude Desktop
+│   ├── mcp_server.py               # MCP server for OpenClaw / Claude Desktop
+│   ├── prop_国泰君安_*.md            # 55 A-share sector research prompts (fork)
+│   ├── scripts/                    # 40 research / replay / repair scripts (fork)
 │   │
 │   ├── src/
 │   │   ├── agent/                  # ReAct agent core
@@ -1380,11 +1608,38 @@ Vibe-Trading/
 │   │   │   ├── frontmatter.py      #   shared YAML frontmatter parser
 │   │   │   └── trace.py            #   execution trace writer
 │   │   │
+│   │   ├── market_pick/            # ★ fork: board-level dual-track screen
+│   │   │   ├── boards.py           #   Eastmoney industry + concept universe, filters
+│   │   │   ├── scan.py             #   one OHLCV pull for the constituent union
+│   │   │   ├── score.py            #   rs/knife shares, stance, skip reasons
+│   │   │   └── store.py            #   daily snapshots + history
+│   │   │
+│   │   ├── sector_pick/            # ★ fork: researched-board ranking
+│   │   │   ├── catalog.py          #   21 curated 「最优」recipes → prop md + run_id
+│   │   │   ├── scan.py             #   score rows, load the locked book's holdings
+│   │   │   ├── score.py            #   EW/MA20 timing + confirm pass rate + 20d return
+│   │   │   └── theme_lock.py       #   single-theme lock, 2-day / 0.25 challenger rule
+│   │   │
+│   │   ├── monitor/                # ★ fork: persistent holdings board
+│   │   │   ├── scan.py             #   deterministic daily scan → per-name action
+│   │   │   ├── forecast.py         #   10-day k-NN analog scenario paths
+│   │   │   ├── trend_regime.py     #   CSI300 short/medium/long + MA stack + year line
+│   │   │   ├── live_bar.py         #   intraday provisional bar (eastmoney→tencent→sina)
+│   │   │   └── store.py            #   board state, history, forecast snapshots
+│   │   │
+│   │   ├── process/                # ★ fork: decision compose layer
+│   │   │   ├── mandate.py          #   ProcessMandate (NAV/name/theme caps, allow_short)
+│   │   │   ├── compose.py          #   Mandate→structure→F0→analog→size waterfall
+│   │   │   └── models.py           #   Decision / SymbolDecision / TraceStep
+│   │   │
 │   │   ├── memory/                 # Cross-session persistent memory
 │   │   │   └── persistent.py       #   file-based memory (~/.vibe-trading/memory/)
 │   │   │
-│   │   ├── tools/                  # 68 auto-discovered agent tools
+│   │   ├── tools/                  # 79 default-registered agent tools
 │   │   │   ├── backtest_tool.py    #   run backtests
+│   │   │   ├── dragon_tiger_tool.py #  A-share dragon-tiger list (龙虎榜)
+│   │   │   ├── northbound_tool.py  #   northbound flow (北向资金)
+│   │   │   ├── iwencai_tool.py     #   natural-language A-share screening (问财)
 │   │   │   ├── remember_tool.py    #   cross-session memory (save/recall/forget)
 │   │   │   ├── skill_writer_tool.py #  skill CRUD (save/patch/delete/file)
 │   │   │   ├── session_search_tool.py # FTS5 cross-session search
@@ -1392,14 +1647,19 @@ Vibe-Trading/
 │   │   │   ├── web_search_tool.py  #   DuckDuckGo web search
 │   │   │   └── ...                 #   bash, file I/O, factor analysis, options, alpha browser + bench, etc.
 │   │   │
-│   │   ├── factors/                # Alpha Zoo — 462 alphas across 5 families
+│   │   ├── factors/                # Alpha Zoo — 469 alphas across 6 families
 │   │   │   ├── base.py             #   19 operators (rank/scale/ts_*/delta/decay_linear/safe_div/vwap)
 │   │   │   ├── registry.py         #   AST-only metadata load + lazy compute + sanity gates
 │   │   │   ├── bench_runner.py     #   IC + alive/reversed/dead categorisation
-│   │   │   └── zoo/                #   qlib158 (154) + alpha101 (101) + gtja191 (191) + academic (12) + fundamental (4)
+│   │   │   ├── bench_runner_strict.py # strict random-control + OOS gate (fork)
+│   │   │   ├── survival_store.py   #   per-factor survival state (fork)
+│   │   │   └── zoo/                #   qlib158 (154) + alpha101 (101) + gtja191 (191) + academic (12) + fundamental (4) + custom (7)
 │   │   │
 │   │   ├── api/                    # FastAPI route modules
-│   │   │   └── alpha_routes.py     #   /alpha/list, /alpha/{id}, /alpha/bench, SSE stream
+│   │   │   ├── alpha_routes.py     #   /alpha/list, /alpha/{id}, /alpha/bench, SSE stream
+│   │   │   ├── market_pick_routes.py #  /market-pick, /market-pick/scan, /history
+│   │   │   ├── sector_pick_routes.py #  /sector-pick, /scan, /history, /holdings
+│   │   │   └── monitor_routes.py   #   /monitor, /scan, /forecast, /history
 │   │   │
 │   │   ├── skills/                 # 88 finance skills in 9 categories (SKILL.md each)
 │   │   ├── swarm/                  # Swarm DAG execution engine
@@ -1408,16 +1668,16 @@ Vibe-Trading/
 │   │   └── providers/              # LLM provider abstraction
 │   │
 │   └── backtest/                   # Backtest engines
-│       ├── engines/                #   7 engines + composite cross-market engine + options_portfolio
-│       ├── loaders/                #   23 sources: tushare, okx, binance, yfinance, akshare, baostock, tencent, mootdx, ccxt, futu, local, eastmoney, sina, stooq, yahoo, finnhub, alphavantage, tiingo, fmp, longbridge, mt5, qveris, india_broker
+│       ├── engines/                #   ChinaA (T+1, limits, lots, A-share fees) + 7 more + composite + options_portfolio
+│       ├── loaders/                #   20 loader modules + tushare/futu/longbridge/okx: tencent, mootdx, eastmoney, baostock, akshare, tushare, yahoo, stooq, sina, yfinance, tiingo, fmp, finnhub, alphavantage, longbridge, okx, binance, ccxt, futu, mt5, qveris, india_broker, local
 │       │   ├── base.py             #   DataLoader Protocol
 │       │   └── registry.py         #   Registry + auto-fallback chains
 │       └── optimizers/             #   MVO, equal vol, max div, risk parity
 │
 ├── frontend/                       # Web UI (React 19 + Vite + TypeScript)
 │   └── src/
-│       ├── pages/                  #   Home, Agent, AlphaZoo, RunDetail, Compare, Correlation, Settings
-│       ├── components/             #   chat, charts, layout
+│       ├── pages/                  #   Home, Agent, Monitor, MarketPick, SectorPick, Reports, Runtime, AlphaZoo, RunDetail, Compare, Correlation, Settings
+│       ├── components/             #   chat, charts, layout, monitor, process
 │       └── stores/                 #   Zustand state management
 │
 ├── Dockerfile                      # Multi-stage build
@@ -1475,7 +1735,7 @@ Vibe-Trading is part of the **[HKUDS](https://github.com/HKUDS)** agent ecosyste
 | **Data Bridge** | Bring-your-own data: local CSV/Parquet/SQL connectors with schema mapping | Local loader Shipped |
 | **Options Lab** | Vol surface, Greeks dashboard, payoff/scenario explorer | Planned |
 | **Portfolio Studio** | Risk x-ray, constraints, turnover-aware optimizer, rebalance notes | Turnover-aware optimizer **Shipped 0.1.11**; rest Planned |
-| **Alpha Zoo** | 462 pre-built alphas (Qlib 158 + Kakushadze 101 + GTJA 191 + academic + fundamental) with one-line bench, agent integration, and Web UI | **Shipped 0.1.8**, extended through 0.1.12 |
+| **Alpha Zoo** | 469 pre-built alphas (Qlib Alpha158 154 + Kakushadze 101 + GTJA 191 + academic 12 + fundamental 4 + fork-local custom 7) with one-line bench, agent integration, and Web UI | **Shipped 0.1.8**, extended through 0.1.12 and by this fork |
 | **Strategy Development Manager** | Register papers / broker research as factors & strategies with a persistent store + automated IC/Sharpe decay lifecycle | **Shipped 0.1.11** |
 | **Correlation Regime** | Edge-density + hysteresis regime timeline layered on `/correlation` — spot when markets fuse into one bloc | **Shipped 0.1.12** |
 | **Research Delivery** | Scheduled briefs and live research sessions through Slack / Telegram / email-style IM channels | Scheduler + IM Runtime Shipped |
