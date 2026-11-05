@@ -273,3 +273,171 @@ def test_empty_lake_falls_back_to_one_full_pull(net) -> None:
 
     assert net.calls == [("2024-01-01", "2024-01-04", "tushare", ("600519.SH",))]
     assert stats.label() == "network"
+
+
+def test_a_tushare_refresh_is_served_from_the_lake_on_the_next_call(net) -> None:
+    """The gap is fetched once, stored, and the following scan does not repeat it."""
+    frame = _daily("2024-01-02", "2024-01-03", "2024-01-04")
+    frame["amount"] = 2.5
+    net.answer["600519.SH"] = frame
+
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tushare", network=net,
+    )
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tushare", network=net,
+    )
+
+    assert net.calls == [("2024-01-01", "2024-01-04", "tushare", ("600519.SH",))]
+
+    from src.data.bars import load_bars
+
+    stored = load_bars("1d", symbols=["600519.SH"])
+    assert len(stored) == 3
+    assert stored["amount"].iloc[0] == pytest.approx(2500.0)
+    assert set(stored["source"]) == {"tushare"}
+
+
+def test_tencent_bars_are_not_written_over_the_unadjusted_lake(net) -> None:
+    """The Tencent loader is forward-adjusted, so a refresh must not be cached."""
+    net.answer["600519.SH"] = _daily("2024-01-02", "2024-01-03", "2024-01-04")
+
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tencent", network=net,
+    )
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tencent", network=net,
+    )
+
+    assert len(net.calls) == 2
+
+
+def test_a_fallback_marked_skip_is_not_cached(net) -> None:
+    frame = _daily("2024-01-02", "2024-01-03", "2024-01-04")
+    frame.attrs["data_center_source"] = "skip"
+    net.answer["600519.SH"] = frame
+
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tushare", network=net,
+    )
+    _run(
+        ["600519.SH"], start="2024-01-01", end="2024-01-04",
+        source="tushare", network=net,
+    )
+
+    assert len(net.calls) == 2
+
+
+def test_the_forming_session_is_served_but_not_stored(net) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    yesterday = today - timedelta(days=1)
+    net.answer["600519.SH"] = _daily(yesterday.isoformat(), today.isoformat())
+
+    _run(
+        ["600519.SH"], start=yesterday.isoformat(), end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    from src.data.bars import load_bars
+
+    stored = load_bars("1d", symbols=["600519.SH"])
+    stored_days = set(pd.to_datetime(stored["date"]).dt.date)
+    assert yesterday in stored_days
+    assert today not in stored_days
+
+    _run(
+        ["600519.SH"], start=yesterday.isoformat(), end=today.isoformat(),
+        source="tushare", network=net,
+    )
+    # Yesterday is cached; the still-forming session is asked for again.
+    assert len(net.calls) == 2
+    assert net.calls[1][0] == today.isoformat()
+
+
+def test_strict_mode_serves_the_lake_and_does_not_refresh(
+    lake_bars, net, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIBE_TRADING_DATAHUB_STRICT", "1")
+    lake_bars(
+        {"600519.SH": _daily("2024-01-02", "2024-01-03")},
+        {"600519.SH": "tushare"},
+    )
+
+    data, errors, stats = _run(
+        ["600519.SH", "000001.SZ"], start="2024-01-01", end="2024-01-05",
+        source="tushare", network=net,
+    )
+
+    assert net.calls == []
+    assert len(data["600519.SH"]) == 2
+    assert "strict" in errors["000001.SZ"]
+    assert stats.network_calls == 0
+
+
+def test_backtest_fetch_uses_a_fresh_lake_without_calling_the_loader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backtest.runner import fetch_data_map
+    from src.data.bars import save_bars
+
+    save_bars(
+        {"000001.SZ": _daily("2024-01-02", "2024-01-03", "2024-01-04")},
+        "1d",
+        source="tushare",
+    )
+
+    def explode(source: str):
+        raise AssertionError(f"loader {source} should not run")
+
+    monkeypatch.setattr("backtest.runner._get_loader", explode)
+
+    result = fetch_data_map(
+        {
+            "codes": ["000001.SZ"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-04",
+            "source": "tushare",
+            "interval": "1D",
+        }
+    )
+
+    assert list(result.data_map) == ["000001.SZ"]
+    assert len(result.data_map["000001.SZ"]) == 3
+    assert result.effective_sources == ["lake"]
+
+
+def test_sector_pick_reads_the_shared_lake(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.data.bars import save_bars
+    from src.sector_pick.scan import _fetch_bars
+
+    save_bars(
+        {"000001.SZ": _daily("2024-01-02", "2024-01-03", "2024-01-04")},
+        "1d",
+        source="tushare",
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def fake(symbols, *, start, end, source, interval):
+        calls.append(tuple(symbols))
+        return {}, {symbol: "no OHLCV bars returned" for symbol in symbols}
+
+    monkeypatch.setattr("src.sector_pick.scan._fetch_universe_ohlcv", fake)
+
+    data, errors = _fetch_bars(
+        ["000001.SZ"],
+        start="2024-01-01",
+        end="2024-01-04",
+        source="tushare",
+        interval="1D",
+    )
+
+    assert calls == []
+    assert errors == {}
+    assert len(data["000001.SZ"]) == 3
