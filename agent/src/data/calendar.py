@@ -44,6 +44,7 @@ __all__ = [
     "is_trading_day",
     "next_trading_day",
     "previous_trading_day",
+    "cached_previous_trading_day",
     "trading_day_count",
     "refresh_calendar",
     "clear_cache",
@@ -337,6 +338,35 @@ def next_trading_day(day, n: int = 1) -> str:
 def previous_trading_day(day, n: int = 1) -> str:
     """Return the session ``n`` steps before ``day``."""
     return _shift(day, abs(int(n)), forward=False)
+
+
+def cached_previous_trading_day(day, n: int = 1) -> str | None:
+    """Previous session from the seed already on disk or in memory.
+
+    Does not contact the network and does not invent weekdays. Returns None
+    when no seed is loaded, or when the seed ends more than
+    ``_STALE_AFTER_DAYS`` before ``day`` — a stale seed must not be treated as
+    "the market stopped", or a daily refresh would freeze at the seed's last
+    session instead of topping up through the real T-1.
+    """
+    target = _to_date(day)
+    steps = abs(int(n))
+    if steps == 0:
+        return target.isoformat()
+    dates = _cache
+    if not dates:
+        try:
+            dates = _read_cache()
+        except Exception:  # noqa: BLE001 — no seed, caller uses a weekday fallback
+            return None
+    if not dates:
+        return None
+    if dates[-1] < target - dt.timedelta(days=_STALE_AFTER_DAYS):
+        return None
+    prior = [item for item in dates if item < target]
+    if len(prior) < steps:
+        return None
+    return prior[-steps].isoformat()
 
 
 def _shift(day, n: int, *, forward: bool) -> str:

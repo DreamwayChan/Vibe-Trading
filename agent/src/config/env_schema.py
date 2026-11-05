@@ -195,11 +195,41 @@ class DataConfig(_EnvBase):
     vibe_trading_datahub_strict: EnvBool = Field(
         alias="VIBE_TRADING_DATAHUB_STRICT", default=False
     )
-    # Opt-in: attach the tradability panel (halts + exact price bands) to the
-    # A-share backtest engine. Off by default so runs stay comparable with
-    # results produced before the panel existed.
+    # Daily lake reads stop at Beijing T-1. Today's price is a live-quote
+    # overlay, not a ``daily()`` gap. Set to 1 to ask the vendor for the
+    # forming session again (it is still not written into the lake).
+    vibe_trading_daily_include_forming: EnvBool = Field(
+        alias="VIBE_TRADING_DAILY_INCLUDE_FORMING", default=False
+    )
+    # On by default so monitor / runner A-share backtests refuse halted names
+    # and use the exchange band (including the ST 5% band the code prefix
+    # cannot reveal). Set to 0 to keep the close-to-close heuristic; zero
+    # volume is still unfillable unless VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0.
     vibe_trading_tradability_panel: EnvBool = Field(
-        alias="VIBE_TRADING_TRADABILITY_PANEL", default=False
+        alias="VIBE_TRADING_TRADABILITY_PANEL", default=True
+    )
+    # Shared with ChinaAEngine via backtest.ashare_costs. Explicit keys on a
+    # run config.json win over these. Retail cash A-share defaults.
+    vibe_trading_ashare_commission_rate: float = Field(
+        alias="VIBE_TRADING_ASHARE_COMMISSION_RATE", default=0.00025
+    )
+    vibe_trading_ashare_commission_min: float = Field(
+        alias="VIBE_TRADING_ASHARE_COMMISSION_MIN", default=5.0
+    )
+    vibe_trading_ashare_stamp_tax: float = Field(
+        alias="VIBE_TRADING_ASHARE_STAMP_TAX", default=0.0005
+    )
+    vibe_trading_ashare_transfer_fee: float = Field(
+        alias="VIBE_TRADING_ASHARE_TRANSFER_FEE", default=0.00001
+    )
+    vibe_trading_ashare_slippage: float = Field(
+        alias="VIBE_TRADING_ASHARE_SLIPPAGE", default=0.001
+    )
+    vibe_trading_ashare_tplus1: EnvBool = Field(
+        alias="VIBE_TRADING_ASHARE_TPLUS1", default=True
+    )
+    vibe_trading_ashare_block_suspension: EnvBool = Field(
+        alias="VIBE_TRADING_ASHARE_BLOCK_SUSPENSION", default=True
     )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")

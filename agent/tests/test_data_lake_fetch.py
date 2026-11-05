@@ -333,15 +333,23 @@ def test_a_fallback_marked_skip_is_not_cached(net) -> None:
     assert len(net.calls) == 2
 
 
-def test_the_forming_session_is_served_but_not_stored(net) -> None:
-    from datetime import datetime, timedelta, timezone
+def test_the_forming_session_is_not_fetched_or_stored(net, monkeypatch) -> None:
+    """Lake through T-1 must not spend a daily pull on Beijing today.
 
-    today = datetime.now(timezone(timedelta(hours=8))).date()
-    yesterday = today - timedelta(days=1)
-    net.answer["600519.SH"] = _daily(yesterday.isoformat(), today.isoformat())
+    The first call is a cold lake, so it still pulls history — but only through
+    the settled session. Today is not asked for, not stored, and the second
+    scan does not go back to the vendor to fill the calendar day.
+    """
+    from datetime import date
+
+    today = date(2026, 11, 5)  # Thursday
+    settled = date(2026, 11, 4)
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    net.answer["600519.SH"] = _daily(settled.isoformat(), today.isoformat())
 
     _run(
-        ["600519.SH"], start=yesterday.isoformat(), end=today.isoformat(),
+        ["600519.SH"], start=settled.isoformat(), end=today.isoformat(),
         source="tushare", network=net,
     )
 
@@ -349,16 +357,149 @@ def test_the_forming_session_is_served_but_not_stored(net) -> None:
 
     stored = load_bars("1d", symbols=["600519.SH"])
     stored_days = set(pd.to_datetime(stored["date"]).dt.date)
-    assert yesterday in stored_days
+    assert settled in stored_days
     assert today not in stored_days
+    assert net.calls == [(settled.isoformat(), settled.isoformat(), "tushare", ("600519.SH",))]
 
     _run(
-        ["600519.SH"], start=yesterday.isoformat(), end=today.isoformat(),
+        ["600519.SH"], start=settled.isoformat(), end=today.isoformat(),
         source="tushare", network=net,
     )
-    # Yesterday is cached; the still-forming session is asked for again.
-    assert len(net.calls) == 2
-    assert net.calls[1][0] == today.isoformat()
+    assert len(net.calls) == 1
+
+
+def test_lake_at_t_minus_1_does_not_refresh_today(lake_bars, net, monkeypatch) -> None:
+    """The monitor/backtest case: settled bars are already in the lake."""
+    from datetime import date
+
+    today = date(2026, 11, 5)  # Thursday
+    monday = date(2026, 11, 2)
+    settled = date(2026, 11, 4)
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    lake_bars(
+        {"600519.SH": _daily(monday.isoformat(), settled.isoformat())},
+        {"600519.SH": "tushare"},
+    )
+
+    data, errors, stats = _run(
+        ["600519.SH"], start=monday.isoformat(), end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    assert net.calls == []
+    assert errors == {}
+    assert list(data["600519.SH"].index.date) == [monday, settled]
+    assert stats.network_calls == 0
+    assert stats.label() == "lake"
+
+
+def test_a_real_gap_is_topped_up_through_t_minus_1_not_today(lake_bars, net, monkeypatch) -> None:
+    """Ingestion lag still refreshes; the forming session is not part of the gap."""
+    from datetime import date
+
+    today = date(2026, 11, 5)  # Thursday
+    last = date(2026, 11, 3)  # Tuesday
+    settled = date(2026, 11, 4)  # Wednesday, T-1
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    lake_bars(
+        {"600519.SH": _daily("2026-11-02", last.isoformat())},
+        {"600519.SH": "tushare"},
+    )
+    net.answer["600519.SH"] = _daily(settled.isoformat())
+
+    data, _, stats = _run(
+        ["600519.SH"], start="2026-11-01", end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    assert net.calls == [(settled.isoformat(), settled.isoformat(), "tushare", ("600519.SH",))]
+    assert stats.tail_spliced == 1
+    assert today not in set(data["600519.SH"].index.date)
+
+
+def test_a_seeded_calendar_skips_a_holiday_weekday(lake_bars, net, monkeypatch) -> None:
+    """T-1 is the previous exchange session, not the previous weekday."""
+    from datetime import date
+
+    import src.data.calendar as calendar
+
+    today = date(2026, 10, 7)  # Wednesday inside a holiday gap
+    last_session = date(2026, 10, 2)  # Friday
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr(
+        calendar,
+        "_cache",
+        [date(2026, 10, 2), date(2026, 10, 8)],
+    )
+    lake_bars(
+        {"600519.SH": _daily("2026-09-30", last_session.isoformat())},
+        {"600519.SH": "tushare"},
+    )
+
+    _, _, stats = _run(
+        ["600519.SH"], start="2026-09-28", end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    assert net.calls == []
+    assert stats.label() == "lake"
+
+
+def test_a_stale_calendar_seed_does_not_freeze_the_refresh(lake_bars, net, monkeypatch) -> None:
+    """A seed that ends years ago must not be read as 'the market stopped'."""
+    from datetime import date
+
+    import src.data.calendar as calendar
+
+    today = date(2026, 11, 5)  # Thursday
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr(calendar, "_cache", [date(2020, 1, 2)])
+    lake_bars(
+        {"600519.SH": _daily("2026-11-02", "2026-11-03")},
+        {"600519.SH": "tushare"},
+    )
+    net.answer["600519.SH"] = _daily("2026-11-04")
+
+    _, _, stats = _run(
+        ["600519.SH"], start="2026-11-01", end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    # Weekday fallback: T-1 is Wednesday, not 2020-01-02 and not Thursday.
+    assert net.calls == [("2026-11-04", "2026-11-04", "tushare", ("600519.SH",))]
+    assert stats.tail_spliced == 1
+
+
+def test_include_forming_restores_the_today_tail(lake_bars, net, monkeypatch) -> None:
+    from datetime import date
+
+    today = date(2026, 11, 5)
+    settled = date(2026, 11, 4)
+    monkeypatch.setenv("VIBE_TRADING_DAILY_INCLUDE_FORMING", "1")
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    lake_bars(
+        {"600519.SH": _daily("2026-11-03", settled.isoformat())},
+        {"600519.SH": "tushare"},
+    )
+    net.answer["600519.SH"] = _daily(today.isoformat())
+
+    data, _, _ = _run(
+        ["600519.SH"], start="2026-11-01", end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    assert net.calls == [(today.isoformat(), today.isoformat(), "tushare", ("600519.SH",))]
+    assert today in set(data["600519.SH"].index.date)
+
+    from src.data.bars import load_bars
+
+    stored = load_bars("1d", symbols=["600519.SH"])
+    if stored is not None and not stored.empty and "date" in stored.columns:
+        stored_days = set(pd.to_datetime(stored["date"]).dt.date)
+        assert today not in stored_days
 
 
 def test_strict_mode_serves_the_lake_and_does_not_refresh(
@@ -379,6 +520,67 @@ def test_strict_mode_serves_the_lake_and_does_not_refresh(
     assert len(data["600519.SH"]) == 2
     assert "strict" in errors["000001.SZ"]
     assert stats.network_calls == 0
+
+
+def test_monday_lake_through_friday_does_not_refresh(lake_bars, net, monkeypatch) -> None:
+    """The weekend rolls T-1 back to Friday, not to Sunday."""
+    from datetime import date
+
+    today = date(2026, 11, 9)  # Monday
+    friday = date(2026, 11, 6)
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    lake_bars(
+        {"600519.SH": _daily("2026-11-05", friday.isoformat())},
+        {"600519.SH": "tushare"},
+    )
+
+    _, errors, stats = _run(
+        ["600519.SH"], start="2026-11-05", end=today.isoformat(),
+        source="tushare", network=net,
+    )
+
+    assert net.calls == []
+    assert errors == {}
+    assert stats.label() == "lake"
+
+
+def test_backtest_fetch_does_not_call_the_loader_to_fill_today(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runner daily reads share the T-1 cap with the monitor."""
+    from datetime import date
+
+    from backtest.runner import fetch_data_map
+    from src.data.bars import save_bars
+
+    today = date(2026, 11, 5)  # Thursday
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    save_bars(
+        {"000001.SZ": _daily("2026-11-03", "2026-11-04")},
+        "1d",
+        source="tushare",
+    )
+
+    def explode(source: str):
+        raise AssertionError(f"loader {source} should not run")
+
+    monkeypatch.setattr("backtest.runner._get_loader", explode)
+
+    result = fetch_data_map(
+        {
+            "codes": ["000001.SZ"],
+            "start_date": "2026-11-01",
+            "end_date": today.isoformat(),
+            "source": "tushare",
+            "interval": "1D",
+        }
+    )
+
+    assert list(result.data_map) == ["000001.SZ"]
+    assert result.data_map["000001.SZ"].index.max() == pd.Timestamp("2026-11-04")
+    assert result.effective_sources == ["lake"]
 
 
 def test_backtest_fetch_uses_a_fresh_lake_without_calling_the_loader(

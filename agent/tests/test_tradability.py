@@ -332,7 +332,7 @@ def test_engine_ignores_band_when_source_is_adjusted():
 # ---------------------------------------------------------------------------
 
 
-def test_runner_attaches_panel_only_when_enabled(lake: Path, monkeypatch: pytest.MonkeyPatch):
+def test_runner_attaches_panel_by_default(lake: Path, monkeypatch: pytest.MonkeyPatch):
     from backtest.runner import _attach_tradability_panel
     from src.config.accessor import reset_env_config
 
@@ -341,15 +341,15 @@ def test_runner_attaches_panel_only_when_enabled(lake: Path, monkeypatch: pytest
     config = {"start_date": "2024-03-01", "end_date": "2024-03-31"}
 
     reset_env_config()
-    assert "tradability_index" not in _attach_tradability_panel(config, ["000001.SZ"])
-
-    monkeypatch.setenv("VIBE_TRADING_TRADABILITY_PANEL", "1")
-    reset_env_config()
     attached = _attach_tradability_panel(config, ["000001.SZ"])
     assert "tradability_index" in attached
     assert len(attached["tradability_index"]) == 2
     # The caller's config must not be mutated.
     assert "tradability_index" not in config
+
+    monkeypatch.setenv("VIBE_TRADING_TRADABILITY_PANEL", "0")
+    reset_env_config()
+    assert "tradability_index" not in _attach_tradability_panel(config, ["000001.SZ"])
 
 
 def test_runner_skips_non_a_share(lake: Path, monkeypatch: pytest.MonkeyPatch):

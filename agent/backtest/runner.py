@@ -50,6 +50,7 @@ from backtest.engines._market_hooks import (  # noqa: F401  (re-exported)
     _detect_market,
     _detect_submarket,
     _is_china_futures,
+    _is_explicit_a_share,
 )
 
 logger = logging.getLogger(__name__)
@@ -1083,8 +1084,7 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             from backtest.engines.global_equity import GlobalEquityEngine
             market = _detect_submarket(codes)
             return GlobalEquityEngine(config, market=market)
-        from backtest.engines.china_a import ChinaAEngine
-        return ChinaAEngine(_attach_tradability_panel(config, codes))
+        return _china_a_engine(config, codes)
     elif source == "yfinance":
         from backtest.engines.global_equity import GlobalEquityEngine
         market = _detect_submarket(codes)
@@ -1097,8 +1097,26 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             from backtest.engines.global_equity import GlobalEquityEngine
             market = _detect_submarket(codes)
             return GlobalEquityEngine(config, market=market)
+        # lake / local / eastmoney / auto: follow the listing, not the loader
+        # name. An A-share book must not land on CryptoEngine (no stamp tax,
+        # no T+1, no price limits).
+        if codes and all(_is_explicit_a_share(code) for code in codes):
+            return _china_a_engine(config, codes)
         from backtest.engines.crypto import CryptoEngine
         return CryptoEngine(config)
+
+
+def _china_a_engine(config: dict, codes: List[str]):
+    """A-share engine with the shared cost schedule and the tradability panel.
+
+    Cost keys are filled by :class:`ChinaAEngine` itself (config wins, then
+    env, then the retail defaults in :mod:`backtest.ashare_costs`). The panel
+    is attached here so a unit test that builds the engine by hand does not
+    touch the lake.
+    """
+    from backtest.engines.china_a import ChinaAEngine
+
+    return ChinaAEngine(_attach_tradability_panel(config, codes))
 
 
 def _attach_tradability_panel(config: dict, codes: List[str]) -> dict:
@@ -1106,9 +1124,10 @@ def _attach_tradability_panel(config: dict, codes: List[str]) -> dict:
 
     The panel turns two guesses into lookups: whether a symbol was halted, and
     where its price band actually sat (ST names are 5%, which the code prefix
-    cannot reveal).  It is opt-in via ``VIBE_TRADING_TRADABILITY_PANEL=1`` so a
-    panel built mid-project never silently changes numbers a user is comparing
-    against earlier runs.
+    cannot reveal).  It is on by default for monitor and runner A-share
+    backtests.  ``VIBE_TRADING_TRADABILITY_PANEL=0`` keeps the close-to-close
+    heuristic so a comparison with pre-panel runs stays reproducible.  An
+    empty panel is a no-op; the engine still refuses zero-volume bars.
 
     Args:
         config: Backtest configuration (carries ``start_date`` / ``end_date``).

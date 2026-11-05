@@ -559,6 +559,63 @@ def test_monitor_lake_tail_gap_only_asks_for_the_missing_session(
     assert stats.label() == "lake+network"
 
 
+def test_monitor_scan_does_not_refresh_today_when_the_lake_is_at_t_minus_1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """end=today on a settled lake is a live overlay, not a daily loader call."""
+    from datetime import date
+
+    from src.data import hub
+    from src.data.hub import StoredBars
+    import src.monitor.scan as scan
+
+    today = date(2026, 11, 5)  # Thursday
+    settled = date(2026, 11, 4)
+    monkeypatch.setattr("src.data.lake_fetch._beijing_today", lambda: today)
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    days = pd.bdate_range("2026-10-01", settled.isoformat())
+    frame = pd.DataFrame(
+        {
+            "open": 10.0,
+            "high": 10.5,
+            "low": 9.5,
+            "close": 10.2,
+            "volume": 1000.0,
+        },
+        index=days,
+    )
+    monkeypatch.setattr(
+        hub,
+        "bars_frame",
+        lambda *a, **k: StoredBars(
+            interval="1D",
+            frames={"600519.SH": frame.copy()},
+            sources={"600519.SH": "tushare"},
+            derived_from=None,
+        ),
+    )
+    calls: list[tuple[str, str]] = []
+
+    def fake_network(symbols, *, start, end, source, interval):
+        calls.append((start, end))
+        return {}, {symbol: "no OHLCV bars returned" for symbol in symbols}
+
+    monkeypatch.setattr(scan, "_fetch_universe_ohlcv", fake_network)
+
+    data_map, errors, stats = scan._fetch_universe_lake_first(
+        ["600519.SH"],
+        start="2026-10-01",
+        end=today.isoformat(),
+        source="tushare",
+        interval="1D",
+    )
+
+    assert calls == []
+    assert errors == {}
+    assert data_map["600519.SH"].index.max() == pd.Timestamp(settled)
+    assert stats.label() == "lake"
+
+
 def test_monitor_snapshot_records_where_the_bars_came_from() -> None:
     from src.monitor.models import MonitorDaySnapshot
 

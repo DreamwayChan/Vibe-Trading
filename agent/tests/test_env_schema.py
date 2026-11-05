@@ -101,6 +101,16 @@ class TestEnvConfigDefaults:
         assert c.data.vibe_trading_sec_ua == ""
         assert c.data.vibe_trading_data_cache is True
         assert c.data.vibe_trading_data_cache_root == ""
+        assert c.data.vibe_trading_datahub_strict is False
+        assert c.data.vibe_trading_daily_include_forming is False
+        assert c.data.vibe_trading_tradability_panel is True
+        assert c.data.vibe_trading_ashare_commission_rate == pytest.approx(0.00025)
+        assert c.data.vibe_trading_ashare_commission_min == pytest.approx(5.0)
+        assert c.data.vibe_trading_ashare_stamp_tax == pytest.approx(0.0005)
+        assert c.data.vibe_trading_ashare_transfer_fee == pytest.approx(0.00001)
+        assert c.data.vibe_trading_ashare_slippage == pytest.approx(0.001)
+        assert c.data.vibe_trading_ashare_tplus1 is True
+        assert c.data.vibe_trading_ashare_block_suspension is True
         assert c.data.aliyun_iqs_api_key == ""
         assert c.data.longbridge_app_key == ""
         assert c.data.longbridge_app_secret == ""
