@@ -1,0 +1,289 @@
+"""Decision journal: hard fields required before a signal is tradable.
+
+A monitor signal is tradable only when it carries a hypothesis link or an
+inline thesis, an invalidation condition, a planned position, a planned risk,
+and a timestamp. Missing invalidation downgrades the signal (``tradable``
+stays false). ``strict=True`` rejects the write instead of storing the
+downgrade.
+
+The validation gate is separate: see :func:`backtest.validation.evaluate_validation_gate`.
+This module only enforces the journal fields.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from src.config.accessor import get_env_config
+from src.hypotheses.registry import Hypothesis, HypothesisRegistry
+
+
+def default_journal_path() -> Path:
+    """Return the decision-journal JSON path.
+
+    ``VIBE_TRADING_DECISION_JOURNAL_PATH`` overrides the default
+    ``~/.vibe-trading/decision_journal.json``.
+    """
+    override = get_env_config().paths.vibe_trading_decision_journal_path.strip()
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".vibe-trading" / "decision_journal.json"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _text(value: Any) -> str:
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return ""
+    return str(value).strip()
+
+
+def parse_timestamp(value: str) -> str | None:
+    """Return a UTC ``Z`` timestamp, ``""`` when blank, or None when invalid."""
+    text = value.strip()
+    if not text:
+        return ""
+    parsed = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        moment = datetime.fromisoformat(parsed)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def assess_journal_fields(
+    *,
+    hypothesis_id: str,
+    thesis: str,
+    invalidation: str,
+    planned_position: str,
+    planned_risk: str,
+    timestamp: str,
+    hypothesis_found: bool,
+) -> list[str]:
+    """Return stable reason codes. Empty means the journal fields are tradable.
+
+    Invalidation is required on the signal itself or, when a hypothesis link
+    resolves, on that hypothesis's ``invalidation_notes``. A blank invalidation
+    is always ``missing_invalidation``.
+    """
+    reasons: list[str] = []
+    if hypothesis_id and not hypothesis_found:
+        reasons.append("hypothesis_not_found")
+    # A resolved hypothesis link counts only when it actually carries a thesis.
+    if not thesis:
+        reasons.append("missing_thesis")
+    if not invalidation:
+        reasons.append("missing_invalidation")
+    if not planned_position:
+        reasons.append("missing_position")
+    if not planned_risk:
+        reasons.append("missing_risk")
+    if timestamp == "INVALID":
+        reasons.append("invalid_timestamp")
+    elif not timestamp:
+        reasons.append("missing_timestamp")
+    return reasons
+
+
+@dataclass
+class DecisionSignal:
+    """One journal row. ``tradable`` is false when any hard field is missing."""
+
+    signal_id: str
+    timestamp: str
+    run_id: str
+    hypothesis_id: str = ""
+    thesis: str = ""
+    invalidation: str = ""
+    planned_position: str = ""
+    planned_risk: str = ""
+    symbol: str = ""
+    tradable: bool = False
+    block_reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DecisionSignal":
+        reasons = data.get("block_reasons") or []
+        if not isinstance(reasons, list):
+            reasons = []
+        return cls(
+            signal_id=str(data.get("signal_id") or ""),
+            timestamp=str(data.get("timestamp") or ""),
+            run_id=str(data.get("run_id") or ""),
+            hypothesis_id=str(data.get("hypothesis_id") or ""),
+            thesis=str(data.get("thesis") or ""),
+            invalidation=str(data.get("invalidation") or ""),
+            planned_position=str(data.get("planned_position") or ""),
+            planned_risk=str(data.get("planned_risk") or ""),
+            symbol=str(data.get("symbol") or "").strip().upper(),
+            tradable=bool(data.get("tradable", False)),
+            block_reasons=[str(item) for item in reasons if str(item).strip()],
+        )
+
+
+class DecisionJournal:
+    """Append-only JSON journal of monitor decision signals."""
+
+    def __init__(
+        self,
+        path: Path | None = None,
+        registry: HypothesisRegistry | None = None,
+    ) -> None:
+        self.path = path or default_journal_path()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.registry = registry if registry is not None else HypothesisRegistry()
+
+    def record(
+        self,
+        *,
+        run_id: str,
+        hypothesis_id: str = "",
+        thesis: str = "",
+        invalidation: str = "",
+        planned_position: str = "",
+        planned_risk: str = "",
+        timestamp: str = "",
+        symbol: str = "",
+        strict: bool = False,
+    ) -> DecisionSignal:
+        """Append a signal. Missing invalidation downgrades unless ``strict``.
+
+        ``strict=True`` raises :class:`ValueError` and does not write when the
+        signal cannot be tradable.
+
+        Raises:
+            ValueError: ``run_id`` is blank, or ``strict`` and the signal is
+                not tradable.
+        """
+        run_key = _text(run_id)
+        if not run_key:
+            raise ValueError("run_id is required")
+
+        linked_id = _text(hypothesis_id)
+        thesis_text = _text(thesis)
+        invalidation_text = _text(invalidation)
+        position_text = _text(planned_position)
+        risk_text = _text(planned_risk)
+        symbol_text = _text(symbol).upper()
+
+        hypothesis_found = False
+        if linked_id:
+            hypothesis = self._find(linked_id)
+            hypothesis_found = hypothesis is not None
+            if hypothesis is not None:
+                if not thesis_text:
+                    thesis_text = hypothesis.thesis.strip()
+                if not invalidation_text:
+                    invalidation_text = hypothesis.invalidation_notes.strip()
+
+        parsed = parse_timestamp(_text(timestamp))
+        if parsed is None:
+            timestamp_text = "INVALID"
+        elif parsed == "":
+            timestamp_text = _utc_now()
+        else:
+            timestamp_text = parsed
+
+        reasons = assess_journal_fields(
+            hypothesis_id=linked_id,
+            thesis=thesis_text,
+            invalidation=invalidation_text,
+            planned_position=position_text,
+            planned_risk=risk_text,
+            timestamp=timestamp_text,
+            hypothesis_found=hypothesis_found,
+        )
+        if strict and reasons:
+            raise ValueError("not tradable: " + ", ".join(reasons))
+
+        stored_timestamp = _utc_now() if timestamp_text == "INVALID" else timestamp_text
+        signal = DecisionSignal(
+            signal_id=_new_signal_id(run_key, symbol_text, stored_timestamp),
+            timestamp=stored_timestamp if timestamp_text != "INVALID" else timestamp_text,
+            run_id=run_key,
+            hypothesis_id=linked_id,
+            thesis=thesis_text,
+            invalidation=invalidation_text,
+            planned_position=position_text,
+            planned_risk=risk_text,
+            symbol=symbol_text,
+            tradable=not reasons,
+            block_reasons=reasons,
+        )
+        if timestamp_text == "INVALID":
+            # Keep the caller's raw value visible; tradable stays false.
+            signal.timestamp = _text(timestamp) or "INVALID"
+        records = self.list()
+        records.append(signal)
+        self._save(records)
+        return signal
+
+    def list(self) -> list[DecisionSignal]:
+        """Load every journal row. Missing file is an empty journal."""
+        if not self.path.exists():
+            return []
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid decision journal JSON: {self.path}") from exc
+        if not isinstance(raw, list):
+            raise ValueError("decision journal storage must contain a JSON list")
+        return [DecisionSignal.from_dict(item) for item in raw if isinstance(item, dict)]
+
+    def latest_for(self, run_id: str) -> tuple[DecisionSignal | None, dict[str, DecisionSignal]]:
+        """Latest strategy-level signal and the latest signal per symbol.
+
+        A blank ``symbol`` covers the whole strategy. A per-symbol row overrides
+        that blanket for one name and does not fall back when it is blocked.
+        """
+        key = _text(run_id)
+        strategy: DecisionSignal | None = None
+        by_symbol: dict[str, DecisionSignal] = {}
+        for signal in self.list():
+            if signal.run_id != key:
+                continue
+            if not signal.symbol:
+                if strategy is None or signal.timestamp >= strategy.timestamp:
+                    strategy = signal
+            else:
+                previous = by_symbol.get(signal.symbol)
+                if previous is None or signal.timestamp >= previous.timestamp:
+                    by_symbol[signal.symbol] = signal
+        return strategy, by_symbol
+
+    def _find(self, hypothesis_id: str) -> Hypothesis | None:
+        for hypothesis in self.registry.list():
+            if hypothesis.hypothesis_id == hypothesis_id:
+                return hypothesis
+        return None
+
+    def _save(self, records: list[DecisionSignal]) -> None:
+        payload = [signal.to_dict() for signal in records]
+        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(self.path)
+
+
+def _new_signal_id(run_id: str, symbol: str, timestamp: str) -> str:
+    seed = f"{run_id}|{symbol}|{timestamp}|{uuid.uuid4()}"
+    return "sig_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12]

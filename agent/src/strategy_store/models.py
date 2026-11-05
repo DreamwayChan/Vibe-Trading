@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
 
 class ArtifactType(str, Enum):
@@ -73,6 +76,44 @@ class Artifact:
     updated_at: str = ""
     disabled_at: str | None = None
     disabled_reason: str | None = None
+    # Monitor tradable-pool gate. ``validation_gate`` is a JSON object (text).
+    # ``tradable`` is pool membership, distinct from decay status ``monitoring``.
+    validation_gate: str | None = None
+    bars_source: str | None = None
+    tradable: bool = False
+
+
+def gate_payload_text(value: Any) -> str | None:
+    """Serialize a validation-gate payload for the artifact column."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def artifact_matches_run(
+    artifact: Artifact,
+    run_key: str,
+    run_dir: str | None = None,
+) -> bool:
+    """True when an artifact's ``run_dir`` is this monitor run.
+
+    Matches the stored path, its final path segment (the run id), or the
+    scan's absolute run directory.
+    """
+    stored = (artifact.run_dir or "").strip().rstrip("/\\")
+    if not stored:
+        return False
+    key = (run_key or "").strip()
+    names = {stored, Path(stored).name}
+    if key and key in names:
+        return True
+    if run_dir:
+        right = str(run_dir).strip().rstrip("/\\")
+        if right and (stored == right or Path(stored).name == Path(right).name):
+            return True
+    return False
 
 
 @dataclass(frozen=True)

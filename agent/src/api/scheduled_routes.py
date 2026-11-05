@@ -88,10 +88,12 @@ async def _dispatch_monitor_scan_job(job) -> None:
     from src.monitor.scan import MonitorScanError, run_monitor_scan, validate_strategy_ref
     from src.monitor.store import load_monitor, save_monitor
 
+    from src.monitor.admission import open_strategy_store
+
     config = load_monitor()
     validate_strategy_ref(config.strategy)
     try:
-        config = run_monitor_scan(config)
+        config = run_monitor_scan(config, strategy_store=open_strategy_store())
     except MonitorScanError:
         raise
     save_monitor(config)

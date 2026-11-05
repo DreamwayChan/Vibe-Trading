@@ -231,6 +231,35 @@ class DataConfig(_EnvBase):
     vibe_trading_ashare_block_suspension: EnvBool = Field(
         alias="VIBE_TRADING_ASHARE_BLOCK_SUSPENSION", default=True
     )
+    # Monitor tradable-pool gate (backtest.validation.evaluate_validation_gate).
+    # A strategy stays out of the pool until Monte Carlo, bootstrap, and
+    # walk-forward clear these thresholds on a cost-aware artifact.
+    # VIBE_TRADING_VAL_GATE=0 skips the statistical checks (the decision
+    # journal is still required). Section flags below drop one check.
+    vibe_trading_val_gate: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_GATE", default=True
+    )
+    vibe_trading_val_max_p_sharpe: float = Field(
+        alias="VIBE_TRADING_VAL_MAX_P_SHARPE", default=0.10
+    )
+    vibe_trading_val_min_bootstrap_ci: float = Field(
+        alias="VIBE_TRADING_VAL_MIN_BOOTSTRAP_CI", default=0.0
+    )
+    vibe_trading_val_min_wf_consistency: float = Field(
+        alias="VIBE_TRADING_VAL_MIN_WF_CONSISTENCY", default=0.60
+    )
+    vibe_trading_val_require_costs: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_COSTS", default=True
+    )
+    vibe_trading_val_require_monte_carlo: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_MONTE_CARLO", default=True
+    )
+    vibe_trading_val_require_bootstrap: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_BOOTSTRAP", default=True
+    )
+    vibe_trading_val_require_walk_forward: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_WALK_FORWARD", default=True
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")
@@ -424,6 +453,9 @@ class PathConfig(_EnvBase):
     """
 
     vibe_trading_hypotheses_path: str = Field(alias="VIBE_TRADING_HYPOTHESES_PATH", default="")
+    vibe_trading_decision_journal_path: str = Field(
+        alias="VIBE_TRADING_DECISION_JOURNAL_PATH", default=""
+    )
     vibe_trading_goal_db_path: str = Field(alias="VIBE_TRADING_GOAL_DB_PATH", default="")
     vibe_trading_swarm_agent_config: str = Field(
         alias="VIBE_TRADING_SWARM_AGENT_CONFIG", default="",
