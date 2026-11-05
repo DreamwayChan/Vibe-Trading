@@ -209,8 +209,9 @@ def _scan_run_dir(
     end = as_of_date.isoformat()
     start = (as_of_date - timedelta(days=max(30, lookback_days))).isoformat()
 
-    # Data centre first: the lake already holds the settled bars ingestion wrote,
-    # and only the part it lacks (today's session, usually) reaches a loader.
+    # Data centre first. Settled daily bars stop at Beijing T-1: a missing
+    # "today" is not a lake tail (that used to spend a daily vendor pull which
+    # cannot be stored). Today's price is the live-quote overlay below.
     data_map, fetch_errors, bars_stats = _fetch_universe_lake_first(
         universe,
         start=start,

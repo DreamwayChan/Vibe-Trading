@@ -20,25 +20,38 @@ from backtest.engines.base import BaseEngine
 class ChinaAEngine(BaseEngine):
     """A-share market engine.
 
-    Config keys:
+    Config keys (see :mod:`backtest.ashare_costs`; env overrides apply when
+    the key is omitted):
       - commission_rate: default 0.00025 (万2.5)
       - commission_min: default 5.0 (RMB)
       - stamp_tax: default 0.0005 (万5, sell-only)
       - transfer_fee: default 0.00001 (万0.1)
       - slippage: default 0.001
+      - t_plus_one: default True. Set False or ``VIBE_TRADING_ASHARE_TPLUS1=0``
+        to allow same-day sells.
+      - block_suspension: default True. Zero volume, or a panel halt, does not
+        fill. ``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0`` turns that off.
       - tradability_index: optional :class:`src.data.tradability.TradabilityIndex`.
         When supplied, halt flags and exact price bands come from the panel;
-        when absent the engine falls back to the close-to-close heuristic.
+        when absent the engine falls back to the close-to-close heuristic
+        plus the zero-volume halt above. The runner attaches the panel by
+        default (``VIBE_TRADING_TRADABILITY_PANEL=0`` to skip).
     """
 
     def __init__(self, config: dict):
+        from backtest.ashare_costs import merge_assumptions
+
+        # Shared with the monitor re-bench. Explicit config keys win over env.
+        config = merge_assumptions(config)
         config = {**config, "leverage": 1.0}  # A-shares: no leverage
         super().__init__(config)
-        self.commission_rate: float = config.get("commission_rate", 0.00025)
-        self.commission_min: float = config.get("commission_min", 5.0)
-        self.stamp_tax: float = config.get("stamp_tax", 0.0005)
-        self.transfer_fee: float = config.get("transfer_fee", 0.00001)
-        self.slippage_rate: float = config.get("slippage", 0.001)
+        self.commission_rate: float = float(config.get("commission_rate", 0.00025))
+        self.commission_min: float = float(config.get("commission_min", 5.0))
+        self.stamp_tax: float = float(config.get("stamp_tax", 0.0005))
+        self.transfer_fee: float = float(config.get("transfer_fee", 0.00001))
+        self.slippage_rate: float = float(config.get("slippage", 0.001))
+        self.t_plus_one: bool = bool(config.get("t_plus_one", True))
+        self.block_suspension: bool = bool(config.get("block_suspension", True))
         self.tradability_index = config.get("tradability_index")
 
     def can_execute(self, symbol: str, direction: int, bar: pd.Series) -> bool:
@@ -56,8 +69,9 @@ class ChinaAEngine(BaseEngine):
         if direction == -1:
             return False
 
-        # 2. T+1: can't sell shares bought today
-        if direction == 0:
+        # 2. T+1: can't sell shares bought today. Disable with t_plus_one=False
+        #    or VIBE_TRADING_ASHARE_TPLUS1=0 on the runner/monitor path.
+        if self.t_plus_one and direction == 0:
             pos = self.positions.get(symbol)
             if pos is not None:
                 bar_date = _bar_date(bar)
@@ -73,7 +87,12 @@ class ChinaAEngine(BaseEngine):
         if panel_row is not None:
             return self._panel_allows(direction, bar, panel_row)
 
-        # 4. Fallback heuristic: price limits from the bar's own move
+        # 4. No panel: a zero-volume (or missing-volume) bar is a halt. The
+        #    exchange published no trade, so the order cannot fill.
+        if self.block_suspension and _bar_suspended(bar):
+            return False
+
+        # 5. Fallback heuristic: price limits from the bar's own move
         return self._heuristic_allows(symbol=symbol, direction=direction, bar=bar)
 
     def _tradability_row(self, symbol: str, bar: pd.Series):
@@ -91,7 +110,7 @@ class ChinaAEngine(BaseEngine):
 
     def _panel_allows(self, direction: int, bar: pd.Series, row: dict) -> bool:
         """Apply the panel's halt flag and limit prices to one order."""
-        if bool(_panel_value(row, "is_suspended")):
+        if self.block_suspension and _row_suspended(row):
             return False
 
         # ``band_mismatch`` means the band contradicts the bar's own move: the
@@ -210,6 +229,42 @@ def _price_limit(symbol: str, is_st: bool = False) -> float:
     from src.data.tradability import price_limit_pct
 
     return price_limit_pct(symbol, is_st=is_st)
+
+
+def _row_suspended(row: dict) -> bool:
+    """True when the panel marks the session halted.
+
+    ``is_suspended`` is a bool on a freshly built panel and may come back as
+    0/1 from parquet. ``_panel_value`` would coerce that through ``float``,
+    which is the wrong type for a flag, so the halt check stays here.
+    """
+    value = row.get("is_suspended")
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    try:
+        if value is None or pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        return bool(value)
+    return bool(value)
+
+
+def _bar_suspended(bar: pd.Series) -> bool:
+    """True when the bar itself shows no trade (halt / 停牌).
+
+    A missing ``volume`` column is not evidence — some callers build a price
+    bar without it. A present volume that is NaN or <= 0 is a session the
+    exchange did not trade.
+    """
+    if "volume" not in getattr(bar, "index", []):
+        return False
+    volume = bar.get("volume")
+    try:
+        if volume is None or pd.isna(volume):
+            return True
+        return float(volume) <= 0
+    except (TypeError, ValueError):
+        return True
 
 
 def _panel_value(row: dict, key: str):

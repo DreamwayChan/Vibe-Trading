@@ -5,7 +5,9 @@ do not touch ``agent/runs/<run_id>/artifacts/``. RunDetail still reads those
 artifacts for K-lines and buy/sell markers. This module bridges the gap:
 
 1. Extend ``config.json`` / ``req.json`` ``end_date`` forward to the scan
-   ``as_of`` (never shrink the original window).
+   ``as_of`` (never shrink the original window). Daily bars stop at Beijing
+   T-1 when ``as_of`` is the forming session; the board overlays a live quote
+   for today instead of treating it as a settled bar.
 2. Rebuild a full OHLCV panel by **merging** existing artifacts (and optional
    ``universe_run`` seed) with a gap fetch — never replace history with a
    short fallback window (e.g. Tencent's 500-bar cap).
@@ -48,6 +50,10 @@ def monitor_report_refresh_enabled() -> bool:
 def extend_run_end_date(run_dir: Path, as_of: date) -> dict[str, Any]:
     """Bump run ``end_date`` forward to ``as_of`` in config + request context.
 
+    Daily intervals that ask for Beijing today (or later) stop at the previous
+    settled session. The forming bar is a live-quote overlay on the board, not
+    a backtest end date.
+
     Returns a small status dict describing whether files changed. Raises
     ``ValueError`` when the run cannot be extended (missing config, bad dates).
     """
@@ -65,6 +71,8 @@ def extend_run_end_date(run_dir: Path, as_of: date) -> dict[str, Any]:
 
     start_raw = str(config.get("start_date") or "").strip()
     end_raw = str(config.get("end_date") or "").strip()
+    requested_as_of = as_of
+    as_of = _settled_report_end(config, as_of)
     as_of_iso = as_of.isoformat()
 
     if start_raw:
@@ -108,9 +116,35 @@ def extend_run_end_date(run_dir: Path, as_of: date) -> dict[str, Any]:
         "changed": changed_config or changed_req,
         "previous_end": previous_end or None,
         "end_date": as_of_iso if (changed_config or not previous_end) else previous_end,
+        "requested_as_of": requested_as_of.isoformat(),
         "config_updated": changed_config,
         "req_updated": changed_req,
     }
+
+
+def _settled_report_end(config: dict, as_of: date) -> date:
+    """Daily report windows stop at Beijing T-1 when the scan asks for today.
+
+    The board overlays a live quote for the forming session. The re-bench must
+    not extend ``end_date`` onto that session, or the next run treats today as
+    a settled bar. Intraday intervals and historical ``as_of`` values pass
+    through. ``VIBE_TRADING_DAILY_INCLUDE_FORMING=1`` keeps the requested day.
+    """
+    interval = str(config.get("interval") or "1D")
+    try:
+        from src.data.lake_fetch import settled_daily_end
+
+        capped = settled_daily_end(as_of.isoformat(), interval=interval)
+        capped_day = date.fromisoformat(capped[:10])
+    except Exception:  # noqa: BLE001 — keep the caller's date if the cap fails
+        return as_of
+    if capped_day != as_of:
+        logger.info(
+            "monitor report refresh: daily end %s capped at settled %s",
+            as_of.isoformat(),
+            capped_day.isoformat(),
+        )
+    return capped_day
 
 
 def refresh_bound_run_report(

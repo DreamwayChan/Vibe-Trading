@@ -12,6 +12,12 @@ This module is the one place that decides how a scan gets its bars:
 * a stored frame that spans the window is used as-is — zero network;
 * a frame that stops before the window end is topped up with only
   ``[last + 1, end]``, when that splice cannot mix price regimes;
+* a daily window that reaches Beijing **today** is cut back to the previous
+  settled session first. Today's bar is still forming: it is not a lake tail
+  gap, it is not fetched from Tushare (or any other daily loader) just to fill
+  the calendar day, and it is not written into the lake. Callers that need
+  today's price overlay a live quote. ``VIBE_TRADING_DAILY_INCLUDE_FORMING=1``
+  restores the old "ask the vendor for today" tail;
 * everything else (no stored rows, stored history too short, unknown
   provenance) is pulled from the network as before;
 * a confirmed unadjusted Tushare pull is written back into the lake, so the
@@ -27,6 +33,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import re
 import threading
 from collections.abc import Callable
@@ -130,6 +137,81 @@ class FetchStats:
         )
 
 
+def settled_daily_end(
+    end: str,
+    *,
+    interval: str = "1D",
+    today: dt.date | None = None,
+) -> str:
+    """Inclusive end that a daily loader may be asked for.
+
+    A request whose end is Beijing today (or later) is cut back to the previous
+    settled session. The lake stores settled bars only; a missing today is not
+    a gap to close with ``daily()``. Historical ends (strictly before Beijing
+    today) are returned unchanged.
+
+    ``today`` is injectable so tests can freeze the Beijing clock. Non-daily
+    intervals are not capped. ``VIBE_TRADING_DAILY_INCLUDE_FORMING=1`` disables
+    the cap.
+    """
+    if not _is_daily_interval(interval) or _include_forming_daily():
+        return end
+    try:
+        end_day = pd.Timestamp(end).date()
+    except (TypeError, ValueError):
+        return end
+    clock = today or _beijing_today()
+    if end_day < clock:
+        return end
+    return _previous_settled_session(clock).isoformat()
+
+
+def _is_daily_interval(interval: str) -> bool:
+    return str(interval or "").strip().lower() in {"1d", "d", "day", "daily"}
+
+
+def _include_forming_daily() -> bool:
+    """True when the operator explicitly wants a vendor pull of today's bar.
+
+    The bar is still not written into the lake (see ``_prepare_tushare_frame``).
+    An explicit env value wins over the cached config singleton, matching
+    :func:`src.data.hub.strict_mode`.
+    """
+    raw = os.environ.get("VIBE_TRADING_DAILY_INCLUDE_FORMING", "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    try:
+        from src.config.accessor import get_env_config
+
+        return bool(get_env_config().data.vibe_trading_daily_include_forming)
+    except Exception:  # noqa: BLE001 — default is settled bars only
+        return False
+
+
+def _previous_settled_session(today: dt.date) -> dt.date:
+    """Last exchange session strictly before *today*, without a calendar refresh.
+
+    A seeded calendar that already reaches *today* wins (so a holiday weekday
+    is not treated as T-1). A missing or stale seed falls back to the previous
+    weekday — the same approximation market-pick uses — and a remaining holiday
+    gap is still answered by the index probe when the lake is actually behind.
+    """
+    try:
+        from src.data.calendar import cached_previous_trading_day
+
+        found = cached_previous_trading_day(today)
+        if found:
+            return dt.date.fromisoformat(found)
+    except Exception:  # noqa: BLE001 — weekday fallback, never a vendor call
+        logger.debug("settled-session calendar lookup failed", exc_info=True)
+    settled = today - dt.timedelta(days=1)
+    while settled.weekday() >= 5:
+        settled -= dt.timedelta(days=1)
+    return settled
+
+
 def ensure_bars(
     symbols: list[str],
     *,
@@ -226,6 +308,31 @@ def _fetch_lake_first_locked(
     stats.requested = len(symbols)
     if not symbols:
         return {}, {}, stats
+
+    requested_end = end
+    end = settled_daily_end(end, interval=interval)
+    if end != requested_end:
+        logger.info(
+            "%s: daily end %s is Beijing's forming session; "
+            "using settled bars through %s "
+            "(live quote overlay, not a daily vendor refresh)",
+            label,
+            requested_end,
+            end,
+        )
+    try:
+        if pd.Timestamp(start).date() > pd.Timestamp(end).date():
+            # The caller asked only for the session that is still forming.
+            logger.info(
+                "%s: window %s..%s is only the forming session; "
+                "not refreshing daily bars",
+                label,
+                start,
+                requested_end,
+            )
+            return {}, {}, stats
+    except (TypeError, ValueError):
+        pass
 
     stored = read_lake(symbols, start=start, end=end, interval=interval)
     if not stored.frames:

@@ -16,10 +16,11 @@ Usage::
     python -m scripts.build_tradability --symbols 600519.SH,000001.SZ --start 2024-06-01
     python -m scripts.build_tradability --universe akshare --refresh-calendar
 
-The panel is opt-in at backtest time: set ``VIBE_TRADING_TRADABILITY_PANEL=1``
-so ``_create_market_engine`` attaches it to ``ChinaAEngine``.  Without the flag
-the engine keeps its close-to-close heuristic and results stay comparable with
-runs made before the panel existed.
+The runner attaches this panel to ``ChinaAEngine`` by default (halts and the
+exchange price band, including ST).  Set ``VIBE_TRADING_TRADABILITY_PANEL=0``
+to keep the close-to-close heuristic so a comparison with pre-panel runs stays
+reproducible.  Zero-volume bars stay unfillable unless
+``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0``.
 """
 
 from __future__ import annotations
@@ -160,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         "st_symbols": int(panel.loc[panel["is_st"], "symbol"].nunique()),
         "band_mismatch_rows": int(panel["band_mismatch"].sum()),
         "lake_root": str(lake_root()),
-        "enable_backtest_flag": "VIBE_TRADING_TRADABILITY_PANEL=1",
+        "enable_backtest_flag": "VIBE_TRADING_TRADABILITY_PANEL=1 (default; set 0 to disable)",
     }
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
