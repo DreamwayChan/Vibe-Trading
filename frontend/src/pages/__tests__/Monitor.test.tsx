@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => ({
     updateMonitor: vi.fn(),
     scanMonitor: vi.fn(),
     resetMonitor: vi.fn(),
+    recordMonitorSignal: vi.fn(),
     listMonitorHistory: vi.fn(),
     getMonitorHistoryDay: vi.fn(),
     forecastMonitor: vi.fn(),
@@ -174,6 +175,45 @@ describe("Monitor page", () => {
     expect(
       screen.getByRole("option", { name: /ret \+9\.35%.*ex -25\.85%.*sharpe \+0\.28/ }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the tradable-pool strip and blocks a buy that failed the journal", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["600519.SH"],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: false,
+      tradable_reasons: ["missing_invalidation"],
+      bars_source: "lake",
+      suggestions: [
+        {
+          symbol: "600519.SH",
+          action: "buy",
+          position: "long",
+          reason: "signal crossed into long",
+          as_of: "2024-01-02",
+          price: 1688.5,
+          tradable: false,
+          block_reasons: ["missing_invalidation"],
+        },
+      ],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Not in the tradable pool")).toBeInTheDocument();
+    });
+    expect(screen.getByText("missing invalidation")).toBeInTheDocument();
+    expect(screen.getByText("Not tradable")).toBeInTheDocument();
+    expect(screen.getByText("Bars: data center")).toBeInTheDocument();
   });
 
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {

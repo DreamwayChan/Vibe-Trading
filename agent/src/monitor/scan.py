@@ -66,6 +66,7 @@ def run_monitor_scan(
     lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
     runs_root: Path | None = None,
     refresh_report: bool = False,
+    strategy_store: Any | None = None,
 ) -> MonitorConfig:
     """Run one scan; update suggestions, holdings, ops; persist day snapshot.
 
@@ -77,6 +78,9 @@ def run_monitor_scan(
             the bound ``run_dir`` through ``as_of`` so RunDetail K-lines /
             buy-sell markers stay current. Default False keeps legacy scan-only
             behaviour; the UI checkbox opts in per click.
+        strategy_store: When set, stamp validation-gate status and pool
+            membership onto artifacts whose ``run_dir`` matches this run.
+            ``None`` leaves the store untouched (unit scans).
     """
     strategy = config.strategy
     as_of_date = as_of or date.today()
@@ -130,6 +134,25 @@ def run_monitor_scan(
         horizons=horizons,
     )
 
+    # Journal + cost-aware validation. Suggestions stay on the board either
+    # way; only ``tradable`` changes. A gate failure must not abort the scan.
+    run_dir = (root / run_key) if strategy.type == "run_dir" else None
+    try:
+        from src.monitor.admission import apply_admission
+
+        apply_admission(
+            config,
+            run_key=run_key,
+            run_dir=run_dir,
+            bars_source=snap_meta.get("bars_source"),
+            strategy_store=strategy_store,
+        )
+    except Exception as exc:  # noqa: BLE001 — board suggestions already succeeded
+        logger.warning("monitor admission failed: %s", exc)
+        config.tradable = False
+        config.tradable_reasons = ["admission_error"]
+        config.bars_source = snap_meta.get("bars_source")
+
     # Persist daily snapshot (same-day overwrite) for history UI / overnight
     # baseline. Intraday writes are display-only: the next same-day scan still
     # diffs against the prior calendar day's holdings, not this file.
@@ -141,14 +164,18 @@ def run_monitor_scan(
             provisional=bool(snap_meta.get("provisional")),
             holdings=list(holdings),
             ops=ops,
-            suggestions=list(suggestions),
+            suggestions=list(config.suggestions),
             universe_size=int(snap_meta.get("universe_size") or 0),
             fetch_error_count=int(snap_meta.get("fetch_error_count") or 0),
             live_quote_ok=int(snap_meta.get("live_quote_ok") or 0),
             live_quote_total=int(snap_meta.get("live_quote_total") or 0),
             live_quote_coverage=float(snap_meta.get("live_quote_coverage") or 0.0),
-            bars_source=snap_meta.get("bars_source"),
+            bars_source=config.bars_source,
             decision=config.decision,
+            tradable=config.tradable,
+            tradable_reasons=list(config.tradable_reasons),
+            validation_gate=config.validation_gate,
+            decision_signal=config.decision_signal,
         )
         try:
             save_day_snapshot(snapshot)

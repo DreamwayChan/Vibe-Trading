@@ -569,3 +569,115 @@ def test_forecast_save_rejects_empty_items(
         },
     )
     assert response.status_code == 400
+
+
+def _bind_run(home: Path, monkeypatch: pytest.MonkeyPatch, run_id: str) -> Path:
+    """Point RUNS_DIR at a temp tree and bind the monitor to that run."""
+    from src.config.accessor import reset_env_config
+
+    runs = home / "runs"
+    run_dir = runs / run_id
+    code = run_dir / "code"
+    code.mkdir(parents=True)
+    (code / "signal_engine.py").write_text("class SignalEngine:\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr("src.monitor.scan.RUNS_DIR", runs)
+    monkeypatch.setattr("src.api.helpers.RUNS_DIR", runs)
+    reset_env_config()
+    save_monitor(
+        MonitorConfig(
+            symbols=["600519.SH"],
+            strategy=StrategyRef(type="run_dir", run_id=run_id),
+            suggestions=[
+                MonitorSuggestion(
+                    symbol="600519.SH",
+                    action="buy",
+                    reason="signal crossed into long",
+                    as_of="2024-06-07",
+                )
+            ],
+        )
+    )
+    return run_dir
+
+
+def test_post_signal_downgrades_without_invalidation(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bind_run(home, monkeypatch, "20260101_000000_00_api01")
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tradable"] is False
+    assert "missing_invalidation" in body["tradable_reasons"]
+    assert body["suggestions"][0]["tradable"] is False
+    journal = home / ".vibe-trading" / "decision_journal.json"
+    assert journal.is_file()
+    saved = journal.read_text(encoding="utf-8")
+    assert "missing_invalidation" in saved
+
+
+def test_post_signal_strict_rejects_and_does_not_write(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bind_run(home, monkeypatch, "20260101_000000_00_api02")
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+            "strict": True,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "not tradable: missing_invalidation"
+    assert not (home / ".vibe-trading" / "decision_journal.json").exists()
+
+
+def test_post_signal_admits_when_journal_and_gate_pass(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    run_id = "20260101_000000_00_api03"
+    run_dir = _bind_run(home, monkeypatch, run_id)
+    (run_dir / "config.json").write_text(
+        json.dumps({"source": "local", "interval": "1D", "codes": ["600519.SH"]}),
+        encoding="utf-8",
+    )
+    artifacts = run_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "validation.json").write_text(
+        json.dumps(
+            {
+                "monte_carlo": {"p_value_sharpe": 0.01},
+                "bootstrap": {"ci_lower": 0.3},
+                "walk_forward": {"consistency_rate": 0.8},
+                "cost_aware": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "invalidation": "Exit on a close above the gap high.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+            "timestamp": "2024-06-07T01:00:00Z",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tradable"] is True
+    assert body["suggestions"][0]["tradable"] is True
+    assert body["decision_signal"]["invalidation"] == "Exit on a close above the gap high."
+    assert body["validation_gate"]["passed"] is True

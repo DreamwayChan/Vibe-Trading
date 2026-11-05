@@ -25,6 +25,8 @@ from src.strategy_store.models import (
     BenchResult,
     DecaySignal,
     DecaySnapshot,
+    artifact_matches_run,
+    gate_payload_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -51,6 +53,22 @@ def _new_artifact_id() -> str:
 def _json_dumps(value: object) -> str:
     """Serialize *value* to a compact JSON string."""
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _row_value(row: sqlite3.Row, key: str, default: object) -> object:
+    """Read a column that may be absent on a pre-migration snapshot."""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
+def _row_text(row: sqlite3.Row, key: str) -> str | None:
+    value = _row_value(row, key, None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _json_loads(value: str | None, default: object) -> object:
@@ -209,7 +227,23 @@ class SqliteStrategyStore:
             )
             if self._conn.execute("PRAGMA user_version").fetchone()[0] < 1:
                 self._conn.execute("PRAGMA user_version=1")
+            self._migrate_gate_columns()
             self._conn.commit()
+
+    def _migrate_gate_columns(self) -> None:
+        """Add monitor gate columns (user_version 2). Idempotent."""
+        existing = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(artifacts)").fetchall()
+        }
+        if "validation_gate" not in existing:
+            self._conn.execute("ALTER TABLE artifacts ADD COLUMN validation_gate TEXT")
+        if "bars_source" not in existing:
+            self._conn.execute("ALTER TABLE artifacts ADD COLUMN bars_source TEXT")
+        if "tradable" not in existing:
+            self._conn.execute(
+                "ALTER TABLE artifacts ADD COLUMN tradable INTEGER NOT NULL DEFAULT 0"
+            )
+        self._conn.execute("PRAGMA user_version=2")
 
     # -- Write transaction --------------------------------------------------
 
@@ -253,6 +287,9 @@ class SqliteStrategyStore:
             updated_at=row["updated_at"],
             disabled_at=row["disabled_at"],
             disabled_reason=row["disabled_reason"],
+            validation_gate=_row_text(row, "validation_gate"),
+            bars_source=_row_text(row, "bars_source"),
+            tradable=bool(_row_value(row, "tradable", 0)),
         )
 
     @staticmethod
@@ -316,8 +353,12 @@ class SqliteStrategyStore:
                         theme, columns_required, decay_horizon, signal_definition,
                         entry_rules, exit_rules, position_sizing, universe,
                         signal_engine_path, run_dir, hypothesis_id, status,
-                        created_at, updated_at, disabled_at, disabled_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, updated_at, disabled_at, disabled_reason,
+                        validation_gate, bars_source, tradable
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?
+                    )
                     """,
                     (
                         artifact_id,
@@ -342,6 +383,9 @@ class SqliteStrategyStore:
                         now,
                         artifact.disabled_at,
                         artifact.disabled_reason,
+                        gate_payload_text(artifact.validation_gate),
+                        artifact.bars_source,
+                        1 if artifact.tradable else 0,
                     ),
                 )
         except sqlite3.IntegrityError as exc:
@@ -457,7 +501,8 @@ class SqliteStrategyStore:
                     entry_rules = ?, exit_rules = ?, position_sizing = ?,
                     universe = ?, signal_engine_path = ?, run_dir = ?,
                     hypothesis_id = ?, status = ?, updated_at = ?,
-                    disabled_at = ?, disabled_reason = ?
+                    disabled_at = ?, disabled_reason = ?,
+                    validation_gate = ?, bars_source = ?, tradable = ?
                 WHERE id = ?
                 """,
                 (
@@ -481,10 +526,58 @@ class SqliteStrategyStore:
                     now,
                     artifact.disabled_at,
                     artifact.disabled_reason,
+                    gate_payload_text(artifact.validation_gate),
+                    artifact.bars_source,
+                    1 if artifact.tradable else 0,
                     artifact.id,
                 ),
             )
         return self.get_artifact(artifact.id)
+
+    @_synchronized
+    def record_gate(
+        self,
+        artifact_id: str,
+        *,
+        validation_gate: object,
+        bars_source: str | None,
+        tradable: bool,
+    ) -> Artifact | None:
+        """Store monitor gate status without changing lifecycle status."""
+        if self.get_artifact(artifact_id) is None:
+            return None
+        now = _now_iso()
+        with self._write_transaction():
+            self._conn.execute(
+                """
+                UPDATE artifacts
+                SET validation_gate = ?, bars_source = ?, tradable = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    gate_payload_text(validation_gate),
+                    bars_source,
+                    1 if tradable else 0,
+                    now,
+                    artifact_id,
+                ),
+            )
+        return self.get_artifact(artifact_id)
+
+    @_synchronized
+    def list_artifacts_for_run(
+        self,
+        run_key: str,
+        *,
+        run_dir: str | None = None,
+    ) -> Sequence[Artifact]:
+        """Artifacts whose ``run_dir`` matches this monitor run."""
+        rows = self._conn.execute("SELECT * FROM artifacts").fetchall()
+        return [
+            artifact
+            for artifact in (self._row_to_artifact(row) for row in rows)
+            if artifact_matches_run(artifact, run_key, run_dir)
+        ]
 
     # -- Bench history ------------------------------------------------------
 

@@ -253,6 +253,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ refresh_report: Boolean(body.refresh_report) }),
     }),
+  recordMonitorSignal: (body: RecordMonitorSignalRequest) =>
+    request<MonitorBoard>(`/monitor/signal`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -781,6 +786,9 @@ export interface MonitorSuggestion {
   provisional?: boolean;
   confidence?: number | null;
   signal?: number | null;
+  /** True only when this buy/sell cleared the journal and the validation gate. */
+  tradable?: boolean;
+  block_reasons?: string[];
 }
 
 /** One strategy-implied holding row from the latest (or historical) scan. */
@@ -852,6 +860,23 @@ export interface MonitorBoard {
   ops?: MonitorDayOps;
   schedule?: string | null;
   decision?: ProcessDecision | null;
+  /** Strategy is in the monitor tradable pool. */
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  validation_gate?: Record<string, unknown> | null;
+  decision_signal?: Record<string, unknown> | null;
+  bars_source?: string | null;
+}
+
+export interface RecordMonitorSignalRequest {
+  hypothesis_id?: string;
+  thesis?: string;
+  invalidation?: string;
+  planned_position?: string;
+  planned_risk?: string;
+  timestamp?: string;
+  symbol?: string;
+  strict?: boolean;
 }
 
 export interface MonitorHistorySummary {
@@ -865,6 +890,9 @@ export interface MonitorHistorySummary {
   held_count: number;
   universe_size?: number;
   fetch_error_count?: number;
+  bars_source?: string | null;
+  tradable?: boolean;
+  validation_passed?: boolean;
 }
 
 export interface MonitorHistoryDetail {
@@ -877,6 +905,11 @@ export interface MonitorHistoryDetail {
   suggestions?: MonitorSuggestion[];
   universe_size?: number;
   fetch_error_count?: number;
+  bars_source?: string | null;
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  validation_gate?: Record<string, unknown> | null;
+  decision_signal?: Record<string, unknown> | null;
   decision?: ProcessDecision | null;
 }
 

@@ -80,6 +80,10 @@ class MonitorSuggestion:
     provisional: bool = False
     confidence: float | None = None
     signal: float | None = None
+    # Tradable-pool membership for this suggestion. False when the journal or
+    # the validation gate blocks it. Hold rows are not actionable.
+    tradable: bool = False
+    block_reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -108,6 +112,8 @@ class MonitorSuggestion:
             provisional=bool(raw.get("provisional", False)),
             confidence=float(confidence) if confidence is not None else None,
             signal=float(signal) if signal is not None else None,
+            tradable=bool(raw.get("tradable", False)),
+            block_reasons=_reason_list(raw.get("block_reasons")),
         )
 
 
@@ -197,6 +203,11 @@ class MonitorDaySnapshot:
     # board that mysteriously ignored the data centre is visible in its history.
     bars_source: str | None = None
     decision: Decision | None = None
+    # Strategy-level tradable pool (journal + validation gate).
+    tradable: bool = False
+    tradable_reasons: list[str] = field(default_factory=list)
+    validation_gate: dict[str, Any] | None = None
+    decision_signal: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -213,6 +224,10 @@ class MonitorDaySnapshot:
             "live_quote_total": self.live_quote_total,
             "live_quote_coverage": self.live_quote_coverage,
             "bars_source": self.bars_source,
+            "tradable": self.tradable,
+            "tradable_reasons": list(self.tradable_reasons),
+            "validation_gate": self.validation_gate,
+            "decision_signal": self.decision_signal,
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
@@ -254,6 +269,10 @@ class MonitorDaySnapshot:
             live_quote_coverage=float(raw.get("live_quote_coverage") or 0.0),
             bars_source=_optional_str(raw.get("bars_source")),
             decision=Decision.from_dict(raw.get("decision") if isinstance(raw.get("decision"), dict) else None),
+            tradable=bool(raw.get("tradable", False)),
+            tradable_reasons=_reason_list(raw.get("tradable_reasons")),
+            validation_gate=_dict_or_none(raw.get("validation_gate")),
+            decision_signal=_dict_or_none(raw.get("decision_signal")),
         )
 
 
@@ -277,6 +296,12 @@ class MonitorConfig:
     schedule: str | None = None
     # Last composed instruction (engine holdings stay unclipped for tomorrow's baseline).
     decision: Decision | None = None
+    # Tradable pool for this strategy source. Suggestions stay visible either way.
+    tradable: bool = False
+    tradable_reasons: list[str] = field(default_factory=list)
+    validation_gate: dict[str, Any] | None = None
+    decision_signal: dict[str, Any] | None = None
+    bars_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -287,6 +312,11 @@ class MonitorConfig:
             "holdings": [h.to_dict() for h in self.holdings],
             "ops": self.ops.to_dict(),
             "schedule": self.schedule,
+            "tradable": self.tradable,
+            "tradable_reasons": list(self.tradable_reasons),
+            "validation_gate": self.validation_gate,
+            "decision_signal": self.decision_signal,
+            "bars_source": self.bars_source,
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
@@ -320,7 +350,27 @@ class MonitorConfig:
             ops=DayOps.from_dict(raw.get("ops") if isinstance(raw.get("ops"), dict) else None),
             schedule=_optional_str(raw.get("schedule")),
             decision=Decision.from_dict(raw.get("decision") if isinstance(raw.get("decision"), dict) else None),
+            tradable=bool(raw.get("tradable", False)),
+            tradable_reasons=_reason_list(raw.get("tradable_reasons")),
+            validation_gate=_dict_or_none(raw.get("validation_gate")),
+            decision_signal=_dict_or_none(raw.get("decision_signal")),
+            bars_source=_optional_str(raw.get("bars_source")),
         )
+
+
+def _dict_or_none(value: Any) -> dict[str, Any] | None:
+    return dict(value) if isinstance(value, dict) else None
+
+
+def _reason_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
 
 
 def _optional_str(value: Any) -> str | None:

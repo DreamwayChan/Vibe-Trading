@@ -323,6 +323,52 @@ function StrategyDetailModal({
   );
 }
 
+const REASON_I18N: Record<string, string> = {
+  missing_invalidation: "monitor.reasonMissingInvalidation",
+  missing_thesis: "monitor.reasonMissingThesis",
+  missing_position: "monitor.reasonMissingPosition",
+  missing_risk: "monitor.reasonMissingRisk",
+  missing_journal: "monitor.reasonMissingJournal",
+  missing_validation: "monitor.reasonMissingValidation",
+  validation_unreadable: "monitor.reasonValidationUnreadable",
+  config_unreadable: "monitor.reasonConfigUnreadable",
+  costs_not_applied: "monitor.reasonCostsNotApplied",
+  missing_monte_carlo: "monitor.reasonMissingMonteCarlo",
+  missing_bootstrap: "monitor.reasonMissingBootstrap",
+  missing_walk_forward: "monitor.reasonMissingWalkForward",
+  monte_carlo_failed: "monitor.reasonMonteCarloFailed",
+  bootstrap_failed: "monitor.reasonBootstrapFailed",
+  walk_forward_failed: "monitor.reasonWalkForwardFailed",
+  monte_carlo_p_value: "monitor.reasonMonteCarloPValue",
+  bootstrap_ci_lower: "monitor.reasonBootstrapCi",
+  walk_forward_consistency: "monitor.reasonWalkForwardConsistency",
+  hypothesis_not_found: "monitor.reasonHypothesisNotFound",
+  invalid_timestamp: "monitor.reasonInvalidTimestamp",
+  missing_timestamp: "monitor.reasonMissingTimestamp",
+  journal_unreadable: "monitor.reasonJournalUnreadable",
+  admission_error: "monitor.reasonAdmissionError",
+  not_actionable: "monitor.reasonNotActionable",
+};
+
+function reasonLabel(code: string, t: TFunction): string {
+  const key = REASON_I18N[code];
+  return key ? t(key) : code;
+}
+
+function barsLabel(source: string | null | undefined, t: TFunction): string {
+  if (!source) return "";
+  if (source === "lake") return t("monitor.barsLake");
+  if (source === "lake+network") return t("monitor.barsLakePlus");
+  if (source === "network") return t("monitor.barsNetwork");
+  return source;
+}
+
+type PoolView = {
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  bars_source?: string | null;
+};
+
 export function Monitor() {
   const { t } = useTranslation();
   const [board, setBoard] = useState<MonitorBoard | null>(null);
@@ -357,6 +403,15 @@ export function Monitor() {
   const [viewDecision, setViewDecision] = useState<ProcessDecision | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [forecastOpen, setForecastOpen] = useState(false);
+  const [poolOverride, setPoolOverride] = useState<PoolView | null>(null);
+  const [journalHypothesis, setJournalHypothesis] = useState("");
+  const [journalThesis, setJournalThesis] = useState("");
+  const [journalInvalidation, setJournalInvalidation] = useState("");
+  const [journalPosition, setJournalPosition] = useState("");
+  const [journalRisk, setJournalRisk] = useState("");
+  const [journalSymbol, setJournalSymbol] = useState("");
+  const [journalSaving, setJournalSaving] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
 
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
@@ -367,6 +422,7 @@ export function Monitor() {
     setSchedule(sched || DEFAULT_SCHEDULE);
     // Live board always shows the latest snapshot until the user picks history.
     setHistoryAsOf(null);
+    setPoolOverride(null);
     setViewHoldings(next.holdings || []);
     setViewOps(next.ops || { entered: [], exited: [], held: [] });
     setViewDecision(next.decision || null);
@@ -528,6 +584,7 @@ export function Monitor() {
   const selectHistoryDay = async (asOf: string | null) => {
     if (!asOf) {
       setHistoryAsOf(null);
+      setPoolOverride(null);
       setViewHoldings(board?.holdings || []);
       setViewOps(board?.ops || { entered: [], exited: [], held: [] });
       setViewDecision(board?.decision || null);
@@ -538,6 +595,15 @@ export function Monitor() {
     try {
       const detail = await api.getMonitorHistoryDay(asOf, runId.trim() || undefined);
       setHistoryAsOf(asOf);
+      setPoolOverride(
+        typeof detail.tradable === "boolean"
+          ? {
+              tradable: detail.tradable,
+              tradable_reasons: detail.tradable_reasons,
+              bars_source: detail.bars_source,
+            }
+          : null,
+      );
       setViewHoldings(detail.holdings || []);
       setViewOps(detail.ops || { entered: [], exited: [], held: [] });
       setViewDecision(detail.decision || null);
@@ -545,6 +611,38 @@ export function Monitor() {
       setError(e instanceof Error ? e.message : t("monitor.historyLoadFailed"));
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const pool: PoolView | null =
+    poolOverride ??
+    (board && typeof board.tradable === "boolean"
+      ? {
+          tradable: board.tradable,
+          tradable_reasons: board.tradable_reasons,
+          bars_source: board.bars_source,
+        }
+      : null);
+  const strategyBound = Boolean(runId.trim() || board?.strategy?.shadow_id);
+
+  const saveDecision = async () => {
+    if (journalSaving || !strategyBound) return;
+    setJournalSaving(true);
+    setJournalError(null);
+    try {
+      const next = await api.recordMonitorSignal({
+        hypothesis_id: journalHypothesis.trim() || undefined,
+        thesis: journalThesis.trim() || undefined,
+        invalidation: journalInvalidation.trim() || undefined,
+        planned_position: journalPosition.trim() || undefined,
+        planned_risk: journalRisk.trim() || undefined,
+        symbol: journalSymbol.trim() || undefined,
+      });
+      applyBoard(next);
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : t("monitor.journalFailed"));
+    } finally {
+      setJournalSaving(false);
     }
   };
 
@@ -765,6 +863,100 @@ export function Monitor() {
         </div>
       )}
 
+      <div className="rounded-lg border p-4 flex flex-col gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">{t("monitor.journalTitle")}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">{t("monitor.journalHint")}</p>
+        </div>
+        {pool && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">{t("monitor.gateTitle")}</span>
+            <span
+              className={cn(
+                "inline-flex rounded px-1.5 py-0.5 text-xs font-medium",
+                pool.tradable
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+              )}
+            >
+              {pool.tradable ? t("monitor.gateIn") : t("monitor.gateOut")}
+            </span>
+            {pool.bars_source && (
+              <span className="text-xs text-muted-foreground">
+                {t("monitor.barsSource", { source: barsLabel(pool.bars_source, t) })}
+              </span>
+            )}
+            {(pool.tradable_reasons || []).length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {(pool.tradable_reasons || []).map((code) => reasonLabel(code, t)).join(" · ")}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input
+            type="text"
+            value={journalHypothesis}
+            onChange={(e) => setJournalHypothesis(e.target.value)}
+            placeholder={t("monitor.journalHypothesis")}
+            aria-label={t("monitor.journalHypothesis")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+          <input
+            type="text"
+            value={journalSymbol}
+            onChange={(e) => setJournalSymbol(e.target.value)}
+            placeholder={t("monitor.journalSymbol")}
+            aria-label={t("monitor.journalSymbol")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
+          />
+          <input
+            type="text"
+            value={journalThesis}
+            onChange={(e) => setJournalThesis(e.target.value)}
+            placeholder={t("monitor.journalThesis")}
+            aria-label={t("monitor.journalThesis")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalInvalidation}
+            onChange={(e) => setJournalInvalidation(e.target.value)}
+            placeholder={t("monitor.journalInvalidation")}
+            aria-label={t("monitor.journalInvalidation")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalPosition}
+            onChange={(e) => setJournalPosition(e.target.value)}
+            placeholder={t("monitor.journalPosition")}
+            aria-label={t("monitor.journalPosition")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+          <input
+            type="text"
+            value={journalRisk}
+            onChange={(e) => setJournalRisk(e.target.value)}
+            placeholder={t("monitor.journalRisk")}
+            aria-label={t("monitor.journalRisk")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={saveDecision}
+            disabled={journalSaving || saving || scanning || resetting || !strategyBound}
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          >
+            {journalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {journalSaving ? t("monitor.journalSaving") : t("monitor.journalSubmit")}
+          </button>
+          {journalError && <span className="text-sm text-destructive">{journalError}</span>}
+        </div>
+      </div>
+
       {viewDecision && (
         <div className="rounded-lg border p-4 flex flex-col gap-3">
           <HorizonStrip
@@ -973,6 +1165,22 @@ export function Monitor() {
                     </td>
                     <td className={cn("px-3 py-2 uppercase", actionClass(row.action))}>
                       {row.action}
+                      {typeof row.tradable === "boolean" &&
+                        (row.action === "buy" || row.action === "sell") && (
+                          <span
+                            className={cn(
+                              "ml-2 inline-flex rounded px-1 py-0.5 text-[10px] font-medium normal-case",
+                              row.tradable
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                            )}
+                            title={(row.block_reasons || [])
+                              .map((code) => reasonLabel(code, t))
+                              .join(" · ")}
+                          >
+                            {row.tradable ? t("monitor.signalTradable") : t("monitor.signalBlocked")}
+                          </span>
+                        )}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{row.reason}</td>
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
