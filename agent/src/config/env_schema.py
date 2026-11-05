@@ -260,6 +260,16 @@ class DataConfig(_EnvBase):
     vibe_trading_val_require_walk_forward: EnvBool = Field(
         alias="VIBE_TRADING_VAL_REQUIRE_WALK_FORWARD", default=True
     )
+    # Paper book (src.paper_book). Absolute gap between the book's cumulative
+    # return and the bound backtest's cumulative return from the same anchor.
+    # 0.05 means five percentage points. Above this, the book clears tradable
+    # on the monitor board and the strategy store without touching decay status.
+    vibe_trading_paper_book_deviation_threshold: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD", default=0.05
+    )
+    vibe_trading_paper_book_initial_cash: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_INITIAL_CASH", default=1_000_000.0
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")
@@ -465,6 +475,10 @@ class PathConfig(_EnvBase):
     vibe_goal_session_id: str = Field(alias="VIBE_GOAL_SESSION_ID", default="")
     vibe_trading_strategy_store_db_path: str = Field(
         alias="VIBE_TRADING_STRATEGY_STORE_DB_PATH", default="",
+    )
+    # Paper-book state and daily reports. Empty uses ~/.vibe-trading/paper_book.
+    vibe_trading_paper_book_root: str = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_ROOT", default="",
     )
 
 

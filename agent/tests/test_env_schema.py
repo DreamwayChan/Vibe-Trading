@@ -111,6 +111,8 @@ class TestEnvConfigDefaults:
         assert c.data.vibe_trading_ashare_slippage == pytest.approx(0.001)
         assert c.data.vibe_trading_ashare_tplus1 is True
         assert c.data.vibe_trading_ashare_block_suspension is True
+        assert c.data.vibe_trading_paper_book_deviation_threshold == pytest.approx(0.05)
+        assert c.data.vibe_trading_paper_book_initial_cash == pytest.approx(1_000_000.0)
         assert c.data.aliyun_iqs_api_key == ""
         assert c.data.longbridge_app_key == ""
         assert c.data.longbridge_app_secret == ""
@@ -165,6 +167,7 @@ class TestEnvConfigDefaults:
         assert c.paths.vibe_trading_goal_db_path == ""
         assert c.paths.vibe_trading_swarm_agent_config == ""
         assert c.paths.allow_session_mcp_servers is False
+        assert c.paths.vibe_trading_paper_book_root == ""
 
 
 # ===================================================================

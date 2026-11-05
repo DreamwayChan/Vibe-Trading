@@ -3,8 +3,9 @@
 Monitor report refresh re-benches a bound run through
 :func:`backtest.runner._create_market_engine`, which builds a
 :class:`backtest.engines.china_a.ChinaAEngine`. That engine merges this module
-into its config, so the board's backtest and a direct ``python -m backtest.runner``
-A-share run use the same numbers.
+into its config, so the board's backtest, a direct ``python -m backtest.runner``
+A-share run, and the paper book (``src.paper_book``, which fills through
+``ChinaAEngine``) use the same numbers.
 
 Retail cash defaults:
 
