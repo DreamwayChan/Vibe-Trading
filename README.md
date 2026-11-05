@@ -945,6 +945,8 @@ Copy `agent/.env.example` to `agent/.env` and uncomment the provider block you w
 
 **Free data (no key needed):** A-shares via AKShare, HK/US equities via yfinance, crypto via OKX, 100+ crypto exchanges via CCXT. The system automatically selects the best available source for each market.
 
+**A-share paper book.** `python -m src.paper_book step --date YYYY-MM-DD --run-id <id>` (or `POST /paper-book/step`) settles one session from monitor signals that already passed the decision journal and validation gate. Fills use the same commission, stamp, transfer, slippage, T+1, and limit/halt rules as the A-share backtest (`VIBE_TRADING_ASHARE_*`). State and the daily report (NAV, fills, unfilled orders, turnover, slippage gap, deviation versus the bound run's `artifacts/equity.csv`) live under `VIBE_TRADING_PAPER_BOOK_ROOT` (default `~/.vibe-trading/paper_book`). `VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` defaults to `1000000`. `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` (default `0.05`, five percentage points of cumulative return) clears the strategy `tradable` flag on the monitor board and the strategy store when the paper path leaves the backtest. Decay lifecycle status is left unchanged.
+
 ### 🎯 Recommended Models
 
 Vibe-Trading is a tool-heavy agent — skills, backtests, memory, and swarms all flow through tool calls. Model choice directly decides whether the agent *uses* its tools or fabricates answers from training data.

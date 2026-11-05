@@ -921,6 +921,8 @@ skill + MCP config 会下载到你的智能体 skills 目录。详情见 [ClawHu
 
 **免费数据（无需 key）：** A 股通过 AKShare，港/美股通过 yfinance，加密通过 OKX，100+ 加密交易所通过 CCXT。系统会为每个市场自动选择最佳可用数据源。
 
+**A 股纸面账本。** `python -m src.paper_book step --date YYYY-MM-DD --run-id <id>`（或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。
+
 ### 🎯 Recommended Models
 
 Vibe-Trading 是高度依赖工具的智能体：skills、backtests、memory 和 swarms 都会通过工具调用流转。模型选择会直接决定智能体是实际使用工具，还是从训练数据中编造答案。

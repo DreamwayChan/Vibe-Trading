@@ -294,6 +294,10 @@ register_scheduled_routes(app)
 from src.api.monitor_routes import register_monitor_routes  # noqa: E402
 register_monitor_routes(app)
 
+# --- A-share paper book (one settled session at a time) ---
+from src.api.paper_book_routes import register_paper_book_routes  # noqa: E402
+register_paper_book_routes(app)
+
 # --- Data center (lake catalog, freshness, quality) ---
 from src.api.data_routes import register_data_routes  # noqa: E402
 register_data_routes(app)
