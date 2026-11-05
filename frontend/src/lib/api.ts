@@ -789,6 +789,8 @@ export interface MonitorSuggestion {
   /** True only when this buy/sell cleared the journal and the validation gate. */
   tradable?: boolean;
   block_reasons?: string[];
+  /** A-share markers: st, limit_up, one_word, consecutive_board, extreme_board. */
+  risk_flags?: string[];
 }
 
 /** One strategy-implied holding row from the latest (or historical) scan. */

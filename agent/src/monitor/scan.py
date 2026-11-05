@@ -357,6 +357,9 @@ def _scan_run_dir(
         source=source,
         interval=interval,
     )
+    from src.monitor.ashare_risk import stamp_suggestions
+
+    stamp_suggestions(suggestions, data_map, as_of=as_of_iso)
     return suggestions, holdings, ops, snap_meta
 
 

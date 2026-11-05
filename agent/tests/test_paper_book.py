@@ -113,7 +113,13 @@ def _step(tmp_path: Path, config: MonitorConfig, bars: dict, **kwargs):
 
 def test_buy_fill_matches_china_a_costs(tmp_path: Path) -> None:
     engine = ChinaAEngine({})
-    report = _step(tmp_path, _config([_suggestion()]), {SYMBOL: _bar()}, engine=engine)
+    report = _step(
+        tmp_path,
+        _config([_suggestion()]),
+        {SYMBOL: _bar()},
+        engine=engine,
+        max_position=1.0,
+    )
 
     assert len(report.fills) == 1
     fill = report.fills[0]
@@ -439,6 +445,44 @@ def test_api_steps_one_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     # The board file is still the one the CLI/API loaded.
     board = load_board_for_strategy(StrategyRef(type="run_dir", run_id="run1"))
     assert board.suggestions[0].tradable is True
+
+
+def test_default_position_cap_clips_a_full_weight_buy(tmp_path: Path) -> None:
+    report = _step(tmp_path, _config([_suggestion()]), {SYMBOL: _bar()})
+    fill = report.fills[0]
+    assert fill.shares * fill.fill_price <= 0.20 * report.initial_cash + fill.fill_price
+    assert (fill.shares + 100) * fill.fill_price > 0.20 * report.initial_cash
+    assert report.risk["clipped"] == [SYMBOL]
+    assert report.intents[0]["target_weight"] == pytest.approx(0.20)
+    again = _step(tmp_path, _config([_suggestion()]), {SYMBOL: _bar()})
+    assert again.fills[0].shares == fill.shares
+    assert again.risk["clipped"] == [SYMBOL]
+    assert again.intents[0]["target_weight"] == pytest.approx(0.20)
+
+
+def test_drawdown_cap_blocks_new_buys(tmp_path: Path) -> None:
+    _step(tmp_path, _config([_suggestion()]), {SYMBOL: _bar()}, max_drawdown=0.05)
+    marked = _step(
+        tmp_path,
+        _config([]),
+        {SYMBOL: _bar(close=6.0, open=6.0, trade_date=pd.Timestamp(NEXT))},
+        as_of=NEXT,
+        max_drawdown=0.05,
+    )
+    assert marked.fills == []
+    assert marked.risk["drawdown"] > 0.05
+
+    third = "2026-01-07"
+    blocked = _step(
+        tmp_path,
+        _config([_suggestion(as_of=third)]),
+        {SYMBOL: _bar(close=6.0, open=6.0, trade_date=pd.Timestamp(third))},
+        as_of=third,
+        max_drawdown=0.05,
+    )
+    assert blocked.fills == []
+    assert blocked.skipped[0]["reason"] == "drawdown_cap"
+    assert blocked.risk["drawdown_blocked"] is True
 
 
 def test_cannot_restep_an_earlier_session(tmp_path: Path) -> None:

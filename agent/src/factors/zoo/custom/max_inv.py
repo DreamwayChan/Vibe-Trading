@@ -43,7 +43,9 @@ __alpha_meta__ = {
     "notes": (
         "Bali et al. (2011) MAX anomaly, sign-flipped. Higher = no extreme "
         "single-day gain in the past 20 sessions. Strong behavioral premium "
-        "in retail-heavy A-share themes; complements gtja191_164."
+        "in retail-heavy A-share themes; complements gtja191_164. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

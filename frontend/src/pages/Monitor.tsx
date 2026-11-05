@@ -348,7 +348,24 @@ const REASON_I18N: Record<string, string> = {
   journal_unreadable: "monitor.reasonJournalUnreadable",
   admission_error: "monitor.reasonAdmissionError",
   not_actionable: "monitor.reasonNotActionable",
+  ashare_st: "monitor.reasonAshareSt",
+  ashare_limit_up: "monitor.reasonAshareLimitUp",
+  ashare_one_word: "monitor.reasonAshareOneWord",
+  ashare_extreme_board: "monitor.reasonAshareExtremeBoard",
 };
+
+const RISK_I18N: Record<string, string> = {
+  st: "monitor.riskSt",
+  limit_up: "monitor.riskLimitUp",
+  one_word: "monitor.riskOneWord",
+  consecutive_board: "monitor.riskConsecutive",
+  extreme_board: "monitor.riskExtreme",
+};
+
+function riskLabel(flag: string, t: TFunction): string {
+  const key = RISK_I18N[flag];
+  return key ? t(key) : flag;
+}
 
 function reasonLabel(code: string, t: TFunction): string {
   const key = REASON_I18N[code];
@@ -1158,7 +1175,17 @@ export function Monitor() {
               <tbody>
                 {suggestions.map((row) => (
                   <tr key={`${row.symbol}-${row.action}-${row.as_of}`} className="border-t">
-                    <td className="px-3 py-2 font-mono">{row.symbol}</td>
+                    <td className="px-3 py-2 font-mono">
+                      <span>{row.symbol}</span>
+                      {(row.risk_flags || []).map((flag) => (
+                        <span
+                          key={flag}
+                          className="ml-1 inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                        >
+                          {riskLabel(flag, t)}
+                        </span>
+                      ))}
+                    </td>
                     <td className="px-3 py-2 font-mono tabular-nums">{formatPrice(row.price)}</td>
                     <td className={cn("px-3 py-2", positionClass(row.position))}>
                       {positionLabel(row.position, t)}

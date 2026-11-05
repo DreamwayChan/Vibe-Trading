@@ -73,6 +73,8 @@ class BookState:
     inception_date: str | None = None
     anchor_date: str | None = None
     anchor_equity: float | None = None
+    # High-water NAV. The drawdown cap compares marked equity with this peak.
+    peak_nav: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +89,7 @@ class BookState:
             "inception_date": self.inception_date,
             "anchor_date": self.anchor_date,
             "anchor_equity": self.anchor_equity,
+            "peak_nav": self.peak_nav,
         }
 
     @classmethod
@@ -104,6 +107,7 @@ class BookState:
                     positions[symbol] = pos
         opening = raw.get("opening") if isinstance(raw.get("opening"), dict) else None
         anchor = raw.get("anchor_equity")
+        peak = raw.get("peak_nav")
         return cls(
             book_id=str(raw.get("book_id") or ""),
             run_id=str(raw.get("run_id") or ""),
@@ -115,6 +119,7 @@ class BookState:
             inception_date=_optional_str(raw.get("inception_date")),
             anchor_date=_optional_str(raw.get("anchor_date")),
             anchor_equity=float(anchor) if anchor is not None else None,
+            peak_nav=float(peak) if peak is not None else None,
         )
 
 
@@ -210,6 +215,7 @@ class DailyReport:
     expectation: dict[str, Any] = field(default_factory=dict)
     downgraded: bool = False
     downgrade_reason: str | None = None
+    risk: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -232,6 +238,7 @@ class DailyReport:
             "expectation": dict(self.expectation),
             "downgraded": self.downgraded,
             "downgrade_reason": self.downgrade_reason,
+            "risk": dict(self.risk),
         }
 
 

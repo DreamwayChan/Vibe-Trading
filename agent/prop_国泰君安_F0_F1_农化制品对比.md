@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 # F0 vs F1 对比报告 — A股农化制品（农化制品 BK0731）
 
 **声明：研究/回测结果，非实盘建议。**

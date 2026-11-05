@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 > **已归档**：本文件为早期 F1 迁移版。存活因子确认腿重搜后的最优方案见 [`prop_国泰君安_AI应用_最优.md`](./prop_国泰君安_AI应用_最优.md)（F0' = 164 + 171 单确认）。
 
 ## 提示词

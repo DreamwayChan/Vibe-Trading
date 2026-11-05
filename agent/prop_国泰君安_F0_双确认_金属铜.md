@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 ## 提示词
 
 ```

@@ -84,6 +84,9 @@ class MonitorSuggestion:
     # the validation gate blocks it. Hold rows are not actionable.
     tradable: bool = False
     block_reasons: list[str] = field(default_factory=list)
+    # A-share markers from the bar in use: st, limit_up, one_word,
+    # consecutive_board, extreme_board. Empty when the scan had no bars.
+    risk_flags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -114,6 +117,7 @@ class MonitorSuggestion:
             signal=float(signal) if signal is not None else None,
             tradable=bool(raw.get("tradable", False)),
             block_reasons=_reason_list(raw.get("block_reasons")),
+            risk_flags=_reason_list(raw.get("risk_flags")),
         )
 
 

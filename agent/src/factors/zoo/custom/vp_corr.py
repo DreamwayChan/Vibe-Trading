@@ -41,7 +41,9 @@ __alpha_meta__ = {
     "notes": (
         "20d Pearson corr of daily return vs volume. Higher = price moves "
         "align with activity (healthier trend). Chart-only absorb proxies "
-        "replaced this role poorly; keep as confirm next to gtja191_164."
+        "replaced this role poorly; keep as confirm next to gtja191_164. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

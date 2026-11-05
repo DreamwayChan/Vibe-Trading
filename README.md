@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <sub><b>A-share research fork</b> of <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a> (upstream base <b>v0.1.12</b>) — the full upstream engine is kept intact, plus a closed A-share sector research loop: <b>Market Pick</b> · <b>Sector Pick</b> · <b>Monitor</b> · <b>Decision Compose</b></sub>
+  <sub><b>A-share research fork</b> of <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a> (upstream base <b>v0.1.12</b>) — the full upstream engine is kept intact. Default path: <b>lake → hypothesis → cost backtest → validation gate → tradable → paper book</b> (<a href="CAPABILITY.md">capability circle</a>). Sector prompts (<code>prop_*</code>) and the custom factor zoo are research-only.</sub>
 </p>
 
 <p align="center">
@@ -59,6 +59,7 @@
 
 **This fork's own changes** — upstream release notes are collapsed below because they are not fork-specific:
 
+- **2026-11** 🎯 **Capability circle** — day-to-swing, long-only, mid/small capital. Default path is lake → hypothesis → cost-aware backtest → validation gate → tradable → paper book ([CAPABILITY.md](CAPABILITY.md)). Monitor buys on ST, limit-up, one-word boards, and 3-board streaks stay out of the pool. The paper book caps one name at 20% of NAV and blocks new buys after a 15% peak-to-mark drawdown. `prop_*` prompts and the `custom` factor zoo are marked research-only.
 - **2026-09** 🧭 **Decision compose + multi-horizon regime** — `agent/src/process/` adds the Mandate/overlay waterfall and the CSI 300 short/medium/long split with a MA250 year-line guard; the Monitor board gains a 10-day k-NN analog forecast with saved snapshots and history replay.
 - **2026-08** 🎯 **Sector Pick + factor survival store** — the curated 「最优」catalog, the single-theme ThemeLock (2-day challenger streak + > 0.25 score gap), `factors/survival_store.py`, the strict bench runner, and polarity/decay repairs for 54 GTJA191/Qlib factors.
 - **2026-07** 🀄 **Market Pick + the A-share loop** — board-level dual-track screening, the executable-pick vs observation-map split, the 7-factor `custom` zoo, and the first sector research prompts (`agent/prop_国泰君安_*.md`).
@@ -210,33 +211,34 @@
 <a id="ashare-loop"></a>
 ## 🀄 A-Share Research Loop <sub>(this fork)</sub>
 
-This repository is a fork of [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading). The upstream engine is kept intact — the ReAct loop, 88 skills, 79 default-registered tools, 469 alphas, 30 swarm presets, the data-loader fallback chains and the broker-connector layer all still work as documented below. On top of it, this fork adds a **closed A-share sector research loop** built around Eastmoney boards, the GTJA191 factor family and a long-only retail constitution.
+This repository is a fork of [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading). The upstream engine is kept intact — the ReAct loop, 88 skills, 79 default-registered tools, 469 alphas, 30 swarm presets, the data-loader fallback chains and the broker-connector layer all still work as documented below.
 
-Everything in this loop is **research and simulation only**. No module here places an order; the only path to a broker remains the upstream live/mandate layer.
+The **default path** is the capability circle in [CAPABILITY.md](CAPABILITY.md): day-to-swing, long-only, mid/small capital, explainable rules.
 
 ```text
-agent/prop_国泰君安_<sector>_最优.md        ← research prompt + hard constraints
-            │  vibe-trading run
+lake → hypothesis → cost-aware backtest → validation gate → tradable → paper_book
+```
+
+No step on that path places a broker order. The model does not approve `tradable` or size the book. Explicit bans: a full-auto get-rich narrative, a race with institutional HFT, and an LLM on the auto-order path.
+
+`agent/prop_*.md`, `agent/scripts/run_f0_f1_*.py`, `agent/scripts/run_sectors_optimal_*.py`, and `agent/src/factors/zoo/custom/` are **research-only**. The boards below still run; they are not how a name becomes tradable.
+
+```text
+agent/prop_国泰君安_<sector>_最优.md        ← frozen research prompt, not the default
+            │
             ▼
-Backtest:  F0 (momentum + IR-weighted confirm legs)
-           vs  F1 (+ custom MAX veto)
-            │  excess vs board EW · Sharpe · maxDD · MC permutation p
-            ▼
-「最优」catalog — agent/src/sector_pick/catalog.py (21 sectors)
+「最优」catalog — agent/src/sector_pick/catalog.py (research-only)
             │
      ┌──────┴───────────────────────────────┐
      ▼                                      ▼
 市场优选 Market Pick                  优选板块 Sector Pick
-CSI300 regime → stance                score 21 rows → ThemeLock
-board dual-track scan                 → bound SignalEngine holdings
      │                                      │
      └───────────────┬──────────────────────┘
                      ▼
-        监控看板 Monitor — persistent board, daily scan,
-        live provisional bar, 10-day analog forecast
+        监控看板 Monitor — journal + validation gate
+        ST / limit-up / one-word / 3-board buys stay out
                      ▼
-        决策合成 Process — Mandate + F0 stance + structure (+analog)
-                            → one Decision (tighten-only)
+        paper_book — one session, 20% name cap, 15% drawdown cap
 ```
 
 | Surface | Route | Module | CLI |
@@ -267,7 +269,7 @@ The scan pulls a single OHLCV panel for the union of all constituents. When a Tu
 
 ### 2. Sector Pick — 优选板块
 
-Sector Pick ranks **already researched** sectors — the candidate set is the curated 「最优」catalog, never an automatic sweep of every backtest run.
+Research-only. Sector Pick ranks **already researched** sectors — the candidate set is the curated 「最优」catalog, never an automatic sweep of every backtest run. It does not admit a name to the tradable pool.
 
 | Concept | Behaviour |
 |---|---|
@@ -945,7 +947,7 @@ Copy `agent/.env.example` to `agent/.env` and uncomment the provider block you w
 
 **Free data (no key needed):** A-shares via AKShare, HK/US equities via yfinance, crypto via OKX, 100+ crypto exchanges via CCXT. The system automatically selects the best available source for each market.
 
-**A-share paper book.** `python -m src.paper_book step --date YYYY-MM-DD --run-id <id>` (or `POST /paper-book/step`) settles one session from monitor signals that already passed the decision journal and validation gate. Fills use the same commission, stamp, transfer, slippage, T+1, and limit/halt rules as the A-share backtest (`VIBE_TRADING_ASHARE_*`). State and the daily report (NAV, fills, unfilled orders, turnover, slippage gap, deviation versus the bound run's `artifacts/equity.csv`) live under `VIBE_TRADING_PAPER_BOOK_ROOT` (default `~/.vibe-trading/paper_book`). `VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` defaults to `1000000`. `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` (default `0.05`, five percentage points of cumulative return) clears the strategy `tradable` flag on the monitor board and the strategy store when the paper path leaves the backtest. Decay lifecycle status is left unchanged.
+**A-share paper book.** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>` (or `python -m src.paper_book`, or `POST /paper-book/step`) settles one session from monitor signals that already passed the decision journal and validation gate. Buys marked ST, limit-up, one-word board, or a 3-board streak never enter that set. Fills use the same commission, stamp, transfer, slippage, T+1, and limit/halt rules as the A-share backtest (`VIBE_TRADING_ASHARE_*`). State and the daily report (NAV, fills, unfilled orders, turnover, slippage gap, deviation versus the bound run's `artifacts/equity.csv`, position/drawdown cap) live under `VIBE_TRADING_PAPER_BOOK_ROOT` (default `~/.vibe-trading/paper_book`). `VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` defaults to `1000000`. `VIBE_TRADING_PAPER_BOOK_MAX_POSITION` (default `0.20`) clips one name to 20% of marked NAV. `VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN` (default `0.15`) blocks new buys after a 15% peak-to-mark drawdown; sells still settle. `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` (default `0.05`, five percentage points of cumulative return) clears the strategy `tradable` flag on the monitor board and the strategy store when the paper path leaves the backtest. Decay lifecycle status is left unchanged. See [CAPABILITY.md](CAPABILITY.md).
 
 ### 🎯 Recommended Models
 
@@ -967,9 +969,11 @@ The interactive TUI (`vibe-trading`) now uses a terminal-native transcript: a st
 
 ```bash
 vibe-trading               # interactive TUI
-vibe-trading run -p "..."  # single run
+vibe-trading hypothesis list   # default path: journal before a signal is tradable
+vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # default path endpoint
+vibe-trading run -p "..."  # single run; prop_* prompts are research-only
 vibe-trading serve         # API server
-vibe-trading alpha list    # browse 469 pre-built alphas; show / bench / compare / export-manifest sub-commands available
+vibe-trading alpha list    # browse 469 pre-built alphas; the custom zoo is research-only
 vibe-trading channels status --local  # inspect IM channel config and install hints
 vibe-trading provider doctor  # print redacted provider/proxy/package diagnostics
 ```

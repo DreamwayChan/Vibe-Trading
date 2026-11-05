@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <sub><b>A 股研究分支</b>，fork 自 <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a>（上游基线 <b>v0.1.12</b>）—— 保留上游全部能力，并新增 A 股板块研究闭环：<b>市场优选</b> · <b>优选板块</b> · <b>监控看板</b> · <b>决策合成</b></sub>
+  <sub><b>A 股研究分支</b>，fork 自 <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a>（上游基线 <b>v0.1.12</b>）—— 保留上游全部能力。默认路径：<b>数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本</b>（<a href="CAPABILITY_zh.md">能力圈</a>）。板块提示词（<code>prop_*</code>）和 custom 因子库仅供研究。</sub>
 </p>
 
 <p align="center">
@@ -59,6 +59,7 @@
 
 **本分支自身的改动** —— 上游发布记录已折叠在下方，它们不属于本分支：
 
+- **2026-11** 🎯 **能力圈** —— 日线到波段、只做多、中小资金。默认路径是数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本（[CAPABILITY_zh.md](CAPABILITY_zh.md)）。监控里的 ST、涨停、一字板、三连板买入不进可交易池。纸面账本把单只股票限制在净值的 20%，自高点回撤 15% 后停止新买入。`prop_*` 提示词和 `custom` 因子库标为仅研究。
 - **2026-09** 🧭 **决策合成 + 多周期状态机** —— 新增 `agent/src/process/` 的 Mandate／叠加层瀑布，以及沪深300 短／中／长三周期拆分与 MA250 年线护栏；监控看板新增 10 交易日 k-NN 相似片段推演，支持快照保存与历史回看。
 - **2026-08** 🎯 **优选板块 + 因子存活库** —— 精选「最优」板块目录、单主题 ThemeLock（挑战者连续 2 日领先且分差 > 0.25）、`factors/survival_store.py`、strict bench runner，以及 54 个 GTJA191/Qlib 因子的极性／平滑修复。
 - **2026-07** 🀄 **市场优选 + A 股闭环起步** —— 板块级双轨扫描、可执行标的与观察图的分离、7 个 `custom` 因子，以及最初的板块研究提示词（`agent/prop_国泰君安_*.md`）。
@@ -211,33 +212,34 @@
 <a id="ashare-loop"></a>
 ## 🀄 A 股研究闭环 <sub>（本分支核心）</sub>
 
-本仓库是 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 的 fork。上游引擎完整保留 —— ReAct 主循环、88 个 skills、79 个默认注册工具、469 个内置因子、30 个 swarm preset、行情 fallback 链与券商连接层全部按下方文档原样可用。在此之上，本分支叠加了一套**A 股板块研究闭环**，围绕东方财富板块、国泰君安 191 因子族与"散户只做多"的约束展开。
+本仓库是 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 的 fork。上游引擎完整保留 —— ReAct 主循环、88 个 skills、79 个默认注册工具、469 个内置因子、30 个 swarm preset、行情 fallback 链与券商连接层全部按下方文档原样可用。
 
-这套闭环里的所有环节**只做研究与回测**。没有任何模块会下单；通往券商的唯一路径仍是上游的 live/mandate 层。
+**默认路径**是 [CAPABILITY_zh.md](CAPABILITY_zh.md) 里的能力圈：日线到波段、只做多、中小资金、规则可解释。
 
 ```text
-agent/prop_国泰君安_<板块>_最优.md        ← 研究提示词 + 硬约束
-            │  vibe-trading run
+数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本
+```
+
+这条路径不会向券商发单。模型不批准 `tradable`，也不决定纸面仓位。明确禁止：全自动致富叙事、和机构高频赛跑、把 LLM 放在自动下单主路径上。
+
+`agent/prop_*.md`、`agent/scripts/run_f0_f1_*.py`、`agent/scripts/run_sectors_optimal_*.py` 和 `agent/src/factors/zoo/custom/` **仅供研究**。下面的看板仍可运行，但它们不是一只股票变成可交易的方式。
+
+```text
+agent/prop_国泰君安_<板块>_最优.md        ← 冻结的研究提示词，不是默认路径
+            │
             ▼
-回测：F0（动量 + IR 加权确认腿）
-      vs  F1（+ custom MAX 否决）
-            │  相对板块等权超额 · Sharpe · maxDD · MC 置换 p
-            ▼
-「最优」目录 — agent/src/sector_pick/catalog.py（21 个板块）
+「最优」目录 — agent/src/sector_pick/catalog.py（仅研究）
             │
      ┌──────┴───────────────────────────────┐
      ▼                                      ▼
 市场优选 Market Pick                  优选板块 Sector Pick
-沪深300 状态 → 仓位 stance            21 行打分 → ThemeLock
-板块双轨扫描                          → 绑定 SignalEngine 持仓
      │                                      │
      └───────────────┬──────────────────────┘
                      ▼
-        监控看板 Monitor — 持久看板、每日扫描、
-        盘中临时日线、10 交易日相似片段推演
+        监控看板 Monitor — 决策日志 + 验证门
+        ST / 涨停 / 一字板 / 三连板买入排除在外
                      ▼
-        决策合成 Process — Mandate + F0 立场 + 结构（+analog）
-                            → 单一 Decision（只允许收紧）
+        纸面账本 — 逐日结算，单名 20%，回撤 15% 停止新买入
 ```
 
 | 界面 | 路由 | 模块 | CLI |
@@ -268,7 +270,7 @@ agent/prop_国泰君安_<板块>_最优.md        ← 研究提示词 + 硬约�
 
 ### 2. 优选板块 Sector Pick
 
-优选板块只对**已经研究过**的板块排序 —— 候选集是精选的「最优」目录，而不是把所有回测 run 全扫一遍。
+仅供研究。优选板块只对**已经研究过**的板块排序 —— 候选集是精选的「最优」目录，而不是把所有回测 run 全扫一遍。它不会把一只股票放进可交易池。
 
 | 概念 | 行为 |
 |---|---|
@@ -921,7 +923,7 @@ skill + MCP config 会下载到你的智能体 skills 目录。详情见 [ClawHu
 
 **免费数据（无需 key）：** A 股通过 AKShare，港/美股通过 yfinance，加密通过 OKX，100+ 加密交易所通过 CCXT。系统会为每个市场自动选择最佳可用数据源。
 
-**A 股纸面账本。** `python -m src.paper_book step --date YYYY-MM-DD --run-id <id>`（或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。
+**A 股纸面账本。** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>`（或 `python -m src.paper_book`，或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。标了 ST、涨停、一字板或三连板的买入不会进入这组信号。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离、仓位/回撤上限）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`（默认 `0.20`）把单只股票限制在盯市净值的 20%。`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`（默认 `0.15`）在自高点回撤达到 15% 后停止新买入，卖出照常结算。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。见 [CAPABILITY_zh.md](CAPABILITY_zh.md)。
 
 ### 🎯 Recommended Models
 
@@ -941,9 +943,11 @@ Vibe-Trading 是高度依赖工具的智能体：skills、backtests、memory 和
 
 ```bash
 vibe-trading               # interactive TUI
-vibe-trading run -p "..."  # single run
+vibe-trading hypothesis list   # 默认路径：信号可交易之前先写日志
+vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # 默认路径的终点
+vibe-trading run -p "..."  # 单次运行；prop_* 提示词仅供研究
 vibe-trading serve         # API server
-vibe-trading alpha list    # 浏览 469 个预置 alpha；支持 show / bench / compare / export-manifest 子命令
+vibe-trading alpha list    # 浏览 469 个预置 alpha；custom 因子库仅供研究
 vibe-trading channels status --local  # 检查 IM 通道配置和依赖安装提示
 ```
 

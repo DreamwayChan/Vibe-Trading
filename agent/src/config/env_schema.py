@@ -270,6 +270,16 @@ class DataConfig(_EnvBase):
     vibe_trading_paper_book_initial_cash: float = Field(
         alias="VIBE_TRADING_PAPER_BOOK_INITIAL_CASH", default=1_000_000.0
     )
+    # Single-name cap as a fraction of marked NAV. 0.20 keeps one board lot
+    # of a mid/small book from becoming the whole account. 1.0 disables it.
+    vibe_trading_paper_book_max_position: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_POSITION", default=0.20
+    )
+    # Peak-to-mark drawdown that blocks new buys. Sells still settle.
+    # 0.15 is fifteen percent under the high-water NAV.
+    vibe_trading_paper_book_max_drawdown: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN", default=0.15
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")
