@@ -231,6 +231,7 @@ class SuggestionResponse(BaseModel):
     signal: Optional[float] = None
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
+    risk_flags: List[str] = Field(default_factory=list)
 
 
 class HoldingResponse(BaseModel):

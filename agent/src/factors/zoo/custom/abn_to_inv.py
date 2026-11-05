@@ -46,7 +46,9 @@ __alpha_meta__ = {
     "notes": (
         "Turnover premium proxy without float shares: abnormal volume "
         "5d/60d, sign-flipped. Higher = less short-term volume spike. "
-        "Use as momentum confirm to avoid crowded retail chase."
+        "Use as momentum confirm to avoid crowded retail chase. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

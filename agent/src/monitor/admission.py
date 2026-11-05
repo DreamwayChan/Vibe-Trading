@@ -10,6 +10,10 @@ Pool membership needs both:
 Buy/sell suggestions stay visible when the pool is closed. They are marked
 ``tradable=false`` and carry ``block_reasons``. Hold suggestions are not
 actionable signals.
+
+A buy is also blocked when its A-share risk flags include ST, limit-up,
+a one-word board, or an extreme consecutive-board streak. Those flags are
+stamped by the scan from bars already in hand. Sells are not blocked.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from typing import Any
 
 from backtest.validation import evaluate_run_validation
 from src.hypotheses.journal import DecisionJournal, DecisionSignal
+from src.monitor.ashare_risk import buy_block_reasons
 from src.monitor.models import MonitorConfig, MonitorSuggestion
 from src.strategy_store.models import artifact_matches_run
 
@@ -82,6 +87,8 @@ def _annotate_suggestion(
         reasons.append("missing_journal")
     elif not entry.tradable:
         reasons.extend(entry.block_reasons or ["journal_blocked"])
+    if suggestion.action == "buy":
+        reasons.extend(buy_block_reasons(suggestion.risk_flags))
     tradable = not reasons
     return replace(suggestion, tradable=tradable, block_reasons=_dedupe(reasons))
 

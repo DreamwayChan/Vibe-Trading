@@ -1,8 +1,12 @@
 """Curated 「最优」 sector recipes used by the sector-pick board.
 
-Each row points at the winning F0' or F1 run documented in
-``agent/prop_国泰君安_*_最优.md``. Missing run directories fail-soft at scan
-time instead of being dropped from this list.
+Research-only. These rows point at frozen prompts in
+``agent/prop_国泰君安_*_最优.md``. They are not the default path. That path
+is lake → hypothesis → cost-aware backtest → validation gate → tradable →
+paper book (see ``CAPABILITY.md``).
+
+Missing run directories fail-soft at scan time instead of being dropped
+from this list.
 """
 
 from __future__ import annotations

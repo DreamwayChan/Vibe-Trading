@@ -42,7 +42,9 @@ __alpha_meta__ = {
     "min_warmup_bars": 38,
     "notes": (
         "Location component of THS-style absorb: 1-RSV38. Keep as a separate "
-        "confirm factor when compression gating is undesired."
+        "confirm factor when compression gating is undesired. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 # prop · GTJA191 存活因子 趋势股 BK1715 最优回测复现
 
 > 研究/回测，非实盘建议。

@@ -47,7 +47,9 @@ __alpha_meta__ = {
         "Ang et al. (2006) IVOL, sign-flipped so higher = quieter residual. "
         "Uses equal-weight market residual (beta≈1), not a full rolling beta "
         "regression — keeps warmup short for theme-pool weekly rebalance. "
-        "Intended as momentum confirm, complementary to gtja191_164."
+        "Intended as momentum confirm, complementary to gtja191_164. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

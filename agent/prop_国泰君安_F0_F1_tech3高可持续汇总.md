@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 # F0 vs F1 汇总 — 高可持续科技三板块（2026-07-31 题材）
 
 **声明：研究/回测结果，非实盘建议。**

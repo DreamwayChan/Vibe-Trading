@@ -44,7 +44,9 @@ __alpha_meta__ = {
     "notes": (
         "20d mean return over 20d realized vol (local Sharpe). Higher = "
         "stronger risk-adjusted trend. Distinct from gtja191_164; can be "
-        "primary sort or a second momentum leg. Not a reversal/absorb factor."
+        "primary sort or a second momentum leg. Not a reversal/absorb factor. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

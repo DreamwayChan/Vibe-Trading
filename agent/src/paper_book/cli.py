@@ -16,7 +16,11 @@ from src.paper_book.store import PaperBookError, load_report, load_state, paper_
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m src.paper_book",
-        description="Settle one A-share paper-book session from monitor tradable signals.",
+        description=(
+            "Default A-share endpoint: lake → hypothesis → cost backtest → "
+            "validation gate → tradable → paper book. "
+            "prop_* prompts and the custom factor zoo are research-only."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

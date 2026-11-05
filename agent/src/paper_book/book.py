@@ -11,6 +11,7 @@ import pandas as pd
 from backtest.engines.china_a import ChinaAEngine
 
 from src.monitor.models import MonitorConfig
+from src.paper_book.caps import session_caps
 from src.paper_book.downgrade import downgrade_admission
 from src.paper_book.expectation import (
     choose_anchor,
@@ -60,6 +61,8 @@ def step_day(
     strategy_store: Any = _AUTO_STORE,
     threshold: float | None = None,
     initial_cash: float | None = None,
+    max_position: float | None = None,
+    max_drawdown: float | None = None,
     engine: ChinaAEngine | None = None,
 ) -> DailyReport:
     """Settle ``as_of`` from tradable signals, lake (or injected) bars, and the saved book.
@@ -78,6 +81,8 @@ def step_day(
     state = load_state(store_root, resolved_id)
     replay_intents: list[Intent] | None = None
     skipped: list[dict[str, str]] = []
+    prior_risk: dict[str, Any] = {}
+    fresh_session = True
     if state is None:
         state = BookState(
             book_id=resolved_id,
@@ -100,8 +105,11 @@ def step_day(
                 if isinstance(item, dict)
             ]
             skipped = [item for item in (prior.get("skipped") or []) if isinstance(item, dict)]
+            stored_risk = prior.get("risk")
+            prior_risk = stored_risk if isinstance(stored_risk, dict) else {}
             state = BookState.from_dict(state.opening)
             state.book_id = resolved_id
+            fresh_session = False
 
     if state.inception_date is None:
         state.inception_date = day
@@ -117,10 +125,25 @@ def step_day(
     day_bars = dict(bars) if bars is not None else load_day_bars(symbols, day)
     day_bars = {_norm_symbol(key): value for key, value in day_bars.items()}
 
-    fills, unfilled = _apply_intents(state, day=day, intents=replay_intents, bars=day_bars, engine=fill_engine)
+    max_position = _fraction("max position", _position_cap(max_position))
+    max_drawdown = _fraction("max drawdown", _drawdown_cap(max_drawdown))
+    fills, unfilled, cap_skipped, risk, replay_intents = _apply_intents(
+        state,
+        day=day,
+        intents=replay_intents,
+        bars=day_bars,
+        engine=fill_engine,
+        max_position=max_position,
+        max_drawdown=max_drawdown,
+        apply_caps=fresh_session,
+        prior_risk=prior_risk,
+    )
+    if fresh_session:
+        skipped.extend(cap_skipped)
     _mark_positions(state, day_bars)
 
     nav, market_value = _nav(state)
+    state.peak_nav = max(state.peak_nav or 0.0, state.initial_cash, nav)
     prev = previous_nav(store_root, resolved_id, day, state.initial_cash)
     daily_return = (nav / prev - 1.0) if prev > 0 else 0.0
     cum_return = (nav / state.initial_cash - 1.0) if state.initial_cash > 0 else 0.0
@@ -193,6 +216,7 @@ def step_day(
         expectation=expectation,
         downgraded=downgraded,
         downgrade_reason=PAPER_BOOK_DEVIATION if downgraded else None,
+        risk=risk,
     )
     save_state(store_root, state)
     save_report(store_root, report)
@@ -258,7 +282,11 @@ def _apply_intents(
     intents: list[Intent],
     bars: Mapping[str, pd.Series],
     engine: ChinaAEngine,
-) -> tuple[list[Fill], list[Unfilled]]:
+    max_position: float,
+    max_drawdown: float,
+    apply_caps: bool,
+    prior_risk: dict[str, Any] | None = None,
+) -> tuple[list[Fill], list[Unfilled], list[dict[str, str]], dict[str, Any], list[Intent]]:
     fills: list[Fill] = []
     unfilled: list[Unfilled] = []
     sells = [intent for intent in intents if intent.action == "sell"]
@@ -271,13 +299,42 @@ def _apply_intents(
         unfilled.extend(rows)
     _mark_positions(state, bars)
     nav, _market = _nav(state)
+    cap_skipped: list[dict[str, str]] = []
+    if apply_caps:
+        buys, cap_skipped, risk = session_caps(
+            state,
+            buys,
+            max_position=max_position,
+            max_drawdown=max_drawdown,
+            nav=nav,
+        )
+    else:
+        # Replay keeps the saved buys. Recompute the mark so the report still
+        # shows today's drawdown, and keep the clip list from the first pass.
+        peak = state.peak_nav if state.peak_nav and state.peak_nav > 0 else state.initial_cash
+        drawdown = ((peak - nav) / peak) if peak > 0 else 0.0
+        stored = prior_risk or {}
+        clipped = [str(item) for item in (stored.get("clipped") or [])]
+        if "drawdown_blocked" in stored:
+            blocked = bool(stored.get("drawdown_blocked"))
+        else:
+            blocked = drawdown > max_drawdown
+        risk = {
+            "max_position": max_position,
+            "max_drawdown": max_drawdown,
+            "peak_nav": peak,
+            "nav_before_buys": nav,
+            "drawdown": drawdown,
+            "drawdown_blocked": blocked,
+            "clipped": clipped,
+        }
     for intent in buys:
         fill, row = _buy_intent(state, day=day, intent=intent, bars=bars, engine=engine, nav=nav)
         if fill is not None:
             fills.append(fill)
         if row is not None:
             unfilled.append(row)
-    return fills, unfilled
+    return fills, unfilled, cap_skipped, risk, sells + buys
 
 
 def _sell_intent(
@@ -460,6 +517,28 @@ def _threshold(explicit: float | None) -> float:
         value = float(get_env_config().data.vibe_trading_paper_book_deviation_threshold)
     if value < 0 or value != value:
         raise PaperBookError(f"deviation threshold must be >= 0, got {value}")
+    return value
+
+
+def _position_cap(explicit: float | None) -> float:
+    if explicit is not None:
+        return float(explicit)
+    from src.config.accessor import get_env_config
+
+    return float(get_env_config().data.vibe_trading_paper_book_max_position)
+
+
+def _drawdown_cap(explicit: float | None) -> float:
+    if explicit is not None:
+        return float(explicit)
+    from src.config.accessor import get_env_config
+
+    return float(get_env_config().data.vibe_trading_paper_book_max_drawdown)
+
+
+def _fraction(label: str, value: float) -> float:
+    if value <= 0 or value > 1 or value != value:
+        raise PaperBookError(f"{label} must be in (0, 1], got {value}")
     return value
 
 

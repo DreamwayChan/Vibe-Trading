@@ -177,6 +177,37 @@ describe("Monitor page", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows A-share risk markers on a suggestion", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["600519.SH"],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      suggestions: [
+        {
+          symbol: "600519.SH",
+          action: "buy",
+          position: "long",
+          reason: "signal crossed into long",
+          as_of: "2024-01-02",
+          price: 1688.5,
+          tradable: false,
+          block_reasons: ["ashare_limit_up", "ashare_one_word"],
+          risk_flags: ["limit_up", "one_word"],
+        },
+      ],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("limit-up")).toBeInTheDocument();
+    expect(screen.getByText("one-word")).toBeInTheDocument();
+  });
+
   it("shows the tradable-pool strip and blocks a buy that failed the journal", async () => {
     vi.mocked(api.getMonitor).mockResolvedValue({
       symbols: ["600519.SH"],
