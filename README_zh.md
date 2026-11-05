@@ -246,6 +246,7 @@ agent/prop_国泰君安_<板块>_最优.md        ← 研究提示词 + 硬约�
 | 优选板块 Sector Pick | `/sector-pick` | `agent/src/sector_pick/` | —（Web UI + REST） |
 | 监控看板 Monitor | `/monitor` | `agent/src/monitor/` | —（Web UI + REST） |
 | 决策合成 Decision compose | 库 | `agent/src/process/` | —（库 + REST） |
+| 研报表格 Tables | `/tables` | `agent/src/tools/tables/` | —（Web UI + REST） |
 
 这三个看板是 **Web UI 与 REST 界面**，不是 CLI 子命令。启动 `vibe-trading serve` 后访问 `/market-pick`、`/sector-pick`、`/monitor`。
 
@@ -449,7 +450,7 @@ Vibe-Trading 是一个开源研究工作台，用于把金融问题转化为可�
 | **提出交易问题** | 结合工具、数据、文档和可复用 session 上下文的市场研究。 |
 | **回测策略想法** | 策略代码、指标、benchmark 上下文、验证 artifacts 和 run cards。 |
 | **复盘自己的交易** | 券商日志解析、行为诊断、规则提取和 Shadow Account 对比。 |
-| **读取文档与图表** | 用可插拔 OCR 解析 PDF / DOCX / XLSX / PPTX / 图片（`read_document`），并用视觉模型语义化读取图表截图（`analyze_image`）。 |
+| **读取文档与图表** | 用可插拔 OCR 解析 PDF / DOCX / XLSX / PPTX / 图片（`read_document`）；`extract_tables` 把 PDF 表格还原成带单位与列类型的结构化行/列（装 `pip install "vibe-trading-ai[docs]"` 可解合并单元格与多行表头）；并用视觉模型语义化读取图表截图（`analyze_image`）。 |
 | **改进重复研究** | 持久记忆和可编辑 skills 将有用流程变成可复用工作流。 |
 | **运行分析师团队** | 面向投资、量化、加密、宏观和风控工作流的多智能体研究评审。 |
 | **把研究接入 IM 通道** | 通过 WebSocket、Telegram、Slack、Discord、Matrix、WhatsApp、Signal、QQ/NapCat、微信/企业微信、飞书/Lark、钉钉、Teams、email、Mochat，在 CLI、REST 和 Web UI 中管理同一套 session runtime。 |
@@ -1156,6 +1157,8 @@ vibe-trading serve --port 8899
 | `GET` / `POST` | `/monitor/forecast/saves` | 列出 / 保存预测快照 |
 | `GET` | `/monitor/forecast/saves/{snapshot_id}` | 单个已保存预测 |
 | `GET` | `/monitor/history` · `/history/{as_of}` | 监控历史 / 单日快照 |
+| `GET` | `/tables/engine` | 当前表格引擎、可用引擎、页数上限与缓存状态 |
+| `POST` | `/tables/extract` | 对已上传的 PDF 抽取表格（`file_path`、`pages`、`max_tables`、`include_csv`） |
 | `GET` | `/settings/llm` | 读取 Web UI LLM settings |
 | `PUT` | `/settings/llm` | 更新本地 LLM settings |
 | `GET` | `/settings/data-sources` | 读取本地数据源 settings |
@@ -1254,7 +1257,7 @@ vibe-trading-mcp --transport sse   # legacy SSE (deprecated)
 
 </details>
 
-**暴露的 MCP tools（54）：** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `web_search`, `write_file`, `read_file`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`.
+**暴露的 MCP tools（55）：** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `extract_tables`, `web_search`, `write_file`, `read_file`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`.
 
 <details>
 <summary><b>从 ClawHub 安装（一条命令）</b></summary>

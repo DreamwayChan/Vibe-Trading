@@ -66,7 +66,7 @@ Format-specific extra fields:
 
 | Format | Extra keys |
 |---|---|
-| `pdf` | `total_pages`, `pages_read`, `ocr_pages`, `ocr_engine`, `ocr_quality`, `skipped_pages` |
+| `pdf` | `total_pages`, `pages_read`, `ocr_pages`, `ocr_engine`, `ocr_quality`, `skipped_pages`, `has_tables_hint`, `table_pages_hint` |
 | `docx` | `paragraphs`, `tables` |
 | `excel` | `sheets` (array of `{name, rows, cols}`) |
 | `pptx` | `slides` |
@@ -74,6 +74,40 @@ Format-specific extra fields:
 
 Content longer than 15000 chars is truncated; for PDFs use the `pages`
 parameter to read slices.
+
+## Tables inside a PDF
+
+Text extraction flattens a table into a column of numbers — row and column
+alignment is lost, so you cannot tell which figure belongs to which column.
+When a PDF envelope reports `has_tables_hint: true`, call `extract_tables` on
+the pages it names:
+
+```
+extract_tables(file_path="uploads/report.pdf", pages="4,7")
+```
+
+Each returned table carries `caption`, `columns`, `column_types`, `unit_label`
++ `unit_scale` (e.g. `亿元` → `1e8`), `statement_hint`
+(`income`/`balance`/`cashflow` when it is a financial statement), and both a
+`markdown` and a `csv` rendering. Prefer `csv` when you need to compute with
+the numbers; prefer `markdown` when quoting them.
+
+A table that continues onto the next page comes back as **one** record:/n`pages: [4, 5]` with `page` still pointing at the first page, and the header
+row repeated on page 5 already dropped. Do not re-request the next page to
+collect "the rest of the table" — it is already in `rows`. The envelope adds
+`stitched_pages: [[4, 5]]` when any table was stitched.
+
+Three caveats worth passing on to the user:
+
+- `quality: "geometric"` means columns were inferred from text positions, not
+  read from a structured document — merged cells and multi-row headers can be
+  mis-split. Say so if a figure looks inconsistent.
+- `quality: "structural"` means the optional docling engine read the real grid
+  (merged cells and multi-row headers preserved). It is off unless the user
+  installed `pip install "vibe-trading-ai[docs]"`; never promise it is
+  available without checking the `engine` field of a prior call.
+- `truncated: true` means the character budget cut rows or later tables. Read
+  the rest with an explicit `pages` range before drawing conclusions.
 
 ## Workflows
 

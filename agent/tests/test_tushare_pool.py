@@ -29,6 +29,12 @@ def _reset_pool():
     reset_tushare_pool()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_quota_ledger(tmp_path, monkeypatch):
+    """Keep daily-quota bookkeeping out of the real lake during tests."""
+    monkeypatch.setenv("VIBE_TRADING_LAKE_ROOT", str(tmp_path))
+
+
 def test_parse_token_list_splits_comma_semicolon_newline() -> None:
     assert parse_token_list("a,b;c\nd") == ["a", "b", "c", "d"]
     assert parse_token_list("  x  ,  y  ") == ["x", "y"]
@@ -299,3 +305,99 @@ def test_get_tushare_pool_singleton_resets(monkeypatch: pytest.MonkeyPatch) -> N
     reset_tushare_pool()
     third = pool_mod.get_tushare_pool()
     assert third is not first
+
+
+# ---------------------------------------------------------------------------
+# Per-day quotas and sub-RPM endpoint pacing
+#
+# ``stk_mins`` on a 120-point account answers 40203 with three different
+# messages depending on which window broke: "2次/天" (a day, resets at Beijing
+# midnight), "1次/小时" and "1次/分钟". Treating all three as "RPM breach, cool
+# 65s and try the next token" spends every account's whole daily allowance in
+# one request — which is exactly what happened before these tests existed.
+# ---------------------------------------------------------------------------
+
+
+def test_daily_quota_marker_is_not_classified_as_hourly() -> None:
+    daily = RuntimeError("频率超限(2次/天)")
+    hourly = RuntimeError("频率超限(1次/小时)")
+    per_minute = RuntimeError("频率超限(1次/分钟)")
+
+    assert pool_mod.is_daily_quota_error(daily) is True
+    assert pool_mod.is_daily_quota_error(hourly) is False
+    assert pool_mod.is_daily_quota_error(per_minute) is False
+
+    assert pool_mod.is_hourly_rate_limit(hourly) is True
+    assert pool_mod.is_per_minute_limit(per_minute) is True
+    assert pool_mod.is_per_minute_limit(hourly) is False
+
+
+def test_seconds_until_reset_is_within_a_day() -> None:
+    remaining = pool_mod.seconds_until_quota_reset()
+    assert 0 <= remaining <= 24 * 3600
+
+
+def test_daily_quota_exhausts_once_and_stops_retrying(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("VIBE_TRADING_LAKE_ROOT", str(tmp_path))
+    attempts: list[str] = []
+
+    def fake_post(token: str, api_name: str, **_kwargs):
+        attempts.append(token)
+        raise RuntimeError(
+            "tushare stk_mins error 40203: 抱歉，您访问接口(stk_mins)频率超限(2次/天)"
+        )
+
+    monkeypatch.setattr(pool_mod, "post_tushare_api", fake_post)
+    pool = TushareClientPool(tokens=["tok-a", "tok-b", "tok-c"], rpm=50, cooldown_seconds=0.01)
+
+    with pytest.raises(pool_mod.TushareQuotaExhausted):
+        pool.call("stk_mins", ts_code="600519.SH")
+    # One attempt per token: no retry storm after the day is gone.
+    assert sorted(attempts) == ["tok-a", "tok-b", "tok-c"]
+
+    # The ledger remembers, so a fresh pool fails without any HTTP call.
+    second = TushareClientPool(tokens=["tok-a", "tok-b", "tok-c"], rpm=50)
+    attempts.clear()
+    with pytest.raises(pool_mod.TushareQuotaExhausted):
+        second.call("stk_mins", ts_code="000001.SZ")
+    assert attempts == []
+    assert second.quota_report()["stk_mins"]["remaining"] == 0
+
+
+def test_daily_exhaustion_does_not_block_daily_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("VIBE_TRADING_LAKE_ROOT", str(tmp_path))
+
+    def fake_post(token: str, api_name: str, **_kwargs):
+        if api_name == "stk_mins":
+            raise RuntimeError("频率超限(2次/天)")
+        return f"ok:{api_name}"
+
+    monkeypatch.setattr(pool_mod, "post_tushare_api", fake_post)
+    pool = TushareClientPool(tokens=["tok-a"], rpm=50, cooldown_seconds=0.01)
+    with pytest.raises(pool_mod.TushareQuotaExhausted):
+        pool.call("stk_mins", ts_code="600519.SH")
+    assert pool.call("daily", ts_code="600519.SH") == "ok:daily"
+
+
+def test_min_interval_paces_endpoint_across_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stk_mins allows 1/minute per token, so the second call must use tok-b."""
+    monkeypatch.setattr(pool_mod, "post_tushare_api", lambda token, api, **k: f"ok:{token}")
+    pool = TushareClientPool(tokens=["tok-a", "tok-b"], rpm=50, cooldown_seconds=0.01)
+
+    assert pool.call("stk_mins", ts_code="600519.SH") == "ok:tok-a"
+    # tok-a just fired and must wait ~61s; the scheduler should reach for tok-b
+    # instead of sleeping.
+    assert pool.call("stk_mins", ts_code="000001.SZ") == "ok:tok-b"
+    assert pool.earliest_wait("stk_mins") > 50
+
+
+def test_min_interval_does_not_apply_to_daily(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pool_mod, "post_tushare_api", lambda token, api, **k: f"ok:{token}")
+    pool = TushareClientPool(tokens=["tok-a"], rpm=50, cooldown_seconds=0.01)
+    assert pool.call("daily", ts_code="600519.SH") == "ok:tok-a"
+    assert pool.call("daily", ts_code="600519.SH") == "ok:tok-a"
+    assert pool.earliest_wait("daily") == 0.0

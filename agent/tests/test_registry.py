@@ -147,9 +147,14 @@ class TestFallbackChains:
 
     def test_chains_ordered_by_ip_ban_risk(self) -> None:
         """Equity chains lead with throttle-tolerant public sources and trail
-        with key-gated REST fallbacks, in the exact reviewed order."""
+        with key-gated REST fallbacks, in the exact reviewed order.
+
+        ``lake`` sits just before ``local``: both read what is already on this
+        machine, and both must stay behind every network source so a fresh
+        install never resolves to an empty local store."""
         assert FALLBACK_CHAINS["a_share"] == [
-            "tencent", "mootdx", "eastmoney", "baostock", "akshare", "tushare", "local",
+            "tencent", "mootdx", "eastmoney", "baostock", "akshare", "tushare",
+            "lake", "local",
         ]
         assert FALLBACK_CHAINS["us_equity"] == [
             "yahoo", "stooq", "sina", "eastmoney", "yfinance", "tiingo", "fmp",

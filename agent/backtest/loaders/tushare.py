@@ -22,6 +22,8 @@ from backtest.loaders.base import (
 from backtest.loaders.registry import register
 from backtest.loaders.tushare_pool import (
     PoolApiProxy,
+    TushareAllTokensBlocked,
+    TushareQuotaExhausted,
     get_tushare_pool,
     resolve_tushare_tokens,
 )
@@ -55,6 +57,35 @@ def _is_crypto(code: str) -> bool:
     """Detect crypto symbols (e.g. BTC-USDT, ETH/USDT)."""
     upper = code.upper()
     return upper.endswith("-USDT") or upper.endswith("/USDT")
+
+
+# Prefixes that carry plain A-share stocks. ``daily`` covers these and nothing
+# else, so a B-share (200/201), a bond (10x/11x/12x) or a stray code from a
+# board list answers with an empty frame — which reads as "missing data" and
+# burns a slot in the batch. Board universes do contain such codes: Eastmoney
+# BK1481 lists 201872.SZ next to 001872.SZ.
+_SH_PREFIXES = ("600", "601", "603", "605", "688", "689")
+_SZ_PREFIXES = ("000", "001", "002", "003", "300", "301")
+_BJ_PREFIXES = ("4", "8", "920")
+
+# ``daily`` caps one response at 6000 rows. A 20-symbol batch over a 400-day
+# lookback already returns ~5400 rows, so warn before the cap is crossed and
+# later symbols start disappearing without an error.
+_DAILY_ROW_WARN = 5800
+
+
+def _is_a_share_stock(code: str) -> bool:
+    """True for a plain A-share code on the ``daily`` endpoint."""
+    upper = code.strip().upper()
+    for suffix, prefixes in (
+        (".SH", _SH_PREFIXES),
+        (".SZ", _SZ_PREFIXES),
+        (".BJ", _BJ_PREFIXES),
+    ):
+        if upper.endswith(suffix):
+            digits = upper[: -len(suffix)]
+            return len(digits) == 6 and digits.isdigit() and digits.startswith(prefixes)
+    return False
 
 
 def _is_batchable_stock(code: str) -> bool:
@@ -107,6 +138,9 @@ class DataLoader:
     name = "tushare"
     markets = {"a_share", "futures", "fund"}
     requires_auth = True
+    #: ``daily()`` for ``1D``, ``stk_mins`` for minutes (points >= 2000 needed).
+    #: No weekly/monthly and no 4H, so those requests walk past this loader.
+    SUPPORTED_INTERVALS = frozenset({"1D", "1m", "5m", "15m", "30m", "1H"})
 
     def is_available(self) -> bool:
         """Available when at least one non-placeholder Tushare token is set."""
@@ -147,6 +181,30 @@ class DataLoader:
         ed = end_date.replace("-", "")
         cache_fields = list(fields or [])
         result: Dict[str, pd.DataFrame] = {}
+
+        # Drop codes no Tushare endpoint here can serve (B-share, bond, junk
+        # from a board member list) instead of paying a request that can only
+        # return an empty frame and then reporting it as missing data.
+        unknown = [
+            code
+            for code in codes
+            if not (
+                _is_a_share_stock(code)
+                or _is_etf_listed(code)
+                or _is_index(code)
+                or _is_hk_equity(code)
+                or _is_us_equity(code)
+                or _is_crypto(code)
+            )
+        ]
+        if unknown:
+            logger.warning(
+                "tushare: skipping %d non-A-share code(s) %s",
+                len(unknown),
+                unknown[:10],
+            )
+            unknown_set = set(unknown)
+            codes = [code for code in codes if code not in unknown_set]
 
         stock_codes = [code for code in codes if _is_batchable_stock(code)]
         special_codes = [code for code in codes if not _is_batchable_stock(code)]
@@ -274,6 +332,14 @@ class DataLoader:
             return self._fetch_stock_daily_each(codes, start_date, end_date)
 
         result: Dict[str, pd.DataFrame] = {}
+        if len(raw) >= _DAILY_ROW_WARN:
+            logger.warning(
+                "tushare daily batch (%d symbols) returned %d rows — the response "
+                "is at the 6000-row cap; later symbols may be truncated. Lower "
+                "TUSHARE_DAILY_BATCH_SIZE or shorten the range",
+                len(codes),
+                len(raw),
+            )
         if "ts_code" not in raw.columns:
             # Single-code response shape without ts_code — only valid for one symbol.
             if len(codes) == 1:
@@ -454,6 +520,14 @@ class DataLoader:
                     subset=["open", "high", "low", "close"]
                 )
                 result[code] = ohlcv
+            except (TushareQuotaExhausted, TushareAllTokensBlocked) as exc:
+                # A capped endpoint stops the whole request, not one symbol:
+                # continuing would just log the same failure N thousand times.
+                logger.error(
+                    "tushare stk_mins unavailable after %d/%d symbols: %s",
+                    len(result), len(codes), exc,
+                )
+                break
             except Exception as exc:
                 logger.warning("failed to fetch minute data %s: %s", code, exc)
         return result

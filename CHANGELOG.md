@@ -5,6 +5,192 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **IM channels are now product features, not terminal chores.** Enabled
+  channels connect with the server instead of waiting for a Settings click:
+  `channels.auto_start` (default on, per-channel override, env
+  `VIBE_TRADING_CHANNELS_AUTO_START` as a tri-state forced override) drives a
+  non-blocking startup task, so a broken adapter can no longer delay or fail
+  boot. `ChannelManager.start_all()` no longer `gather()`s long-poll adapters
+  that only return when stopped — each adapter owns a task, `state_of()` reports
+  `disabled / unavailable / stopped / starting / running / needs_auth / error`,
+  and `/channels/{name}/start|stop|restart` plus `GET|PUT /channels/settings`
+  replace the all-or-nothing controls. Binding moved into the browser:
+  `agent/src/channels/auth.py` models a login attempt as a TTL-bounded
+  `AuthSession` (server-rendered QR SVG, `waiting_scan → scanned → confirmed`),
+  `weixin` implements `begin_login()/logout()`, and `/channels/{name}/auth/*`
+  lets the Settings panel scan, poll, re-bind or unbind without touching the
+  server terminal. `weixin.start()` now reports `needs_auth` instead of blocking
+  on an invisible ASCII QR code. Editing channel config no longer requires
+  hand-editing JSON: `src/config/writer.py` validates, backs up and atomically
+  writes `agent.json` while preserving unrelated sections, backing
+  `PATCH /channels/{name}` (credentials, `allow_from`, `enabled`) and the
+  pairing queue (`GET /channels/pairing/pending|approved`,
+  `POST /channels/pairing/approve|deny`, `DELETE /channels/pairing/approved/{id}`).
+  The Settings IM section is now a status list with per-channel state pills,
+  an auto-connect switch, a QR binding wizard, credential forms for
+  Telegram/Discord/Slack/WeCom/Feishu/DingTalk/Matrix/email, and inline
+  approve/deny for pending pairings. See
+  `docs/design/im-channels-optimization.md` for the design and phased plan.
+- **IM channels now self-heal and explain themselves.** `ChannelManager` runs a
+  watchdog that restarts an adapter which exits without being asked to, backing
+  off 1s → 2s → … → 60s and resetting after a minute of uptime, so a flapping
+  upstream can neither spin the process nor stay dead until someone notices.
+  `channels.supervisor` (global) and `auto_restart` (per channel) switch it off,
+  and a channel that needs a fresh login is never retried — only a re-bind can
+  fix a rejected credential. Adapter exceptions that mean "credential refused"
+  (401/403, `invalid_auth`, WeChat `errcode -14`) now flip the channel to
+  `needs_auth` instead of being retried forever. Each channel keeps a bounded
+  ring buffer of its own log records (module logger *and* instance logger),
+  exposed as `GET /channels/{name}/logs` + `DELETE /channels/{name}/logs` and
+  rendered in a Settings drawer — the first way to see *why* a headless adapter
+  is silent. Status payloads gained `auto_restart`, `desired`, `backoff_s` and
+  `retry_in_s`. Channel credentials moved out of `agent.json` into an
+  owner-only `secrets.json` (`src/config/secrets.py`): writes split secrets out
+  automatically, migrate inline values without losing them, and
+  `load_channels_config()` overlays them back so adapters need no changes.
+  Unbinding now clears the stored credential instead of only flipping a flag.
+- **Research-report table extraction (`/tables`)**: the `extract_tables` tool
+  gained a Web UI and a REST surface, so a PDF's tables no longer have to be
+  pulled out by prompting the agent. `POST /tables/extract` reuses the tool's own
+  code path (path validation → engine → cross-page stitching → normalisation →
+  character budget) and returns the structured payload the model would see;
+  `GET /tables/engine` reports which engine would run, its page cap and cache
+  state so the page can warn before a 300-page annual report is submitted.
+  `agent/src/api/tables_routes.py` resolves the `uploads/<hex>.pdf` path returned
+  by `POST /upload` against the agent directory, runs extraction on a worker
+  thread, and turns tool-level `status: error` envelopes into HTTP 400 carrying
+  the tool's own message. The `/tables` page (sidebar → Reports → Table Extract)
+  takes a drag-and-dropped PDF plus an optional page range, then renders every
+  table as a sticky-header grid with right-aligned numeric columns, a quality
+  badge (`structural` vs `geometric`, the latter warning that merged cells may be
+  split), a badge for tables stitched across pages, Markdown copy and a UTF-8-BOM
+  CSV download. Locales: en / zh-CN / ja / ko / ar.
+- **Capital-flow monitor (`/capital-flow`, ETF-OI)**: a new A-share module that
+  tracks headline CSI 300 ETF assets as a share of the CSI 300 free-float
+  market cap — the ETF-OI ratio popularised by 光大证券 (2024Q4) — and turns the
+  exchange-published share files into a daily subscription/redemption tape, the
+  flow leg of 国金证券's national-team framework. `agent/src/capital/` owns the
+  model: `sources.py` adapts 上交所 per-day EtfShare files, 深交所 range files,
+  天天基金 NAV history, 中证 weights and constituent market caps with an on-disk
+  cache (settled days cached forever, recent days for 20 minutes, index/mcap for
+  hours); `etf_oi.py` computes `AUM = Σ(份额 × 单位净值)`, `OI = AUM ÷ 流通市值`,
+  `净申购 = Δ份额 × 前一日净值` and `净值贡献 = 前一日份额 × Δ净值`, then derives the
+  z-score, 20-day intensity, streak, percentile and a 0-100 capital-temperature
+  score. The denominator is calibrated once per day from a constituent snapshot
+  (`每点市值 = Σ流通市值 ÷ 指数点位`) and carried across history by index returns,
+  with an alternative `weight_implied` mode that backs the free-float cap out of
+  the official CSI weights. Partial publication is never papered over: a day with
+  an unpublished share file keeps the carried-forward AUM but reports no flow and
+  is flagged `provisional`. `GET /capital/etf-oi` memoises for five minutes and
+  falls back to the last persisted series when upstream fails; the page pairs a
+  dual-panel ECharts view (OI + 20d average over the index, daily net
+  subscription bars) with a state card, a per-fund table and an explicit
+  methodology/limitations panel.
+
+### Changed
+- **Market pick reads the data lake instead of re-downloading**: a scan now asks
+  `hub.bars_frame` for the 400-day window first and pulls a loader only for what
+  the lake cannot answer. Ingestion already writes settled daily bars, so the
+  everyday case costs zero market-data calls instead of ~4600 names over ~230
+  batched `daily` requests; when ingestion has not run for the newest session,
+  only `[last stored bar + 1, end]` is fetched and spliced on. A stored series
+  is reused only when it starts inside the padded head, and a tail is spliced
+  only when the lake's source matches the network source — a `tencent` history
+  with a `tushare` tail would otherwise put one bogus return at the seam. One
+  CSI 300 probe skips the fan-out on holidays, when `_settled_end` hands back a
+  weekday with no session.
+- **The same lake-first path now backs the monitor board**: the split/splice
+  rules moved to `src/data/lake_fetch.py`, which both `market_pick` and
+  `monitor` call with their own network fetcher, so a strategy scan stops
+  re-pulling its universe every morning. `source="auto"` no longer refuses to
+  splice; it follows the source that wrote the stored frame, which is the only
+  way an auto-configured scan benefits without joining two adjustment regimes.
+- **Scans now report where their bars came from**: `bars_source` is stamped on
+  `MarketPickResult` and `MonitorDaySnapshot` (`lake` / `lake+network` /
+  `network`, or `None` when a fetcher was injected and nothing was observed).
+  The market-pick page renders it as a badge and highlights `network`, so a
+  screen that quietly went back out to a vendor is visible instead of buried in
+  a log line.
+
+### Fixed
+- **Capital monitor no longer freezes an unpublished day as "未披露"**: both
+  bourses answer `200` with zero rows while a session's ETF-share file is still
+  being published, and that empty answer was cached under the "settled day =
+  cache forever" rule. Once the session became a past day, every rebuild served
+  the empty snapshot, so 2026-11-03 stayed blank even though the exchange had
+  published it hours later — and the carried-forward shares inflated the next
+  day's net subscription by a whole day's worth. `_load_share_snapshot()` now
+  treats an empty snapshot as a publish gap: reused for 20 minutes, re-asked
+  afterwards up to `_MAX_EMPTY_ATTEMPTS` (8) times per day, and only then
+  accepted as a genuine gap. A non-empty settled snapshot is still final, so
+  normal rebuilds issue no extra requests.
+- **Lake-first scans no longer mislabel or over-fetch**: `bars_source` used to
+  say `lake` even when a handful of names had to be pulled whole, and a vendor
+  error on a tail blanked a screen the lake already covered; both are fixed.
+  Names that stopped trading long before the market's latest stored session are
+  now kept without a request instead of costing one single-symbol call each
+  (a full-market read with 100 suspended names used to fan out 100 calls), and
+  a failed probe on that benchmark is no longer read as "holiday". Dirty bars
+  are dropped once on the long frame inside `hub.bars_frame` rather than by
+  4,600 per-symbol `validate_ohlc` calls — a 4,600-name read went from 8.7s to
+  4.8s.
+- **Market-pick board coverage**: most boards no longer show up empty. The
+  per-board member sweep could never finish — the WAF allows a few dozen clist
+  calls per window against a ~1000-board taxonomy, which is why coverage kept
+  stalling around 300 boards. A new bulk pass (`bulk_fill_members`) reads the
+  whole A-share tape once with `f100`/`f103` (each stock's industry and concept
+  tags) and fills every board it recognises, turning ~1000 requests into ~6.
+  Because the mapping is name-based, it is only trusted after (a) a shape check
+  (names/codes/median board size), (b) a taxonomy-coverage check that rejects a
+  field carrying only the coarse industry level, and (c) a cross-check against
+  member files the per-board path already wrote — a sweep that disagrees or
+  comes back truncated is discarded rather than cached for the 14-day TTL.
+  Existing per-board files are never overwritten, one sweep runs per day
+  (`members/_bulk_state.json`), and missing boards are now filled
+  highest-turnover first (board list records `f6`). The warm-up gate also falls
+  back to the newest cached board list, so a blocked taxonomy fetch no longer
+  disables the warm-up entirely. Knobs:
+  `VIBE_TRADING_MARKET_PICK_BULK_MIN_MISSING` (default 25),
+  `VIBE_TRADING_MARKET_PICK_BULK_CALLS` (default 6).
+- **Market-pick clist bans**: the Eastmoney board sweep no longer gets the
+  client IP banned. Sweeps now use `pz=1000` big pages (one call per board
+  instead of up to six), a process-wide adaptive gate spaces every clist call
+  across the scan *and* the background warm-up (gap doubles on failure, capped
+  at 60s), the breaker cooldown escalates on repeat trips within a day
+  (15m → 30m → 1h → 2h … capped at 8h) and is persisted to
+  `~/.vibe-trading/market_pick/clist_state.json` so a restart cannot reset it,
+  a cooldown now reopens with a single one-shot probe (a failed probe re-trips
+  for one request instead of a four-request retry grid), and once a failure is
+  on record the next call goes single-shot. Inline cold fills also honour a
+  wall-clock budget (default 90s) so a scan cannot block for minutes, with the
+  remainder handed to the warm-up. New knobs:
+  `VIBE_TRADING_MARKET_PICK_CLIST_GAP`, `VIBE_TRADING_MARKET_PICK_COLD_SECONDS`.
+- **Market-pick clist probe loop**: a ban that outlived the app's cooldown used
+  to turn into an all-day probe loop. Every failed cooldown probe counted as a
+  fresh trip, which reset the escalation ladder to its 15m base, so the client
+  re-probed a still-banned IP every 15–30 minutes and each blocked request
+  risked extending the ban (5 escalations in one afternoon, not 1). A failed
+  probe is no longer a trip: it only doubles the next quiet window
+  (30m → 1h → 2h → 4h), a probe is single-flight so the scan and warm-up cannot
+  both spend one, and after `VIBE_TRADING_MARKET_PICK_CLIST_PROBES` failed
+  probes in a day (default 4) the endpoint is left alone until local midnight
+  off the cached universe. The failed-probe counter is persisted alongside the
+  trip count, so a restart cannot hand out a fresh budget mid-ban.
+- **Market-pick OHLCV cache never warmed**: the scan asked for bars through
+  *today*, and the loader cache refuses a range whose last bar is still forming,
+  so nothing was ever written — every cold start re-downloaded ~4600 symbols
+  (~230 batched `daily` calls) and repeatedly tripped Tushare's per-minute cap.
+  The fetch window is now anchored on the last settled weekday (both ends, so
+  Saturday/Sunday/Monday share Friday's key) and the same-day overlay still
+  patches today's provisional bar from live quotes.
+- **Non-A-share codes in the Tushare universe**: board member lists carry
+  B-shares and other non-stock codes (Eastmoney BK1481 lists `201872.SZ` beside
+  `001872.SZ`), which were sent to `daily`, answered empty, and reported as
+  missing data. Codes outside the SH/SZ/BJ A-share prefixes are now dropped
+  before the batch, and a batch response at the 6000-row cap logs a warning
+  instead of silently truncating later symbols.
+
 ## [0.1.12] — 2026-07-22
 
 ### Added

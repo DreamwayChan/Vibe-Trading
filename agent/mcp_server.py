@@ -801,6 +801,39 @@ def read_document(file_path: str) -> str:
     return registry.execute("read_document", {"file_path": file_path})
 
 
+@mcp.tool
+def extract_tables(
+    file_path: str,
+    pages: str = "",
+    max_tables: int = 20,
+    include_csv: bool = True,
+) -> str:
+    """Extract tables from a PDF as structured rows and columns.
+
+    Prefer this over read_document when the numbers inside tables matter:
+    research reports and financial statements lose row/column alignment when
+    read as plain text. Each table comes back with its caption, column names,
+    inferred column types, the declared unit (亿元/万元) with its multiplier, a
+    statement classification, and markdown + CSV renderings.
+
+    Args:
+        file_path: Absolute path to the PDF file.
+        pages: 1-based page selection such as "1-10" or "1,3,5-8"; empty = all.
+        max_tables: Maximum number of tables to return.
+        include_csv: Include a tidy CSV rendering per table.
+    """
+    registry = _get_registry()
+    return registry.execute(
+        "extract_tables",
+        {
+            "file_path": file_path,
+            "pages": pages,
+            "max_tables": max_tables,
+            "include_csv": include_csv,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Web search tool
 # ---------------------------------------------------------------------------

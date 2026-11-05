@@ -16,6 +16,19 @@ import { cn } from "@/lib/utils";
 type BoardSortKey = "rank" | "rs" | "knife" | "ret20";
 type SortDir = "asc" | "desc";
 
+// Provenance badge: a scan that had to go out to a vendor is worth flagging,
+// because the same screen served from the data centre is cheaper and settled.
+type BarsSourceKey =
+  | "marketPick.barsLake"
+  | "marketPick.barsLakePlus"
+  | "marketPick.barsNetwork";
+
+const BARS_SOURCE_LABEL: Record<string, BarsSourceKey> = {
+  lake: "marketPick.barsLake",
+  "lake+network": "marketPick.barsLakePlus",
+  network: "marketPick.barsNetwork",
+};
+
 function finiteOrNull(value: number | null | undefined): number | null {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return null;
   return value;
@@ -306,7 +319,31 @@ export function MarketPick() {
             })}
           </span>
         ) : null}
+        {viewResult?.bars_source && BARS_SOURCE_LABEL[viewResult.bars_source] ? (
+          <span
+            className={cn(
+              "rounded-md border px-2 py-1 text-xs",
+              viewResult.bars_source === "network"
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
+                : "border-border bg-muted/40 text-muted-foreground",
+            )}
+            title={t("marketPick.barsSourceHint")}
+          >
+            {t("marketPick.barsSource", {
+              // A label this build does not know is not rendered at all: showing
+              // "vendor" for it would be a guess in the one place that exists to
+              // stop guessing.
+              source: t(BARS_SOURCE_LABEL[viewResult.bars_source]),
+            })}
+          </span>
+        ) : null}
       </div>
+
+      {viewResult?.degraded_reason ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          {viewResult.degraded_reason}
+        </div>
+      ) : null}
 
       {history.length > 0 && (
         <div className="flex flex-col gap-1.5">

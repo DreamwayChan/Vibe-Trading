@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from src.api.helpers import RUNS_DIR
+from src.data.lake_fetch import FetchStats, fetch_lake_first
 from src.monitor.holdings import (
     build_holdings_and_ops,
     previous_weights_from_holdings,
@@ -146,6 +147,7 @@ def run_monitor_scan(
             live_quote_ok=int(snap_meta.get("live_quote_ok") or 0),
             live_quote_total=int(snap_meta.get("live_quote_total") or 0),
             live_quote_coverage=float(snap_meta.get("live_quote_coverage") or 0.0),
+            bars_source=snap_meta.get("bars_source"),
             decision=config.decision,
         )
         try:
@@ -207,9 +209,9 @@ def _scan_run_dir(
     end = as_of_date.isoformat()
     start = (as_of_date - timedelta(days=max(30, lookback_days))).isoformat()
 
-    # One batched loader call (Tushare packs ~20 A-shares per daily()) instead
-    # of N keep-alive round-trips that reset mid-scan on Windows.
-    data_map, fetch_errors = _fetch_universe_ohlcv(
+    # Data centre first: the lake already holds the settled bars ingestion wrote,
+    # and only the part it lacks (today's session, usually) reaches a loader.
+    data_map, fetch_errors, bars_stats = _fetch_universe_lake_first(
         universe,
         start=start,
         end=end,
@@ -238,6 +240,7 @@ def _scan_run_dir(
     snap_meta: dict[str, Any] = {
         "universe_size": len(universe),
         "fetch_error_count": len(fetch_errors),
+        "bars_source": bars_stats.label(),
         "provisional": False,
     }
 
@@ -719,6 +722,33 @@ def _run_source_interval(run_dir: Path) -> tuple[str, str]:
         except (OSError, json.JSONDecodeError):
             pass
     return source, interval
+
+
+def _fetch_universe_lake_first(
+    symbols: list[str],
+    *,
+    start: str,
+    end: str,
+    source: str,
+    interval: str,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str], FetchStats]:
+    """Serve the universe from the data centre; only gaps reach a loader.
+
+    Same contract as :func:`_fetch_universe_ohlcv`, plus the provenance of what
+    was actually used. Ingestion writes settled bars to the lake once, so a scan
+    that re-derives them from Tushare every morning (400 days × N names) is pure
+    duplicate work — and the loader cache cannot save it, because its key is
+    content-addressed on (start, end) and both move with the calendar day.
+    """
+    return fetch_lake_first(
+        symbols,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=_fetch_universe_ohlcv,
+        label="monitor",
+    )
 
 
 def _fetch_universe_ohlcv(

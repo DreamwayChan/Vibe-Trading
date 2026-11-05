@@ -208,6 +208,12 @@ def test_is_spa_html_route_sector_pick():
     assert helpers._is_spa_html_route("/sector-pick/history") is False
 
 
+def test_is_spa_html_route_tables():
+    assert helpers._is_spa_html_route("/tables") is True
+    assert helpers._is_spa_html_route("/tables/extract") is False
+    assert helpers._is_spa_html_route("/tables/engine") is False
+
+
 def test_is_spa_html_route_runs_detail():
     assert helpers._is_spa_html_route("/runs/abc123") is True
     assert helpers._is_spa_html_route("/runs/abc123/") is True

@@ -193,6 +193,9 @@ class MonitorDaySnapshot:
     live_quote_ok: int = 0
     live_quote_total: int = 0
     live_quote_coverage: float = 0.0
+    # "lake" / "lake+network" / "network": provenance of this scan's bars, so a
+    # board that mysteriously ignored the data centre is visible in its history.
+    bars_source: str | None = None
     decision: Decision | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -209,6 +212,7 @@ class MonitorDaySnapshot:
             "live_quote_ok": self.live_quote_ok,
             "live_quote_total": self.live_quote_total,
             "live_quote_coverage": self.live_quote_coverage,
+            "bars_source": self.bars_source,
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
@@ -248,6 +252,7 @@ class MonitorDaySnapshot:
             live_quote_ok=int(raw.get("live_quote_ok") or 0),
             live_quote_total=int(raw.get("live_quote_total") or 0),
             live_quote_coverage=float(raw.get("live_quote_coverage") or 0.0),
+            bars_source=_optional_str(raw.get("bars_source")),
             decision=Decision.from_dict(raw.get("decision") if isinstance(raw.get("decision"), dict) else None),
         )
 

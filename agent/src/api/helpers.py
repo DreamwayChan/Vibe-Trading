@@ -37,7 +37,7 @@ ENV_EXAMPLE_PATH = AGENT_DIR / ".env.example"
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
 # Browser GET + Accept:text/html on these twins must serve index.html, not JSON.
 _SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset(
-    {"/correlation", "/monitor", "/sector-pick", "/market-pick"}
+    {"/correlation", "/monitor", "/sector-pick", "/market-pick", "/tables"}
 )
 _SPA_HTML_PATH_REGEX: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/runs/[^/]+/?$"),

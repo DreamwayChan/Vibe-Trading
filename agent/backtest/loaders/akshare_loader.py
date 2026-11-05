@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from backtest.loaders._intervals import clip_window, is_intraday, resample_ohlcv
 from backtest.loaders._symbol_utils import _is_etf_listed
 from backtest.loaders.base import cached_loader_fetch, validate_date_range
 from backtest.loaders.registry import register
@@ -22,6 +23,17 @@ _INTERVAL_MAP_DAILY = {
     "1D": "daily",
     "1W": "weekly",
     "1M": "monthly",
+}
+
+# Eastmoney minute endpoint takes the period as a bare minute count.  ``4H`` is
+# absent on purpose: no free endpoint serves it, so it is built by aggregating
+# 60-minute bars.
+_INTERVAL_MAP_MINUTE = {
+    "1m": "1",
+    "5m": "5",
+    "15m": "15",
+    "30m": "30",
+    "1H": "60",
 }
 
 
@@ -67,6 +79,8 @@ class DataLoader:
     name = "akshare"
     markets = {"a_share", "us_equity", "hk_equity", "futures", "fund", "macro", "forex"}
     requires_auth = False
+    # Intraday is A-share only (Eastmoney/Sina): US and HK stay on daily bars.
+    SUPPORTED_INTERVALS = frozenset({"1D", "1W", "1M", "1m", "5m", "15m", "30m", "1H", "4H"})
 
     def is_available(self) -> bool:
         """Available if akshare is installed."""
@@ -94,7 +108,8 @@ class DataLoader:
             codes: Symbol list.
             start_date: YYYY-MM-DD.
             end_date: YYYY-MM-DD.
-            interval: Bar size (only 1D supported currently).
+            interval: Bar size. ``1D``/``1W``/``1M`` for every market;
+                ``1m``/``5m``/``15m``/``30m``/``1H``/``4H`` for A-shares only.
             fields: Ignored.
 
         Returns:
@@ -130,6 +145,12 @@ class DataLoader:
 
         # ETF check must precede A-share — 518880.SH ends with .SH but is an ETF.
         if _is_etf_listed(code):
+            if is_intraday(interval):
+                # fund_etf_hist_sina is daily-only; Eastmoney's minute endpoint
+                # serves ETFs through the same kline API as stocks.
+                return self._fetch_a_share_minute(
+                    ak, code, start_date, end_date, interval, allow_sina=False
+                )
             return self._fetch_etf(ak, code, start_date, end_date)
         if _is_a_share(code):
             return self._fetch_a_share(ak, code, start_date, end_date, interval)
@@ -145,7 +166,9 @@ class DataLoader:
     def _fetch_a_share(
         self, ak, code: str, start_date: str, end_date: str, interval: str,
     ) -> Optional[pd.DataFrame]:
-        """Fetch A-share via stock_zh_a_hist."""
+        """Fetch A-share daily bars, or delegate to the minute path."""
+        if is_intraday(interval):
+            return self._fetch_a_share_minute(ak, code, start_date, end_date, interval)
         symbol = code.split(".")[0]
         period = _INTERVAL_MAP_DAILY.get(interval)
         if period is None:
@@ -165,6 +188,86 @@ class DataLoader:
         if df is None or df.empty:
             return None
         return self._normalize(df, date_col="日期")
+
+    def _fetch_a_share_minute(
+        self,
+        ak,
+        code: str,
+        start_date: str,
+        end_date: str,
+        interval: str,
+        *,
+        allow_sina: bool = True,
+    ) -> Optional[pd.DataFrame]:
+        """Intraday A-share bars: Eastmoney first, Sina as the fallback.
+
+        Neither free endpoint serves arbitrary history: Eastmoney caps 1-minute
+        data at a few recent sessions, and Sina returns a fixed window of the
+        most recent bars with no date parameters at all.  Both therefore hand
+        back whatever they have and :func:`clip_window` reports the real
+        coverage, so a short frame never reads as "no trades".
+        """
+        target = "1H" if interval == "4H" else interval
+        period = _INTERVAL_MAP_MINUTE.get(target)
+        if period is None:
+            raise ValueError(
+                f"Unsupported interval {interval!r}; akshare a-share intraday "
+                f"supports {sorted(_INTERVAL_MAP_MINUTE)} (4H is built from 1H)"
+            )
+
+        symbol = code.split(".")[0]
+        frame = self._minute_eastmoney(ak, symbol, start_date, end_date, period, code)
+        if frame is None and allow_sina:
+            frame = self._minute_sina(ak, code, period)
+        if frame is None or frame.empty:
+            return None
+
+        frame = clip_window(
+            frame, start_date, end_date, symbol=code, interval=interval
+        )
+        if frame.empty:
+            return None
+        if interval == "4H":
+            frame = resample_ohlcv(frame, "4H", symbol=code)
+        return frame
+
+    def _minute_eastmoney(
+        self, ak, symbol: str, start_date: str, end_date: str, period: str,
+        code: str,
+    ) -> Optional[pd.DataFrame]:
+        """Minute bars from Eastmoney (``stock_zh_a_hist_min_em``)."""
+        try:
+            df = ak.stock_zh_a_hist_min_em(
+                symbol=symbol,
+                start_date=f"{start_date} 09:30:00",
+                end_date=f"{end_date} 15:00:00",
+                period=period,
+                adjust="qfq",
+            )
+        except Exception as exc:  # noqa: BLE001 — network/proxy drift, try Sina
+            logger.info("eastmoney minute endpoint unavailable for %s: %s", code, exc)
+            return None
+        if df is None or df.empty:
+            return None
+        date_col = "时间" if "时间" in df.columns else "日期"
+        return self._normalize(df, date_col=date_col)
+
+    def _minute_sina(self, ak, code: str, period: str) -> Optional[pd.DataFrame]:
+        """Minute bars from Sina (``stock_zh_a_minute``), a sliding window."""
+        digits, _, suffix = code.upper().partition(".")
+        if suffix not in {"SH", "SZ"}:
+            return None
+        try:
+            df = ak.stock_zh_a_minute(
+                symbol=f"{suffix.lower()}{digits}", period=period, adjust="qfq"
+            )
+        except Exception as exc:  # noqa: BLE001 — endpoint drift is not fatal
+            logger.warning("sina minute endpoint failed for %s: %s", code, exc)
+            return None
+        if df is None or df.empty:
+            return None
+        date_col = "day" if "day" in df.columns else "日期"
+        return self._normalize(df, date_col=date_col)
 
     def _fetch_us(self, ak, code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """Fetch US stock via stock_us_hist."""

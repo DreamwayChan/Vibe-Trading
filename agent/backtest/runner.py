@@ -27,6 +27,7 @@ try:
 except ImportError:
     pass
 
+from backtest.loaders._intervals import is_intraday, supports_interval
 from backtest.loaders.registry import (
     FALLBACK_CHAINS,
     LOADER_REGISTRY,
@@ -1083,7 +1084,7 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             market = _detect_submarket(codes)
             return GlobalEquityEngine(config, market=market)
         from backtest.engines.china_a import ChinaAEngine
-        return ChinaAEngine(config)
+        return ChinaAEngine(_attach_tradability_panel(config, codes))
     elif source == "yfinance":
         from backtest.engines.global_equity import GlobalEquityEngine
         market = _detect_submarket(codes)
@@ -1098,6 +1099,62 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             return GlobalEquityEngine(config, market=market)
         from backtest.engines.crypto import CryptoEngine
         return CryptoEngine(config)
+
+
+def _attach_tradability_panel(config: dict, codes: List[str]) -> dict:
+    """Attach the tradability panel to an A-share engine config, when enabled.
+
+    The panel turns two guesses into lookups: whether a symbol was halted, and
+    where its price band actually sat (ST names are 5%, which the code prefix
+    cannot reveal).  It is opt-in via ``VIBE_TRADING_TRADABILITY_PANEL=1`` so a
+    panel built mid-project never silently changes numbers a user is comparing
+    against earlier runs.
+
+    Args:
+        config: Backtest configuration (carries ``start_date`` / ``end_date``).
+        codes: Instrument codes for this run.
+
+    Returns:
+        The original config when the panel is disabled, missing, or the run is
+        not A-share; otherwise a copy carrying ``tradability_index``.
+    """
+    try:
+        from src.config.accessor import get_env_config
+
+        if not get_env_config().data.vibe_trading_tradability_panel:
+            return config
+    except Exception:  # noqa: BLE001 — config failure must not break a backtest
+        return config
+
+    a_share = [c for c in codes if str(c).upper().endswith((".SZ", ".SH", ".BJ"))]
+    if not a_share:
+        return config
+
+    try:
+        from src.data.tradability import TradabilityIndex, load_panel
+
+        panel = load_panel(
+            start=config.get("start_date"),
+            end=config.get("end_date"),
+            symbols=a_share,
+        )
+    except Exception as exc:  # noqa: BLE001 — panel is an enhancement, not a gate
+        logger.warning("tradability panel load failed, using heuristic: %s", exc)
+        return config
+
+    if panel.empty:
+        logger.info(
+            "tradability panel enabled but empty for %d symbols; "
+            "run scripts/build_tradability.py to populate it",
+            len(a_share),
+        )
+        return config
+
+    logger.info(
+        "tradability panel attached: %d rows covering %d/%d symbols",
+        len(panel), panel["symbol"].nunique(), len(a_share),
+    )
+    return {**config, "tradability_index": TradabilityIndex(panel)}
 
 
 def _detect_primary_source(codes: List[str], source: str) -> str:
@@ -1119,14 +1176,22 @@ def _detect_primary_source(codes: List[str], source: str) -> str:
     return max(groups, key=lambda s: len(groups[s]))
 
 
-def _loader_for_market(market: str, codes: List[str]) -> Any:
+def _loader_for_market(market: str, codes: List[str], interval: str = "1D") -> Any:
     """Pick a loader for *market*, preferring Tushare batch on large A-share sets.
 
     ``resolve_loader('a_share')`` starts at Tencent because it needs no token.
     That is fine for a handful of names and disastrous for a market-pick
     universe: Tencent/Eastmoney are per-symbol HTTP and currently RST/501.
+
+    The Tushare batch preference is daily-only: ``daily()`` is one call for the
+    whole universe, while ``stk_mins`` is per symbol, so an intraday request
+    keeps walking the interval-aware chain instead.
     """
-    if market == "a_share" and len(codes) >= _BATCH_PRIMARY_MIN_SYMBOLS:
+    if (
+        market == "a_share"
+        and len(codes) >= _BATCH_PRIMARY_MIN_SYMBOLS
+        and not is_intraday(interval)
+    ):
         tushare = _tushare_loader_if_usable()
         if tushare is not None:
             logger.info(
@@ -1134,7 +1199,7 @@ def _loader_for_market(market: str, codes: List[str]) -> Any:
                 len(codes),
             )
             return tushare
-    return resolve_loader(market)
+    return resolve_loader(market, interval=interval)
 
 
 def _tushare_loader_if_usable() -> Any | None:
@@ -1176,7 +1241,7 @@ def _fetch_auto(
 
     for market, market_codes in market_groups.items():
         try:
-            loader = _loader_for_market(market, market_codes)
+            loader = _loader_for_market(market, market_codes, interval)
         except NoAvailableSourceError as exc:
             # Fallback: try legacy source mapping
             legacy_src = _MARKET_TO_SOURCE.get(market, "tushare")
@@ -1211,6 +1276,12 @@ def _fetch_auto(
             if not missing:
                 break
             if fb_name == src_name or fb_name not in LOADER_REGISTRY:
+                continue
+            if not supports_interval(LOADER_REGISTRY[fb_name], interval):
+                logger.debug(
+                    "skipping fallback %s for %s: cannot serve interval %s",
+                    fb_name, market, interval,
+                )
                 continue
             if is_cooling_down(fb_name):
                 continue
@@ -1304,6 +1375,12 @@ def fetch_data_map(config: dict, *, allow_partial: bool = False) -> DataFetchRes
                     or fallback_source == primary_source
                     or fallback_source not in LOADER_REGISTRY
                 ):
+                    continue
+                if not supports_interval(LOADER_REGISTRY[fallback_source], interval):
+                    logger.debug(
+                        "skipping fallback %s: cannot serve interval %s",
+                        fallback_source, interval,
+                    )
                     continue
                 if is_cooling_down(fallback_source):
                     continue

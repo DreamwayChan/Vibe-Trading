@@ -126,6 +126,9 @@ class DataLoader:
     name = "sina"
     markets = {"us_equity"}
     requires_auth = False
+    #: Daily only — an intraday request must skip this loader rather than
+    #: reach the ``ValueError`` in ``fetch``.
+    SUPPORTED_INTERVALS = frozenset({"1D"})
 
     def __init__(self) -> None:
         pass

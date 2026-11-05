@@ -142,7 +142,8 @@ class TestEnvConfigDefaults:
         assert c.agent_tuning.vibe_trading_enable_advisory is False
         assert c.agent_tuning.vibe_trading_enable_scheduler is False
         assert c.agent_tuning.vibe_trading_monitor_refresh_report is True
-        assert c.agent_tuning.vibe_trading_channels_auto_start is False
+        # Tri-state: unset means "defer to channels.auto_start in agent.json".
+        assert c.agent_tuning.vibe_trading_channels_auto_start is None
         assert c.agent_tuning.vibe_trading_disable_bottleneck is False
         assert c.agent_tuning.vibe_trading_bench_workers == 0
         assert c.agent_tuning.vibe_trading_search_backends == ""

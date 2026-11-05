@@ -245,6 +245,7 @@ board dual-track scan                 → bound SignalEngine holdings
 | 优选板块 Sector Pick | `/sector-pick` | `agent/src/sector_pick/` | — (Web UI + REST) |
 | 监控看板 Monitor | `/monitor` | `agent/src/monitor/` | — (Web UI + REST) |
 | 决策合成 Decision compose | library | `agent/src/process/` | — (library + REST) |
+| 研报表格 Tables | `/tables` | `agent/src/tools/tables/` | — (Web UI + REST) |
 
 The three boards are **Web UI and REST surfaces**, not CLI subcommands. Start `vibe-trading serve` and open `/market-pick`, `/sector-pick` or `/monitor`.
 
@@ -292,7 +293,20 @@ A persistent board bound to one strategy, plus a deterministic daily scan.
 | Forecast | k-NN analog search over up to 800 days of history → **10** future trading days of up/down scenario paths with a MA5/10/20 overlay. It reports how many independent analog segments voted, abstains when confidence is low, and is explicitly a scenario band — not a price target |
 | History | every scan, plus every saved forecast snapshot, is replayable by `as_of` |
 
-### 4. Decision compose — 决策合成
+### 4. Capital flow — 资金监测
+
+ETF-OI for the CSI 300 plus a national-team flow proxy (`agent/src/capital/`, page `/capital-flow`).
+
+| Piece | Behaviour |
+|---|---|
+| ETF OI | Σ(headline CSI 300 ETF shares × unit NAV) ÷ CSI 300 free-float market cap. The denominator is pinned once a day from a constituent snapshot (`每点市值 = Σ流通市值 ÷ 指数点位`) and carried across history by index returns; a `weight_implied` mode backs the float cap out of the official CSI weights instead |
+| Flow tape | `净申购 = Δ份额 × 前一日净值`, with `净值贡献 = 前一日份额 × Δ净值` split out — a mark-to-market move is never reported as money entering |
+| Sources | 上交所 per-day ETF share files · 深交所 range files · 天天基金 NAV history · 中证 weights · constituent market caps, all disk-cached (settled days cached permanently) |
+| Publish lag | a day whose share file is not out yet keeps the carried-forward AUM, reports **no** flow and is flagged `provisional` |
+| State | flow z-score, 20-day intensity in bp of float, streak, OI percentile → a 0-100 capital-temperature score and a `surge` / `inflow` / `neutral` / `outflow` / `drain` label |
+| Honesty | the flow leg is a **proxy**: 中央汇金's quarterly holdings are not machine-readable and subscriptions mix sovereign, institutional and retail money — the page ships its methodology and limitations inline |
+
+### 5. Decision compose — 决策合成
 
 `agent/src/process/` collapses market regime, F0 stance, structure and the optional analog forecast into **one** official decision, through a waterfall where later gates may only tighten:
 
@@ -312,7 +326,7 @@ Mandate → Structure → F0 stance → Analog (optional) → Size cap → Decis
 
 `ProcessMandate.fingerprint()` is stored with every snapshot, so a historical decision always knows which constitution produced it. The action set is long-only — `enter` / `add` / `hold` / `reduce` / `exit` — and size is treated as a **cap**, never a target to lever into. A later analog pass cannot reopen a wait or grow a position.
 
-### 5. Sector research methodology (F0 / F1)
+### 6. Sector research methodology (F0 / F1)
 
 Every catalog row was earned through the same written contract; the `agent/prop_国泰君安_<sector>_*.md` prompts are the source of truth for how a row was produced.
 
@@ -331,7 +345,7 @@ Every catalog row was earned through the same written contract; the `agent/prop_
 | F0 vs F1 | F1 adds the `custom_max_inv` veto. It is adopted **only** when it strictly beats F0 on the same pool (`Δexcess`, `ΔSharpe`); otherwise the F0' variant stands |
 | Honesty gate | excess return vs the board's equal-weight benchmark, the Monte-Carlo permutation `p_sharpe` (threshold 0.2), and the Δ against the previous baseline must all be reported. A negative excess or a p above 0.2 has to be stated explicitly in the output |
 
-### 6. A-share trading-rule adaption
+### 7. A-share trading-rule adaption
 
 The A-share engine (`agent/backtest/engines/china_a.py`) is routed automatically for `\d{6}\.(SZ|SH|BJ)` codes and the A-share ETF prefixes 51 / 15 / 56.
 
@@ -448,7 +462,7 @@ It is designed for research, simulation, and backtesting — and, when you choos
 | **Ask a trading question** | Market research with tools, data, documents, and reusable session context. |
 | **Backtest a strategy idea** | Strategy code, metrics, benchmark context, validation artifacts, and run cards. |
 | **Review your own trades** | Broker-journal parsing, behavior diagnostics, rule extraction, and Shadow Account comparisons. |
-| **Read documents & charts** | Parse PDF / DOCX / XLSX / PPTX / images with pluggable OCR (`read_document`), and read chart screenshots semantically with a vision model (`analyze_image`). |
+| **Read documents & charts** | Parse PDF / DOCX / XLSX / PPTX / images with pluggable OCR (`read_document`), pull PDF tables back as structured rows and columns with units and column types (`extract_tables`; install `pip install "vibe-trading-ai[docs]"` to resolve merged cells and multi-row headers), and read chart screenshots semantically with a vision model (`analyze_image`). |
 | **Improve repeated research** | Persistent memory and editable skills turn useful routines into reusable workflows. |
 | **Run analyst teams** | Multi-agent research reviews for investment, quant, crypto, macro, and risk workflows. |
 | **Put research into IM channels** | Run the same session runtime through WebSocket, Telegram, Slack, Discord, Matrix, WhatsApp, Signal, QQ/NapCat, WeChat/WeCom, Feishu/Lark, DingTalk, Teams, email, and Mochat with CLI, REST, and Web UI controls. |
@@ -1190,6 +1204,8 @@ vibe-trading serve --port 8899
 | `GET` / `POST` | `/monitor/forecast/saves` | List / save forecast snapshots |
 | `GET` | `/monitor/forecast/saves/{snapshot_id}` | One saved forecast |
 | `GET` | `/monitor/history` · `/history/{as_of}` | Monitor history / one snapshot |
+| `GET` | `/tables/engine` | Active table engine, available engines, page cap and cache state |
+| `POST` | `/tables/extract` | Extract tables from an uploaded PDF (`file_path`, `pages`, `max_tables`, `include_csv`) |
 | `GET` | `/settings/llm` | Read Web UI LLM settings |
 | `PUT` | `/settings/llm` | Update local LLM settings |
 | `GET` | `/settings/data-sources` | Read local data source settings |
@@ -1303,7 +1319,7 @@ with `--host` / `--port`.
 
 </details>
 
-**MCP tools exposed (54):** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `web_search`, `write_file`, `read_file`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`.
+**MCP tools exposed (55):** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `extract_tables`, `web_search`, `write_file`, `read_file`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`.
 
 ### SWARM external MCP tools
 

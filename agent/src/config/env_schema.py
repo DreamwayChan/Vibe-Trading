@@ -183,6 +183,24 @@ class DataConfig(_EnvBase):
     # Set VIBE_TRADING_DATA_CACHE=0 to force a live re-fetch every time.
     vibe_trading_data_cache: EnvBool = Field(alias="VIBE_TRADING_DATA_CACHE", default=True)
     vibe_trading_data_cache_root: str = Field(alias="VIBE_TRADING_DATA_CACHE_ROOT", default="")
+    # Local data lake (partitioned parquet, key upserts) used by the trading
+    # calendar and the tradability panel. Defaults to ~/.vibe-trading/lake.
+    # Distinct from the loader cache above: that one is content-addressed per
+    # request, this one is queryable layer by symbol/date.
+    vibe_trading_lake_root: str = Field(alias="VIBE_TRADING_LAKE_ROOT", default="")
+    # Data hub read policy. Off (default) = interactive reads may read through to
+    # the network for missing ranges so a cold lake still renders. On = reads
+    # only ever come from the lake; a gap raises instead of silently fetching,
+    # which is what backtests and research runs need to stay reproducible.
+    vibe_trading_datahub_strict: EnvBool = Field(
+        alias="VIBE_TRADING_DATAHUB_STRICT", default=False
+    )
+    # Opt-in: attach the tradability panel (halts + exact price bands) to the
+    # A-share backtest engine. Off by default so runs stay comparable with
+    # results produced before the panel existed.
+    vibe_trading_tradability_panel: EnvBool = Field(
+        alias="VIBE_TRADING_TRADABILITY_PANEL", default=False
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")
@@ -342,8 +360,13 @@ class AgentTuningConfig(_EnvBase):
     vibe_trading_monitor_refresh_report: EnvBool = Field(
         alias="VIBE_TRADING_MONITOR_REFRESH_REPORT", default=True,
     )
-    vibe_trading_channels_auto_start: EnvBool = Field(
-        alias="VIBE_TRADING_CHANNELS_AUTO_START", default=False,
+    # Tri-state override for IM channel autostart: unset (None) defers to
+    # ``channels.auto_start`` in agent.json (default true); an explicit
+    # true/false forces the process-wide behaviour. Keeping the unset state
+    # distinct is what lets the Web UI own the default instead of an env var
+    # nobody remembers to set.
+    vibe_trading_channels_auto_start: EnvBool | None = Field(
+        alias="VIBE_TRADING_CHANNELS_AUTO_START", default=None,
     )
     vibe_trading_disable_bottleneck: EnvBool = Field(
         alias="VIBE_TRADING_DISABLE_BOTTLENECK", default=False,

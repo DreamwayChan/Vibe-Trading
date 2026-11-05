@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from datetime import date
 from typing import Any, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from src.market_pick.boards import warm_member_cache, warm_work_pending
 from src.market_pick.models import MarketPickResult
 from src.market_pick.scan import MarketPickError, run_market_pick_scan
 from src.market_pick.store import (
@@ -21,6 +24,41 @@ from src.market_pick.store import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Process-wide single-flight gate for POST /market-pick/scan (see the handler).
+_SCAN_LOCK = threading.Lock()
+# Background member-cache warm-up: one loop per process, started when a scan
+# reports incomplete coverage.
+_WARM_LOCK = threading.Lock()
+_WARM_RUNNING = False
+
+
+def _start_warm_up() -> None:
+    """Fill missing board members in the background, one gentle pull at a time.
+
+    A cold sweep is ~490 clist calls; Eastmoney bans the IP after roughly 80 in
+    a few minutes, so it can only be done slowly (default 8s apart, ~65 min).
+    The pending check is cache-only, so a fully warm cache starts no thread and
+    touches the network never.
+    """
+    global _WARM_RUNNING
+    with _WARM_LOCK:
+        if _WARM_RUNNING:
+            return
+        _WARM_RUNNING = True
+
+    def _run() -> None:
+        global _WARM_RUNNING
+        try:
+            if warm_work_pending():
+                warm_member_cache()
+        except Exception:  # noqa: BLE001 — background job must not kill the app
+            logger.exception("market-pick member warm-up failed")
+        finally:
+            with _WARM_LOCK:
+                _WARM_RUNNING = False
+
+    threading.Thread(target=_run, name="market-pick-warm", daemon=True).start()
 
 
 class BoardScoreResponse(BaseModel):
@@ -58,6 +96,10 @@ class MarketPickResultResponse(BaseModel):
     unique_symbols: int = 0
     ohlcv_ok: int = 0
     fetch_error_count: int = 0
+    member_coverage: Optional[float] = None
+    degraded_reason: Optional[str] = None
+    # "lake" / "lake+network" / "network" — provenance badge for the screen.
+    bars_source: Optional[str] = None
     boards: List[BoardScoreResponse] = Field(default_factory=list)
 
 
@@ -123,23 +165,40 @@ def register_market_pick_routes(
         body: ScanMarketPickRequest = ScanMarketPickRequest(),
     ) -> MarketPickResponse:
         as_of = date.today().isoformat()
-        try:
-            require_fresh_scan(as_of, force=body.force)
-        except AlreadyScannedToday as exc:
+        # Single-flight: a scan takes minutes and pulls hundreds of Eastmoney
+        # requests. Impatient re-clicks used to queue extra full scans, which is
+        # exactly what gets the client IP banned, so a second request is refused
+        # instead of stacked.
+        if not _SCAN_LOCK.acquire(blocking=False):
             raise HTTPException(
                 status_code=409,
-                detail="today's snapshot already exists; pass force=true to rebuild",
-            ) from exc
+                detail="a market-pick scan is already running; wait for it to finish",
+            )
         try:
-            result = run_market_pick_scan()
-        except MarketPickError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("market-pick scan failed")
-            raise HTTPException(
-                status_code=500, detail=f"market-pick scan failed: {exc}"
-            ) from exc
-        save_day_snapshot(result)
+            try:
+                require_fresh_scan(as_of, force=body.force)
+            except AlreadyScannedToday as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="today's snapshot already exists; pass force=true to rebuild",
+                ) from exc
+            try:
+                # Off the event loop: the scan blocks for minutes on throttled
+                # HTTP and must not freeze every other route meanwhile.
+                result = await asyncio.to_thread(run_market_pick_scan)
+            except MarketPickError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("market-pick scan failed")
+                raise HTTPException(
+                    status_code=500, detail=f"market-pick scan failed: {exc}"
+                ) from exc
+            save_day_snapshot(result)
+        finally:
+            _SCAN_LOCK.release()
+        # Coverage < 1.0 (cold/paused cache) or TTL-refresh work pending: fill it
+        # in the background instead of inside the next scan.
+        _start_warm_up()
         return MarketPickResponse(result=_result_response(result), cached=False)
 
     @app.get(

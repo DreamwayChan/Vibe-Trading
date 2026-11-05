@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Activity, BarChart3, Bot, Check, ChevronDown, Compass, Crosshair, FileText, Languages, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target } from "lucide-react";
+import { Activity, BarChart3, Bot, Check, ChevronDown, Coins, Compass, Crosshair, Database, FileText, Languages, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
@@ -18,11 +18,14 @@ export function Layout() {
   const NAV = [
     { to: "/", icon: BarChart3, label: t('layout.home') },
     { to: "/agent", icon: Bot, label: t('layout.agent') },
+    { to: "/data-center", icon: Database, label: t('layout.dataCenter') },
     { to: "/monitor", icon: Crosshair, label: t('layout.monitor') },
+    { to: "/capital-flow", icon: Coins, label: t('layout.capitalFlow') },
     { to: "/market-pick", icon: Compass, label: t('layout.marketPick') },
     { to: "/sector-pick", icon: Target, label: t('layout.sectorPick') },
     { to: "/runtime", icon: Activity, label: t('layout.runtime') },
     { to: "/reports", icon: FileText, label: t('layout.reports') },
+    { to: "/tables", icon: Table2, label: t('layout.tables') },
     { to: "/alpha-zoo", icon: Layers, label: t('layout.alphaZoo') },
     { to: "/settings", icon: Settings, label: t('layout.settings') },
     { to: "/correlation", icon: BarChart3, label: t('layout.correlation') },

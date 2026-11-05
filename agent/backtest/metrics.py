@@ -31,19 +31,29 @@ _BARS_PER_DAY = {
     "1D":  {"tushare": 1,   "okx": 1,    "yfinance": 1,   "akshare": 1,   "ccxt": 1,    "mootdx": 1,   "futu": 1,   "mt5": 1},
 }
 
+# Fallback when a source is absent from the table above (tencent, eastmoney,
+# lake, baostock, ...).  A 240-minute A-share session is the reference: the
+# previous default of 1 bar/day annualised 5-minute results with a factor of 48
+# too small, which inflated Sharpe and understated volatility for every source
+# nobody had remembered to enumerate.
+_DEFAULT_BARS_PER_DAY = {"1m": 240, "5m": 48, "15m": 16, "30m": 8, "1H": 4, "4H": 1, "1D": 1}
+
 
 def calc_bars_per_year(interval: str = "1D", source: str = "tushare") -> int:
     """Number of bars per year for annualisation.
 
     Args:
         interval: Bar size (1m / 5m / 15m / 30m / 1H / 4H / 1D).
-        source: Data source (tushare / yfinance / okx).
+        source: Data source (tushare / yfinance / okx). Unknown sources fall
+            back to a 240-minute session per interval rather than 1 bar/day.
 
     Returns:
         Bars per year.
     """
     trading_days = _TRADING_DAYS.get(source, 252)
-    bars_per_day = _BARS_PER_DAY.get(interval, {}).get(source, 1)
+    bars_per_day = _BARS_PER_DAY.get(interval, {}).get(source)
+    if bars_per_day is None:
+        bars_per_day = _DEFAULT_BARS_PER_DAY.get(interval, 1)
     return trading_days * bars_per_day
 
 

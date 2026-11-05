@@ -77,7 +77,7 @@ def test_tencent_stops_remaining_after_hard_501(monkeypatch) -> None:
         lambda **kwargs: kwargs["fetch"](),
     )
 
-    def boom(code, start, end):
+    def boom(code, start, end, interval="1D"):
         calls.append(code)
         raise RuntimeError("HTTP Error 501: Not Implemented")
 
