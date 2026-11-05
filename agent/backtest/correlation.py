@@ -192,7 +192,7 @@ def _fetch_price_series(
     start_date: str,
     end_date: str,
 ) -> Dict[str, pd.DataFrame]:
-    """Fetch daily price frames for each code via the loader fallback chains.
+    """Fetch daily closes from the data centre, then the loader chain for gaps.
 
     Args:
         codes: Asset codes as supplied by the caller (used as result keys).
@@ -202,67 +202,132 @@ def _fetch_price_series(
     Returns:
         Mapping of original code -> OHLCV DataFrame; codes no loader could
         serve are omitted (with a warning logged).
+
+    A name the lake already covers is not requested from a vendor. A gap is
+    still walked through that market's fallback chain — a forward-adjusted
+    series is not spliced onto unadjusted lake history, because the requested
+    source here does not match the lake's source, so a partial window is
+    re-fetched whole. Confirmed Tushare bars are written back by the chain.
     """
+    from src.data.lake_fetch import ensure_bars
+
     # Import here to avoid circular
     from backtest.loaders import registry
 
     registry._ensure_registered()
-    price_series: Dict[str, pd.DataFrame] = {}
-
+    normalized: Dict[str, tuple[str, str]] = {}
+    symbols: list[str] = []
     for code in codes:
         market = infer_market(code)
-        # Loaders key instruments by the canonical exchange-suffixed symbol
-        # (AAPL.US / 600000.SH); a bare ticker fetches nothing. Fetch under the
-        # normalized symbol but keep the user's original code as the label.
         symbol = _normalize_symbol(code, market)
+        normalized[code] = (symbol, market)
+        if symbol not in symbols:
+            symbols.append(symbol)
 
-        # Walk the market's health-ranked fallback chain until a loader
-        # actually returns data. A loader can be "available" yet still serve
-        # nothing (network error, unsupported symbol), so stopping at the
-        # first available loader — as resolve_loader does — would silently
-        # drop the asset even when a later loader could serve it.
-        from backtest.loaders.source_health import (
-            is_cooling_down,
-            prefer_order,
-            record_success,
-        )
-
-        for name in prefer_order(registry.FALLBACK_CHAINS.get(market, [])):
-            loader_cls = registry.LOADER_REGISTRY.get(name)
-            if loader_cls is None:
-                continue
-            if is_cooling_down(name):
-                continue
-            try:
-                loader = loader_cls()
-            except Exception as exc:
-                logger.debug("correlation: loader %s failed to construct: %s", name, exc)
-                continue
-            if not loader.is_available():
-                continue
-            try:
-                result = loader.fetch(
-                    codes=[symbol],
-                    start_date=start_date,
-                    end_date=end_date,
-                    interval="1D",
-                    fields=["trade_date", "open", "high", "low", "close", "volume"],
-                )
-            except Exception as exc:
-                logger.warning("correlation: %s fetch via %s failed: %s", symbol, name, exc)
-                continue
-            if symbol in result and not result[symbol].empty:
-                price_series[code] = result[symbol]
-                record_success(name)
-                break
-            logger.warning("correlation: %s returned no data via %s", symbol, name)
-        else:
-            logger.warning(
-                "correlation: no loader in the %s chain returned data for %s "
-                "(normalized from %r)", market, symbol, code,
+    def network(batch, *, start, end, source, interval):
+        del source, interval
+        frames: Dict[str, pd.DataFrame] = {}
+        errors: Dict[str, str] = {}
+        for symbol in batch:
+            market = next(
+                (item[1] for item in normalized.values() if item[0] == symbol),
+                infer_market(symbol),
             )
+            frame, origin = _fetch_one_via_chain(
+                symbol,
+                market=market,
+                start_date=start,
+                end_date=end,
+            )
+            if frame is None or frame.empty:
+                errors[symbol] = "no OHLCV bars returned"
+                continue
+            if origin:
+                frame.attrs["data_center_source"] = origin
+            frames[symbol] = frame
+        return frames, errors
 
+    # ``source`` is deliberately not ``auto`` and not a lake vendor. ``auto``
+    # would splice whatever the chain returns onto the stored series; a
+    # mismatched name forces a full pull instead of a cross-vendor seam.
+    stored, errors, _stats = ensure_bars(
+        symbols,
+        start=start_date,
+        end=end_date,
+        source="loader",
+        interval="1D",
+        network=network,
+        label="correlation",
+    )
+    price_series: Dict[str, pd.DataFrame] = {}
+    for code, (symbol, _market) in normalized.items():
+        frame = stored.get(symbol)
+        if frame is None or getattr(frame, "empty", True):
+            logger.warning(
+                "correlation: no bars for %s (%s): %s",
+                symbol,
+                code,
+                errors.get(symbol) or "no OHLCV bars returned",
+            )
+            continue
+        price_series[code] = frame
     return price_series
+
+
+def _fetch_one_via_chain(
+    symbol: str,
+    *,
+    market: str,
+    start_date: str,
+    end_date: str,
+) -> tuple[pd.DataFrame | None, str]:
+    """Walk one market's loader chain. Returns ``(frame, cache source)``.
+
+    ``cache source`` is ``tushare`` only when that loader actually returned the
+    frame. Any other vendor is ``skip`` so the unadjusted lake is left alone.
+    """
+    from backtest.loaders import registry
+    from backtest.loaders.source_health import (
+        is_cooling_down,
+        prefer_order,
+        record_success,
+    )
+
+    for name in prefer_order(registry.FALLBACK_CHAINS.get(market, [])):
+        loader_cls = registry.LOADER_REGISTRY.get(name)
+        if loader_cls is None:
+            continue
+        if is_cooling_down(name):
+            continue
+        try:
+            loader = loader_cls()
+        except Exception as exc:
+            logger.debug("correlation: loader %s failed to construct: %s", name, exc)
+            continue
+        if not loader.is_available():
+            continue
+        try:
+            result = loader.fetch(
+                codes=[symbol],
+                start_date=start_date,
+                end_date=end_date,
+                interval="1D",
+                fields=["trade_date", "open", "high", "low", "close", "volume"],
+            )
+        except Exception as exc:
+            logger.warning("correlation: %s fetch via %s failed: %s", symbol, name, exc)
+            continue
+        frame = result.get(symbol) if isinstance(result, dict) else None
+        if frame is not None and not getattr(frame, "empty", True):
+            record_success(name)
+            return frame, "tushare" if name == "tushare" else "skip"
+        logger.warning("correlation: %s returned no data via %s", symbol, name)
+    logger.warning(
+        "correlation: no loader in the %s chain returned data for %s",
+        market,
+        symbol,
+    )
+    return None, ""
 
 
 def compute_correlation_matrix(

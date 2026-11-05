@@ -13,15 +13,22 @@ This module is the one place that decides how a scan gets its bars:
 * a frame that stops before the window end is topped up with only
   ``[last + 1, end]``, when that splice cannot mix price regimes;
 * everything else (no stored rows, stored history too short, unknown
-  provenance) is pulled from the network as before.
+  provenance) is pulled from the network as before;
+* a confirmed unadjusted Tushare pull is written back into the lake, so the
+  next caller — another scan, a backtest, the correlation page — reads the
+  cache instead of spending the quota again.
 
 Callers pass their own network fetcher so no import cycle forms and tests can
-substitute one.
+substitute one. ``VIBE_TRADING_DATAHUB_STRICT`` serves the lake only: a stale
+window is returned with an error instead of touching a vendor.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -33,8 +40,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# One refresh at a time, re-entrant so a scan that calls back into this module
+# (data-centre read → loader → data-centre read of the gap) cannot deadlock
+# itself. A second thread waits, then re-reads the lake the first thread just
+# filled instead of issuing the same vendor call.
+_refresh_lock = threading.RLock()
+
 # ``(symbols, start, end, source, interval) -> (frames, per-symbol errors)``.
 NetworkFetch = Callable[..., tuple[dict[str, pd.DataFrame], dict[str, str]]]
+
+# A-share symbols the daily lake is allowed to store. HK/US/crypto bars from a
+# correlation request must not land in ``bars_daily``.
+_CN_SYMBOL = re.compile(r"\d{6}\.(SH|SZ|BJ)\Z")
+# The only loader whose daily frames match the lake contract (unadjusted OHLC,
+# volume in 手). Tencent and Eastmoney loaders return 前复权 and must not be
+# upserted over those rows. Amount on the Tushare loader is 千元; the lake
+# stores 元, so the ×1000 happens here and nowhere else.
+_CACHEABLE_SOURCE = "tushare"
+_OHLC = ("open", "high", "low", "close")
 
 # A stored series may start this many calendar days after the requested window
 # and still drive every rule: 400 days are requested for ~250 sessions of
@@ -107,6 +130,39 @@ class FetchStats:
         )
 
 
+def ensure_bars(
+    symbols: list[str],
+    *,
+    start: str,
+    end: str,
+    source: str,
+    interval: str,
+    network: NetworkFetch,
+    label: str = "data-center",
+    stats: FetchStats | None = None,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str], FetchStats]:
+    """Read K-lines from the data centre, refreshing and storing them when stale.
+
+    This is the call features should make. A fresh lake window is returned
+    with no vendor traffic. A gap is fetched through ``network`` (the existing
+    loader), written back when the bars are safe to store, and then returned.
+    The next caller of the same window hits the lake.
+
+    ``network`` stays injectable so a test can answer the gap without a vendor
+    and so the data centre does not import the backtest runner.
+    """
+    return fetch_lake_first(
+        symbols,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=network,
+        label=label,
+        stats=stats,
+    )
+
+
 def fetch_lake_first(
     symbols: list[str],
     *,
@@ -119,6 +175,35 @@ def fetch_lake_first(
     stats: FetchStats | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str], FetchStats]:
     """Serve ``symbols`` from the lake, closing only the gaps from the network.
+
+    Holds the refresh lock for the whole read-or-fetch so two features asking
+    for the same stale window do not both pay the vendor.
+    """
+    with _refresh_lock:
+        return _fetch_lake_first_locked(
+            symbols,
+            start=start,
+            end=end,
+            source=source,
+            interval=interval,
+            network=network,
+            label=label,
+            stats=stats,
+        )
+
+
+def _fetch_lake_first_locked(
+    symbols: list[str],
+    *,
+    start: str,
+    end: str,
+    source: str,
+    interval: str,
+    network: NetworkFetch,
+    label: str = "scan",
+    stats: FetchStats | None = None,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str], FetchStats]:
+    """Unlocked body of :func:`fetch_lake_first`. Do not call this directly.
 
     Args:
         symbols: Universe to return, in any order.
@@ -144,6 +229,20 @@ def fetch_lake_first(
 
     stored = read_lake(symbols, start=start, end=end, interval=interval)
     if not stored.frames:
+        if _strict():
+            logger.warning(
+                "%s: data center strict mode, not refreshing %d symbol(s) %s..%s",
+                label,
+                len(symbols),
+                start,
+                end,
+            )
+            errors = {
+                symbol: "data center strict mode: refresh skipped" for symbol in symbols
+            }
+            stats.unavailable = len(symbols)
+            logger.info(stats.log_line(label))
+            return {}, errors, stats
         data_map, errors = _pull(
             network,
             symbols,
@@ -155,6 +254,7 @@ def fetch_lake_first(
         )
         stats.pulled_whole = len(symbols)
         stats.unavailable = len([s for s in symbols if s not in data_map])
+        _cache_refresh(data_map, source=source, interval=interval, label=label)
         logger.info(stats.log_line(label))
         return data_map, errors, stats
 
@@ -166,6 +266,22 @@ def fetch_lake_first(
     stats.lake_bases = len(reuse)
     stats.pulled_whole = len(refresh)
     stats.stale_kept = len(stale)
+
+    if _strict() and (refresh or tails):
+        logger.warning(
+            "%s: data center strict mode, keeping lake frames for %s..%s "
+            "(%d name(s) not refreshed)",
+            label,
+            start,
+            end,
+            len(refresh) + sum(len(bucket) for bucket in tails.values()),
+        )
+        for symbol in refresh:
+            fetch_errors[symbol] = "data center strict mode: refresh skipped"
+        stats.pulled_whole = 0
+        stats.unavailable = len(refresh)
+        logger.info(stats.log_line(label))
+        return data_map, fetch_errors, stats
 
     if refresh:
         fetched, errors = _pull(
@@ -179,6 +295,7 @@ def fetch_lake_first(
         )
         data_map.update(fetched)
         fetch_errors.update(errors)
+        _cache_refresh(fetched, source=source, interval=interval, label=label)
 
     for (gap_start, gap_end, tail_source), bucket in tails.items():
         if not bucket:
@@ -206,10 +323,12 @@ def fetch_lake_first(
             interval=interval,
             stats=stats,
         )
+        fresh: dict[str, pd.DataFrame] = {}
         for symbol in bucket:
             tail = fetched.get(symbol)
             if tail is not None and not tail.empty:
                 data_map[symbol] = _splice(data_map[symbol], tail)
+                fresh[symbol] = tail
                 stats.tail_spliced += 1
                 continue
             # Nothing new for this name: a suspension, or the market had no
@@ -225,6 +344,7 @@ def fetch_lake_first(
                 )
             else:
                 fetch_errors[symbol] = reason or "tail gap fetch returned nothing"
+        _cache_refresh(fresh, source=tail_source, interval=interval, label=label)
 
     missing = [symbol for symbol in symbols if symbol not in data_map]
     for symbol in missing:
@@ -447,3 +567,127 @@ def _splice(frame: pd.DataFrame, tail: pd.DataFrame) -> pd.DataFrame:
     merged = pd.concat([frame, tail])
     merged = merged[~merged.index.duplicated(keep="last")]
     return merged.sort_index()
+
+
+def _strict() -> bool:
+    """True when the data centre must not read through to a vendor."""
+    try:
+        from src.data.hub import strict_mode
+
+        return strict_mode()
+    except Exception:  # noqa: BLE001 — a config failure must not force a vendor call
+        logger.warning("data center strict-mode check failed; refusing the refresh")
+        return True
+
+
+def _beijing_today() -> dt.date:
+    """Calendar date in Beijing, used to keep a forming session out of the lake."""
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date()
+
+
+def _confirmed_source(frame: pd.DataFrame, requested: str) -> str:
+    """Which vendor actually produced ``frame``, if the caller said so.
+
+    The loader adapter stamps ``data_center_source`` after it knows whether a
+    fallback ran. An injected fetcher (tests, a direct ``tushare`` pull) does
+    not, and the requested source is then the truth. ``skip`` means "do not
+    write this" — a forward-adjusted fallback must not overwrite the lake.
+    """
+    stamped = ""
+    if isinstance(getattr(frame, "attrs", None), dict):
+        stamped = str(frame.attrs.get("data_center_source") or "").strip().lower()
+    if stamped:
+        return stamped
+    return (requested or "").strip().lower()
+
+
+def _cache_refresh(
+    frames: dict[str, pd.DataFrame],
+    *,
+    source: str,
+    interval: str,
+    label: str,
+) -> None:
+    """Write a confirmed unadjusted refresh into the lake. Failures are logged.
+
+    The scan already holds the frames it will return, so a disk error here must
+    not blank the screen. The next caller simply refreshes again.
+    """
+    if not frames:
+        return
+    token = str(interval or "").strip().lower()
+    if token not in {"1d", "d", "day", "daily"}:
+        logger.info(
+            "%s: not caching %s bars (the daily lake is the shared cache)",
+            label,
+            interval,
+        )
+        return
+
+    cacheable: dict[str, pd.DataFrame] = {}
+    for symbol, frame in frames.items():
+        if not _CN_SYMBOL.fullmatch(str(symbol).strip().upper()):
+            continue
+        if _confirmed_source(frame, source) != _CACHEABLE_SOURCE:
+            continue
+        prepared = _prepare_tushare_frame(frame)
+        if prepared is not None:
+            cacheable[str(symbol).strip().upper()] = prepared
+    if not cacheable:
+        logger.info(
+            "%s: %d refreshed series not cached "
+            "(only settled unadjusted tushare A-share bars are written to the lake)",
+            label,
+            len(frames),
+        )
+        return
+    try:
+        from src.data.bars import save_bars
+
+        rows = save_bars(cacheable, "1d", source=_CACHEABLE_SOURCE)
+    except Exception as exc:  # noqa: BLE001 — serve the bars we already have
+        logger.warning("%s: failed to cache refreshed bars: %s", label, exc)
+        return
+    logger.info(
+        "%s: cached %d %s row(s) for %d symbol(s)",
+        label,
+        rows,
+        _CACHEABLE_SOURCE,
+        len(cacheable),
+    )
+
+
+def _prepare_tushare_frame(frame: pd.DataFrame) -> pd.DataFrame | None:
+    """Lake-shaped copy of one Tushare loader frame, settled sessions only.
+
+    Today's bar is still forming, so it is served to the caller but not stored.
+    Amount is scaled from 千元 to 元. A null amount does not wipe a factor or a
+    turnover the ingester already wrote — :func:`save_bars` keeps that rule.
+    """
+    if frame is None or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return None
+    work = frame.copy()
+    index = pd.to_datetime(work.index, errors="coerce")
+    if getattr(index, "tz", None) is not None:
+        index = index.tz_convert("UTC").tz_localize(None)
+    work.index = index
+    work = work[work.index.notna()]
+    cutoff = pd.Timestamp(_beijing_today())
+    work = work[work.index.normalize() < cutoff]
+    if work.empty:
+        return None
+    if any(column not in work.columns for column in _OHLC):
+        return None
+    out = pd.DataFrame(
+        {column: pd.to_numeric(work[column], errors="coerce") for column in _OHLC},
+        index=work.index,
+    )
+    if "volume" in work.columns:
+        out["volume"] = pd.to_numeric(work["volume"], errors="coerce")
+    if "amount" in work.columns:
+        out["amount"] = pd.to_numeric(work["amount"], errors="coerce") * 1000.0
+    out = out.dropna(subset=list(_OHLC))
+    if out.empty:
+        return None
+    out.index.name = "date"
+    return out

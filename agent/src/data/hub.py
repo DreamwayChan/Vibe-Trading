@@ -6,9 +6,10 @@ instead of reaching for a loader, so that "which session", "settled or not",
 with the data rather than inferred per screen.
 
 Phase 0 exposes the console's read surface: as-of resolution, per-dataset
-health, lake totals and the aggregate overview.  Series reads (bars, cross
-sections, sectors, capital) land in later phases on top of the same ``_envelope``
-contract documented in ``docs/design/data-center.md`` §5.
+health, lake totals and the aggregate overview.  Series reads go through
+:func:`bars` / :func:`bars_frame`.  :func:`ensure_bars` is the shared cache
+for features that need a window which might be stale: serve the lake when it
+covers the request, otherwise refresh, store, and serve.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ __all__ = [
     "manifest_for",
     "bars",
     "bars_frame",
+    "ensure_bars",
     "StoredBars",
     "coverage_grid",
     "BAR_POINT_LIMIT",
@@ -527,6 +529,36 @@ def bars_frame(
         sources = {str(symbol): str(value) for symbol, value in latest.items()}
     return StoredBars(
         interval=token, frames=frames, sources=sources, derived_from=derived_from
+    )
+
+
+def ensure_bars(
+    symbols: Sequence[str],
+    *,
+    start: str,
+    end: str,
+    source: str = "auto",
+    interval: str = "1D",
+    network: Any,
+    label: str = "data-center",
+):
+    """Serve daily bars from the lake, refreshing and storing a stale window.
+
+    Features (monitor scans, market and sector picks, backtests, correlation)
+    call this — or :func:`src.data.lake_fetch.ensure_bars`, which is the same
+    function — instead of a loader. ``network`` is invoked only for the gap,
+    and only when strict mode is off.
+    """
+    from src.data.lake_fetch import ensure_bars as _ensure_bars
+
+    return _ensure_bars(
+        list(symbols),
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=network,
+        label=label,
     )
 
 

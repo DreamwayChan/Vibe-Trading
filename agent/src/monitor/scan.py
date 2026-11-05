@@ -406,7 +406,7 @@ def _csi300_frame_for_trends(
     lookback = max(int(lookback_days), _CSI300_LOOKBACK_DAYS)
     start = (as_of_date - timedelta(days=lookback)).isoformat()
     try:
-        extra, errors = _fetch_universe_ohlcv(
+        extra, errors, _stats = _fetch_universe_lake_first(
             [CSI300],
             start=start,
             end=fetch_end.isoformat(),
@@ -787,12 +787,19 @@ def _fetch_universe_ohlcv(
         )
         batch_ok = True
         fetched = getattr(result, "data_map", None) or {}
+        origins = [str(name) for name in (getattr(result, "effective_sources", None) or [])]
+        # A fallback (Tencent 前复权, for example) must not be written into the
+        # unadjusted lake. Only a pure Tushare result is cacheable.
+        cache_origin = "tushare" if origins == ["tushare"] else "skip"
         for symbol in symbols:
             frame = fetched.get(symbol)
             if frame is None and len(fetched) == 1 and len(symbols) == 1:
                 frame = next(iter(fetched.values()))
             if frame is None or getattr(frame, "empty", True):
                 continue
+            attrs = getattr(frame, "attrs", None)
+            if isinstance(attrs, dict):
+                attrs["data_center_source"] = cache_origin
             data_map[symbol] = frame
     except Exception as exc:  # noqa: BLE001 — fail-soft; fill via _fetch_one
         batch_error = str(exc)

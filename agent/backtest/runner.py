@@ -1314,11 +1314,138 @@ def _fetch_auto(
     return merged
 
 
+_DAILY_INTERVALS = frozenset({"1d", "d", "day", "daily"})
+
+
+def _data_center_eligible(config: dict) -> bool:
+    """Daily bar reads go through the lake; everything else stays on the loader.
+
+    Intraday, local files, and fundamental columns are not the daily lake
+    contract. Sending them through it would either miss or overwrite rows the
+    lake stores unadjusted.
+    """
+    if config.get("extra_fields") or config.get("fundamental_fields"):
+        return False
+    source = str(config.get("source") or "tushare").strip().lower()
+    if source in {"local", "csv"}:
+        return False
+    interval = str(config.get("interval") or "1D").strip().lower()
+    if interval not in _DAILY_INTERVALS:
+        return False
+    return bool(config.get("codes"))
+
+
+def _stamp_cache_source(frames: dict, origin: str) -> None:
+    """Tell the data centre whether these frames are safe to store."""
+    for frame in frames.values():
+        attrs = getattr(frame, "attrs", None)
+        if isinstance(attrs, dict):
+            attrs["data_center_source"] = origin
+
+
 def fetch_data_map(config: dict, *, allow_partial: bool = False) -> DataFetchResult:
+    """Fetch bars, preferring the data centre cache for daily series.
+
+    A window the lake already covers is returned without a vendor call. A gap
+    is fetched by the loader registry, and confirmed unadjusted Tushare bars
+    are written back so the next backtest, scan, or chart reads the cache.
+    Intraday intervals, local files, and fundamental fields keep the loader
+    path: they are not the daily lake contract.
+    """
+    if _data_center_eligible(config):
+        return _fetch_data_map_via_center(config, allow_partial=allow_partial)
+    return _fetch_data_map_upstream(config, allow_partial=allow_partial)
+
+
+def _fetch_data_map_via_center(config: dict, *, allow_partial: bool) -> DataFetchResult:
+    """Serve ``config`` from the lake, refreshing gaps through the loader registry."""
+    from src.data.lake_fetch import fetch_lake_first
+
+    requested = copy.deepcopy(config)
+    codes = [str(code) for code in (requested.get("codes") or [])]
+    start = str(requested.get("start_date") or "")
+    end = str(requested.get("end_date") or "")
+    source = str(requested.get("source") or "tushare")
+    interval = str(requested.get("interval") or "1D")
+    collected: list[DataFetchResult] = []
+
+    def network(symbols, *, start, end, source, interval):
+        upstream_config = dict(requested)
+        upstream_config.update(
+            codes=list(symbols),
+            start_date=start,
+            end_date=end,
+            source=source,
+            interval=interval,
+        )
+        result = _fetch_data_map_upstream(upstream_config, allow_partial=True)
+        collected.append(result)
+        frames = dict(result.data_map or {})
+        origins = [str(name) for name in (result.effective_sources or [])]
+        # Only an unmixed Tushare pull matches the lake's unadjusted contract.
+        origin = "tushare" if origins == ["tushare"] else "skip"
+        _stamp_cache_source(frames, origin)
+        errors = {
+            symbol: "no OHLCV bars returned"
+            for symbol in symbols
+            if symbol not in frames or getattr(frames.get(symbol), "empty", True)
+        }
+        return frames, errors
+
+    data_map, errors, stats = fetch_lake_first(
+        codes,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=network,
+        label="backtest",
+    )
+    if (
+        len(collected) == 1
+        and not errors
+        and stats.lake_bases == 0
+        and stats.tail_spliced == 0
+    ):
+        return collected[0]
+
+    missing = [
+        code
+        for code in codes
+        if code not in data_map or getattr(data_map.get(code), "empty", True)
+    ]
+    if missing and not allow_partial:
+        detail = errors.get(missing[0]) or ""
+        message = f"incomplete data for source={source}; missing symbols: {missing}"
+        if detail:
+            message = f"{message}; {detail}"
+        raise NoAvailableSourceError(message)
+
+    effective: list[str] = []
+    for result in collected:
+        for name in result.effective_sources or []:
+            if name not in effective:
+                effective.append(name)
+    if stats.lake_bases and "lake" not in effective:
+        effective.insert(0, "lake")
+    if not effective:
+        effective = ["lake"]
+    served_source = collected[-1].source if collected else source
+    return DataFetchResult(
+        data_map=data_map,
+        codes=codes,
+        source=served_source,
+        loader=_AutoLoader(data_map),
+        effective_sources=effective,
+    )
+
+
+def _fetch_data_map_upstream(config: dict, *, allow_partial: bool = False) -> DataFetchResult:
     """Fetch and sanitize bars through the canonical loader registry.
 
-    This is the shared entry point for backtest execution and reconstruction
-    consumers. It preserves auto routing and the runtime fallback chain.
+    Vendor path behind :func:`fetch_data_map`. Daily reads try the data centre
+    first; this function runs only for a gap, or for intervals the lake does
+    not store. It preserves auto routing and the runtime fallback chain.
 
     Args:
         config: Backtest configuration containing codes, dates, source, and interval.
