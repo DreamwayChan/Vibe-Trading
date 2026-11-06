@@ -99,6 +99,28 @@ def assess_journal_fields(
     return reasons
 
 
+def journal_max_age_days() -> int:
+    """Configured journal expiry in days; 0 means entries never expire."""
+    return int(get_env_config().paths.vibe_trading_decision_journal_max_age_days)
+
+
+def is_stale(signal: "DecisionSignal", *, max_age_days: int | None = None, now: datetime | None = None) -> bool:
+    """True when ``signal`` is older than the expiry window.
+
+    An unparseable timestamp is never reported stale here; it already carries
+    ``invalid_timestamp``.
+    """
+    limit = journal_max_age_days() if max_age_days is None else max_age_days
+    if limit <= 0:
+        return False
+    parsed = parse_timestamp(signal.timestamp)
+    if not parsed:
+        return False
+    moment = datetime.fromisoformat(parsed[:-1] + "+00:00")
+    reference = now or datetime.now(timezone.utc)
+    return (reference - moment).total_seconds() > limit * 86400
+
+
 @dataclass
 class DecisionSignal:
     """One journal row. ``tradable`` is false when any hard field is missing."""

@@ -826,6 +826,7 @@
     "reasonInvalidTimestamp": "时间戳无效",
     "reasonMissingTimestamp": "缺少时间戳",
     "reasonJournalUnreadable": "决策日记无法读取",
+    "reasonStaleJournal": "决策日志已过期，请重新记录决策",
     "reasonAdmissionError": "准入检查失败",
     "reasonNotActionable": "不是可执行信号",
     "reasonAshareSt": "ST",

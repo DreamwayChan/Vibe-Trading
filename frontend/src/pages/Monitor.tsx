@@ -347,6 +347,7 @@ const REASON_I18N = {
   invalid_timestamp: "monitor.reasonInvalidTimestamp",
   missing_timestamp: "monitor.reasonMissingTimestamp",
   journal_unreadable: "monitor.reasonJournalUnreadable",
+  stale_journal: "monitor.reasonStaleJournal",
   admission_error: "monitor.reasonAdmissionError",
   not_actionable: "monitor.reasonNotActionable",
   ashare_st: "monitor.reasonAshareSt",

@@ -135,3 +135,27 @@ def test_assess_lists_every_gap() -> None:
         "missing_risk",
         "missing_timestamp",
     ]
+
+
+def test_is_stale_respects_window_and_zero_disables(journal_path: Path) -> None:
+    from datetime import datetime, timezone
+
+    from src.hypotheses.journal import is_stale
+
+    signal = DecisionJournal().record(**_full(timestamp="2026-01-01T00:00:00Z"))
+    now = datetime(2026, 2, 15, tzinfo=timezone.utc)
+
+    assert is_stale(signal, max_age_days=30, now=now) is True
+    assert is_stale(signal, max_age_days=60, now=now) is False
+    assert is_stale(signal, max_age_days=0, now=now) is False
+
+
+def test_default_expiry_is_thirty_days_and_env_overrides(
+    journal_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.hypotheses.journal import journal_max_age_days
+
+    assert journal_max_age_days() == 30
+    monkeypatch.setenv("VIBE_TRADING_DECISION_JOURNAL_MAX_AGE_DAYS", "0")
+    reset_env_config()
+    assert journal_max_age_days() == 0
