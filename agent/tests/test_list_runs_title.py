@@ -164,3 +164,34 @@ def test_list_runs_strategy_ready_filters_chat_only_runs(
     ready = client.get("/runs", params={"strategy_ready": "true"}).json()
     assert [row["run_id"] for row in ready] == [backtest_id]
     assert ready[0]["has_signal_engine"] is True
+
+
+def test_list_runs_strategy_ready_hides_archived_runs(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """An ARCHIVED marker drops a run from the picker without deleting it."""
+    runs_dir = tmp_path / "runs"
+    live_id = "20260726_100000_01_bt_live"
+    dead_id = "20260726_110000_01_bt_dead"
+
+    for run_id in (live_id, dead_id):
+        _write_run(runs_dir, run_id, "板块动量回测", None)
+        engine = runs_dir / run_id / "code"
+        engine.mkdir()
+        (engine / "signal_engine.py").write_text(
+            "class SignalEngine:\n    pass\n", encoding="utf-8"
+        )
+
+    (runs_dir / dead_id / "ARCHIVED").write_text(
+        "gate: bootstrap_ci_lower\n", encoding="utf-8"
+    )
+
+    all_runs = {row["run_id"]: row for row in client.get("/runs").json()}
+    assert all_runs[dead_id]["archived"] is True
+    assert all_runs[live_id]["archived"] is False
+    # Archiving hides the run from the picker but keeps its artifacts and
+    # engine in place, so history and re-validation still work.
+    assert all_runs[dead_id]["has_signal_engine"] is True
+
+    ready = client.get("/runs", params={"strategy_ready": "true"}).json()
+    assert [row["run_id"] for row in ready] == [live_id]

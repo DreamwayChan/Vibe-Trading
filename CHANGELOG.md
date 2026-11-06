@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A backtest can now be retired from the Monitor picker without deleting it.**
+  Dropping an `ARCHIVED` marker file into a run directory removes that run from
+  `GET /runs?strategy_ready=true`, so a strategy that failed the promotion gate
+  stops offering itself as a tradable source. The marker body is free text
+  (reason, evidence, how to restore); the run keeps its artifacts, its engine,
+  and its place in history, and `RunInfo` now carries `archived` so other views
+  can flag it. Deleting the file puts the run back — no code change, no data
+  loss. Five runs that the statistical gate exposed as structurally unable to
+  beat their benchmark (ETF cross-section, broker momentum, coking no-timing
+  control, innovative-drug and AI-app factor sets) are archived this way.
+- **The decision journal now ships a filled example instead of a blank form.**
+  The monitor board's journal card carries a "Show example" toggle that reveals
+  a two-variant gallery (single-stock buy / strategy-level) with real field
+  values, a note that invalidation must be observable and that an unknown
+  hypothesis id is blocked rather than accepted, and a "Fill the form" button
+  that writes the sample into the inputs for editing. The strategy-level sample
+  leaves the symbol blank, which is exactly the "covers the whole strategy"
+  case the admission gate already understands. Strings are translated for all
+  five locales.
 - **IM channels are now product features, not terminal chores.** Enabled
   channels connect with the server instead of waiting for a Settings click:
   `channels.auto_start` (default on, per-channel override, env

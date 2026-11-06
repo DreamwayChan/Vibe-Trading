@@ -284,6 +284,42 @@ describe("Monitor page", () => {
     expect(within(history).getByText("missing invalidation")).toBeInTheDocument();
   });
 
+  it("fills the journal form from the example gallery", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: [],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: null,
+      suggestions: [],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Show example" }));
+    const gallery = await screen.findByTestId("journal-sample");
+    expect(within(gallery).getByText(/Holiday sell-through/)).toBeInTheDocument();
+
+    await user.click(within(gallery).getByRole("button", { name: "Fill the form" }));
+    expect(screen.getByLabelText("Symbol (optional)")).toHaveValue("600519");
+    expect(screen.getByLabelText("Invalidation")).toHaveValue(
+      "Wholesale price breaks below 2100, or channel inventory climbs back above 3 months",
+    );
+
+    // Strategy-level sample covers the whole strategy, so the symbol clears.
+    await user.click(within(gallery).getByRole("button", { name: "Strategy-level" }));
+    await user.click(within(gallery).getByRole("button", { name: "Fill the form" }));
+    expect(screen.getByLabelText("Symbol (optional)")).toHaveValue("");
+    expect(screen.getByLabelText("Planned position")).toHaveValue(
+      "Gross exposure capped at 60%, max 8% per name",
+    );
+  });
+
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {
     vi.mocked(api.getMonitor).mockResolvedValue({
       symbols: ["AAA.SZ", "BBB.SZ"],

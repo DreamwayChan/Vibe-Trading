@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
+import { BookOpen, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
 import { DecisionCard } from "@/components/process/DecisionCard";
@@ -394,6 +394,27 @@ type PoolView = {
   bars_source?: string | null;
 };
 
+type JournalSampleKind = "stock" | "strategy";
+
+type JournalSample = {
+  hypothesis: string;
+  symbol: string;
+  thesis: string;
+  invalidation: string;
+  position: string;
+  risk: string;
+};
+
+/** One label/value line in the journal sample gallery. */
+function JournalSampleRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="w-24 shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="flex-1">{value}</dd>
+    </div>
+  );
+}
+
 export function Monitor() {
   const { t } = useTranslation();
   const [board, setBoard] = useState<MonitorBoard | null>(null);
@@ -439,6 +460,43 @@ export function Monitor() {
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
   const [journalFilter, setJournalFilter] = useState("");
+  const [journalSampleOpen, setJournalSampleOpen] = useState(false);
+  const [journalSampleKind, setJournalSampleKind] = useState<JournalSampleKind>("stock");
+
+  // Filled examples so the form never looks like a blank wall of fields. The
+  // values are illustrative only; the note under them says what to replace.
+  const journalSamples: Record<JournalSampleKind, JournalSample> = useMemo(
+    () => ({
+      stock: {
+        hypothesis: "",
+        symbol: "600519",
+        thesis: t("monitor.journalSampleStockThesis"),
+        invalidation: t("monitor.journalSampleStockInvalidation"),
+        position: t("monitor.journalSampleStockPosition"),
+        risk: t("monitor.journalSampleStockRisk"),
+      },
+      strategy: {
+        hypothesis: "",
+        symbol: "",
+        thesis: t("monitor.journalSampleStrategyThesis"),
+        invalidation: t("monitor.journalSampleStrategyInvalidation"),
+        position: t("monitor.journalSampleStrategyPosition"),
+        risk: t("monitor.journalSampleStrategyRisk"),
+      },
+    }),
+    [t],
+  );
+  const activeJournalSample = journalSamples[journalSampleKind];
+
+  const applyJournalSample = () => {
+    setJournalHypothesis(activeJournalSample.hypothesis);
+    setJournalSymbol(activeJournalSample.symbol);
+    setJournalThesis(activeJournalSample.thesis);
+    setJournalInvalidation(activeJournalSample.invalidation);
+    setJournalPosition(activeJournalSample.position);
+    setJournalRisk(activeJournalSample.risk);
+    setJournalError(null);
+  };
 
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
@@ -911,9 +969,21 @@ export function Monitor() {
       )}
 
       <div className="rounded-lg border p-4 flex flex-col gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{t("monitor.journalTitle")}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{t("monitor.journalHint")}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{t("monitor.journalTitle")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("monitor.journalHint")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setJournalSampleOpen((open) => !open)}
+            aria-expanded={journalSampleOpen}
+            aria-controls="journal-sample"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            {journalSampleOpen ? t("monitor.journalSampleHide") : t("monitor.journalSampleToggle")}
+          </button>
         </div>
         {pool && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -938,6 +1008,51 @@ export function Monitor() {
                 {(pool.tradable_reasons || []).map((code) => reasonLabel(code, t)).join(" · ")}
               </span>
             )}
+          </div>
+        )}
+        {journalSampleOpen && (
+          <div
+            id="journal-sample"
+            data-testid="journal-sample"
+            className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3"
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(["stock", "strategy"] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => setJournalSampleKind(kind)}
+                  aria-pressed={journalSampleKind === kind}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs",
+                    journalSampleKind === kind
+                      ? "bg-background font-medium"
+                      : "text-muted-foreground hover:bg-background",
+                  )}
+                >
+                  {kind === "stock" ? t("monitor.journalSampleStock") : t("monitor.journalSampleStrategy")}
+                </button>
+              ))}
+            </div>
+            <dl className="flex flex-col gap-1 text-xs">
+              <JournalSampleRow
+                label={t("monitor.journalSymbol")}
+                value={activeJournalSample.symbol || t("monitor.journalSampleSymbolBlank")}
+              />
+              <JournalSampleRow label={t("monitor.journalThesis")} value={activeJournalSample.thesis} />
+              <JournalSampleRow label={t("monitor.journalInvalidation")} value={activeJournalSample.invalidation} />
+              <JournalSampleRow label={t("monitor.journalPosition")} value={activeJournalSample.position} />
+              <JournalSampleRow label={t("monitor.journalRisk")} value={activeJournalSample.risk} />
+            </dl>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t("monitor.journalSampleNote")}</p>
+            <button
+              type="button"
+              onClick={applyJournalSample}
+              className="inline-flex w-fit items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-xs hover:bg-muted"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t("monitor.journalSampleFill")}
+            </button>
           </div>
         )}
         <div className="grid gap-2 sm:grid-cols-2">
