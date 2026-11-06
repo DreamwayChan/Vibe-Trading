@@ -696,6 +696,7 @@
     "journalWholeStrategy": "전략 전체",
     "journalTradable": "거래 가능",
     "journalNotTradable": "거래 불가",
+    "journalAlert": "보유 종목에 거래 가능한 의사결정 일지가 없습니다: {{symbols}}. 아래에서 기록하세요(오래되었거나 무효화된 경우도 있습니다).",
     "journalOutcomeResult": "결과:",
     "journalOutcomePnl": "결과 % (예: -3.5)",
     "journalOutcomeNote": "무슨 일이 있었나요? (선택)",

@@ -696,6 +696,7 @@
     "journalWholeStrategy": "戦略全体",
     "journalTradable": "取引可",
     "journalNotTradable": "取引不可",
+    "journalAlert": "保有銘柄に取引可能な意思決定ジャーナルがありません: {{symbols}}。下で記録してください（期限切れや無効化の場合もあります）。",
     "journalOutcomeResult": "結果:",
     "journalOutcomePnl": "結果 %（例 -3.5）",
     "journalOutcomeNote": "何が起きましたか？（任意）",

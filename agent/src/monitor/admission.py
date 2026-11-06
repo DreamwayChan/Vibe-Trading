@@ -90,6 +90,43 @@ def _expire(entry: DecisionSignal) -> DecisionSignal:
     )
 
 
+def holdings_without_journal(
+    run_key: str,
+    holdings: list[Any],
+    *,
+    journal: DecisionJournal | None = None,
+) -> list[str]:
+    """Symbols currently held with no tradable journal entry behind them.
+
+    A symbol is covered by its own entry, else by the strategy-wide entry. An
+    entry only counts when it is tradable, not stale, and not invalidated.
+    Exits are skipped. An unreadable journal yields no alerts; admission
+    already reports ``journal_unreadable``.
+    """
+    if not run_key or not holdings:
+        return []
+    book = journal if journal is not None else DecisionJournal()
+    try:
+        strategy_entry, symbol_entries = book.latest_for(run_key)
+    except ValueError:
+        return []
+    if strategy_entry is not None:
+        strategy_entry = _expire(strategy_entry)
+    missing: list[str] = []
+    for row in holdings:
+        if getattr(row, "action", "") == "exit":
+            continue
+        symbol = str(getattr(row, "symbol", "") or "")
+        entry = symbol_entries.get(symbol)
+        if entry is not None:
+            entry = _check_invalidation(_expire(entry), getattr(row, "price", None))
+        else:
+            entry = strategy_entry
+        if (entry is None or not entry.tradable) and symbol and symbol not in missing:
+            missing.append(symbol)
+    return missing
+
+
 def _annotate_suggestion(
     suggestion: MonitorSuggestion,
     *,

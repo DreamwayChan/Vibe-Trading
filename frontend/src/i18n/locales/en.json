@@ -834,6 +834,7 @@
     "journalWholeStrategy": "Whole strategy",
     "journalTradable": "Tradable",
     "journalNotTradable": "Not tradable",
+    "journalAlert": "No tradable decision journal entry for held names: {{symbols}}. Record a decision below (entries can also be stale or invalidated).",
     "journalOutcomeResult": "Result:",
     "journalOutcomePnl": "Result % (e.g. -3.5)",
     "journalOutcomeNote": "What happened? (optional)",

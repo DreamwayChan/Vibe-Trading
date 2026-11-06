@@ -696,6 +696,7 @@
     "journalWholeStrategy": "الاستراتيجية بأكملها",
     "journalTradable": "قابل للتداول",
     "journalNotTradable": "غير قابل للتداول",
+    "journalAlert": "لا يوجد إدخال سجل قرارات قابل للتداول للمراكز المحتفظ بها: {{symbols}}. سجّل قرارًا أدناه (قد يكون الإدخال قديمًا أو مُبطلًا).",
     "journalOutcomeResult": "النتيجة:",
     "journalOutcomePnl": "النتيجة % (مثال -3.5)",
     "journalOutcomeNote": "ماذا حدث؟ (اختياري)",

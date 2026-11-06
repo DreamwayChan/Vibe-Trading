@@ -913,6 +913,16 @@ export function Monitor() {
         </div>
       </div>
 
+      {strategyBound && (board?.journal_alerts?.length ?? 0) > 0 && (
+        <div
+          role="alert"
+          data-testid="journal-alert"
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
+        >
+          {t("monitor.journalAlert", { symbols: (board?.journal_alerts ?? []).join(", ") })}
+        </div>
+      )}
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}

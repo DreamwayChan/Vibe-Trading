@@ -285,6 +285,25 @@ describe("Monitor page", () => {
     expect(within(history).getByText(/Add an invalidation/)).toBeInTheDocument();
   });
 
+  it("alerts about held names with no tradable journal entry", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["AAA.SZ"],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: null,
+      suggestions: [],
+      holdings: [{ symbol: "AAA.SZ", weight: 0.1, action: "hold", price: 1 }],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+      journal_alerts: ["AAA.SZ"],
+    });
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("journal-alert")).toHaveTextContent("AAA.SZ");
+  });
+
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {
     vi.mocked(api.getMonitor).mockResolvedValue({
       symbols: ["AAA.SZ", "BBB.SZ"],

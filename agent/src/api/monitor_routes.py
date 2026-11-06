@@ -266,6 +266,7 @@ class MonitorResponse(BaseModel):
     validation_gate: Optional[Dict[str, Any]] = None
     decision_signal: Optional[Dict[str, Any]] = None
     bars_source: Optional[str] = None
+    journal_alerts: List[str] = Field(default_factory=list)
 
 
 class RecordSignalRequest(BaseModel):
@@ -358,6 +359,17 @@ def _display_holdings(holdings, decision):
     return clip_holdings(holdings, decision)
 
 
+def _journal_alerts(config: MonitorConfig) -> List[str]:
+    """Held symbols with no tradable journal entry behind them."""
+    from src.monitor.admission import holdings_without_journal, journal_key_for
+
+    try:
+        return holdings_without_journal(journal_key_for(config.strategy), list(config.holdings))
+    except Exception as exc:  # noqa: BLE001 — an alert lookup must not break the board
+        logger.warning("journal alerts unavailable: %s", exc)
+        return []
+
+
 def _to_response(config: MonitorConfig) -> MonitorResponse:
     holdings = _display_holdings(config.holdings, config.decision)
     return MonitorResponse(
@@ -380,6 +392,7 @@ def _to_response(config: MonitorConfig) -> MonitorResponse:
         validation_gate=config.validation_gate,
         decision_signal=config.decision_signal,
         bars_source=config.bars_source,
+        journal_alerts=_journal_alerts(config),
     )
 
 
