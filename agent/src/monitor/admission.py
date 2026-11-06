@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from backtest.validation import evaluate_run_validation
-from src.hypotheses.journal import DecisionJournal, DecisionSignal
+from src.hypotheses.journal import DecisionJournal, DecisionSignal, is_stale
 from src.monitor.ashare_risk import buy_block_reasons
 from src.monitor.models import MonitorConfig, MonitorSuggestion
 from src.strategy_store.models import artifact_matches_run
@@ -64,6 +64,17 @@ def _dedupe(reasons: list[str]) -> list[str]:
         seen.add(text)
         out.append(text)
     return out
+
+
+def _expire(entry: DecisionSignal) -> DecisionSignal:
+    """Downgrade an entry older than the journal expiry window."""
+    if not is_stale(entry):
+        return entry
+    return replace(
+        entry,
+        tradable=False,
+        block_reasons=_dedupe([*entry.block_reasons, "stale_journal"]),
+    )
 
 
 def _annotate_suggestion(
@@ -108,6 +119,9 @@ def evaluate_admission(
     symbol_entries: dict[str, DecisionSignal] = {}
     try:
         strategy_entry, symbol_entries = book.latest_for(run_key)
+        if strategy_entry is not None:
+            strategy_entry = _expire(strategy_entry)
+        symbol_entries = {sym: _expire(entry) for sym, entry in symbol_entries.items()}
     except ValueError:
         journal_error = "journal_unreadable"
 

@@ -699,6 +699,7 @@
     "reasonInvalidTimestamp": "طابع زمني غير صالح",
     "reasonMissingTimestamp": "الطابع الزمني مفقود",
     "reasonJournalUnreadable": "السجل غير قابل للقراءة",
+    "reasonStaleJournal": "إدخال سجل القرارات قديم؛ سجّل قرارًا جديدًا",
     "reasonAdmissionError": "فشل فحص الدخول",
     "reasonNotActionable": "ليست إشارة قابلة للتنفيذ",
     "reasonAshareSt": "سهم ST",

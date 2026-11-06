@@ -476,6 +476,10 @@ class PathConfig(_EnvBase):
     vibe_trading_decision_journal_path: str = Field(
         alias="VIBE_TRADING_DECISION_JOURNAL_PATH", default=""
     )
+    # Days a journal entry stays valid for the tradable pool. 0 disables expiry.
+    vibe_trading_decision_journal_max_age_days: int = Field(
+        alias="VIBE_TRADING_DECISION_JOURNAL_MAX_AGE_DAYS", default=30, ge=0,
+    )
     vibe_trading_goal_db_path: str = Field(alias="VIBE_TRADING_GOAL_DB_PATH", default="")
     vibe_trading_swarm_agent_config: str = Field(
         alias="VIBE_TRADING_SWARM_AGENT_CONFIG", default="",
