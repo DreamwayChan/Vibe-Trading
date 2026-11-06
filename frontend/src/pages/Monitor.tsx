@@ -14,6 +14,7 @@ import {
   type MonitorDayOps,
   type MonitorHistorySummary,
   type MonitorHolding,
+  type MonitorJournalEntry,
   type MonitorSuggestion,
   type ProcessDecision,
   type RunData,
@@ -436,6 +437,8 @@ export function Monitor() {
   const [journalSymbol, setJournalSymbol] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
+  const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
+  const [journalFilter, setJournalFilter] = useState("");
 
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
@@ -649,6 +652,25 @@ export function Monitor() {
       : null);
   const strategyBound = Boolean(runId.trim() || board?.strategy?.shadow_id);
 
+  const strategyKey = `${board?.strategy?.type ?? ""}:${board?.strategy?.run_id ?? ""}:${board?.strategy?.shadow_id ?? ""}`;
+
+  const refreshJournal = async () => {
+    if (!strategyBound) {
+      setJournalRows([]);
+      return;
+    }
+    try {
+      const rows = await api.listMonitorJournal(50, journalFilter.trim().toUpperCase());
+      setJournalRows(Array.isArray(rows) ? rows : []);
+    } catch {
+      setJournalRows([]);
+    }
+  };
+
+  useEffect(() => {
+    void refreshJournal();
+  }, [strategyKey, strategyBound, journalFilter]);
+
   const saveDecision = async () => {
     if (journalSaving || !strategyBound) return;
     setJournalSaving(true);
@@ -663,6 +685,7 @@ export function Monitor() {
         symbol: journalSymbol.trim() || undefined,
       });
       applyBoard(next);
+      await refreshJournal();
     } catch (e) {
       setJournalError(e instanceof Error ? e.message : t("monitor.journalFailed"));
     } finally {
@@ -979,6 +1002,54 @@ export function Monitor() {
           </button>
           {journalError && <span className="text-sm text-destructive">{journalError}</span>}
         </div>
+        {strategyBound && (
+          <div className="flex flex-col gap-2 border-t pt-3" data-testid="journal-history">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-medium">{t("monitor.journalHistoryTitle")}</h3>
+              <input
+                type="text"
+                value={journalFilter}
+                onChange={(e) => setJournalFilter(e.target.value)}
+                placeholder={t("monitor.journalHistoryFilter")}
+                aria-label={t("monitor.journalHistoryFilter")}
+                className="w-40 px-2 py-1 rounded-md border bg-background text-xs font-mono"
+              />
+            </div>
+            {journalRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("monitor.journalHistoryEmpty")}</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {journalRows.map((row) => (
+                  <li key={row.signal_id} className="rounded-md border px-3 py-2 text-xs flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-muted-foreground">{row.timestamp}</span>
+                      <span className="font-mono">{row.symbol || t("monitor.journalWholeStrategy")}</span>
+                      <span
+                        className={cn(
+                          "inline-flex rounded px-1.5 py-0.5 font-medium",
+                          row.tradable
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                            : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                        )}
+                      >
+                        {row.tradable ? t("monitor.journalTradable") : t("monitor.journalNotTradable")}
+                      </span>
+                      {row.block_reasons.length > 0 && (
+                        <span className="text-muted-foreground">
+                          {row.block_reasons.map((code) => reasonLabel(code, t)).join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                    {row.thesis && <div>{row.thesis}</div>}
+                    <div className="text-muted-foreground">
+                      {[row.invalidation, row.planned_position, row.planned_risk].filter(Boolean).join(" · ")}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {viewDecision && (
