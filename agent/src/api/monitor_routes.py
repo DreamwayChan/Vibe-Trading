@@ -283,6 +283,8 @@ class RecordSignalRequest(BaseModel):
     timestamp: Optional[str] = None
     symbol: Optional[str] = None
     strict: bool = False
+    invalidation_side: Optional[str] = None
+    invalidation_price: Optional[float] = None
 
 
 class JournalEntryResponse(BaseModel):
@@ -566,6 +568,8 @@ def register_monitor_routes(
                 timestamp=body.timestamp or "",
                 symbol=body.symbol or "",
                 strict=bool(body.strict),
+                invalidation_side=body.invalidation_side or "",
+                invalidation_price=body.invalidation_price,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

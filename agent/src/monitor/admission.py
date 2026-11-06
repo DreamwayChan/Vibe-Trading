@@ -66,6 +66,19 @@ def _dedupe(reasons: list[str]) -> list[str]:
     return out
 
 
+def _check_invalidation(
+    entry: DecisionSignal, price: float | None
+) -> DecisionSignal:
+    """Downgrade a symbol entry whose structured invalidation level is broken."""
+    if not entry.breached_by(price):
+        return entry
+    return replace(
+        entry,
+        tradable=False,
+        block_reasons=_dedupe([*entry.block_reasons, "invalidated"]),
+    )
+
+
 def _annotate_suggestion(
     suggestion: MonitorSuggestion,
     *,
@@ -145,6 +158,19 @@ def evaluate_admission(
             for entry in symbol_entries.values():
                 if not entry.tradable:
                     reasons.extend(entry.block_reasons)
+
+    if journal_error is None:
+        prices = {item.symbol: item.price for item in suggestions}
+        symbol_entries = {
+            sym: _check_invalidation(entry, prices.get(sym))
+            for sym, entry in symbol_entries.items()
+        }
+        symbol_ok = any(entry.tradable for entry in symbol_entries.values())
+        pool = gate_passed and (strategy_ok or symbol_ok)
+        if not strategy_ok and not symbol_ok:
+            for entry in symbol_entries.values():
+                if "invalidated" in entry.block_reasons:
+                    reasons.append("invalidated")
 
     annotated = [
         _annotate_suggestion(
