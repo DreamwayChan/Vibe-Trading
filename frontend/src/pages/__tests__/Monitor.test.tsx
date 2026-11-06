@@ -20,6 +20,7 @@ vi.mock("@/lib/api", () => ({
     resetMonitor: vi.fn(),
     recordMonitorSignal: vi.fn(),
     listMonitorJournal: vi.fn(),
+    getMonitorJournalSummary: vi.fn(),
     listMonitorHistory: vi.fn(),
     getMonitorHistoryDay: vi.fn(),
     forecastMonitor: vi.fn(),

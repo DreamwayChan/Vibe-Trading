@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import { Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
+import { JournalOutcome } from "@/components/monitor/JournalOutcome";
 import { DecisionJournalForm, type JournalSubmit } from "@/components/monitor/DecisionJournalForm";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
@@ -16,6 +17,7 @@ import {
   type MonitorHistorySummary,
   type MonitorHolding,
   type MonitorJournalEntry,
+  type MonitorJournalSummary,
   type MonitorSuggestion,
   type ProcessDecision,
   type RunData,
@@ -435,6 +437,7 @@ export function Monitor() {
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
   const [journalFilter, setJournalFilter] = useState("");
+  const [journalSummary, setJournalSummary] = useState<MonitorJournalSummary | null>(null);
 
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
@@ -653,6 +656,7 @@ export function Monitor() {
   const refreshJournal = async () => {
     if (!strategyBound) {
       setJournalRows([]);
+      setJournalSummary(null);
       return;
     }
     try {
@@ -660,6 +664,12 @@ export function Monitor() {
       setJournalRows(Array.isArray(rows) ? rows : []);
     } catch {
       setJournalRows([]);
+    }
+    try {
+      const summary = await api.getMonitorJournalSummary();
+      setJournalSummary(summary && summary.reviewed > 0 ? summary : null);
+    } catch {
+      setJournalSummary(null);
     }
   };
 
@@ -958,6 +968,15 @@ export function Monitor() {
                 className="w-40 px-2 py-1 rounded-md border bg-background text-xs font-mono"
               />
             </div>
+            {journalSummary && (
+              <p className="text-xs text-muted-foreground" data-testid="journal-summary">
+                {t("monitor.journalOutcomeSummary", {
+                  reviewed: journalSummary.reviewed,
+                  rate: Math.round((journalSummary.win_rate ?? 0) * 100),
+                  mean: (journalSummary.mean_pnl_pct ?? 0).toFixed(2),
+                })}
+              </p>
+            )}
             {journalRows.length === 0 ? (
               <p className="text-xs text-muted-foreground">{t("monitor.journalHistoryEmpty")}</p>
             ) : (
@@ -1001,6 +1020,7 @@ export function Monitor() {
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
+                    <JournalOutcome row={row} onSaved={() => void refreshJournal()} />
                   </li>
                 ))}
               </ul>

@@ -149,6 +149,7 @@ def test_history_is_newest_first_and_filters_symbol(journal_path: Path) -> None:
     assert [row.symbol for row in journal.history("run_demo", symbol="AAPL")] == ["AAPL"]
     assert len(journal.history("run_demo", limit=1)) == 1
 
+
 def test_concurrent_records_do_not_lose_rows(journal_path: Path) -> None:
     import threading
 

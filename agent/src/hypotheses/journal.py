@@ -76,6 +76,22 @@ def _positive_or_none(value: Any) -> float | None:
     return number
 
 
+def _clean_outcome(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        pnl = float(value.get("pnl_pct"))
+    except (TypeError, ValueError):
+        return None
+    if pnl != pnl or pnl in (float("inf"), float("-inf")):
+        return None
+    return {
+        "pnl_pct": pnl,
+        "note": str(value.get("note") or "").strip(),
+        "recorded_at": str(value.get("recorded_at") or ""),
+    }
+
+
 def _text(value: Any) -> str:
     if value is None or isinstance(value, bool):
         return ""
@@ -153,6 +169,8 @@ class DecisionSignal:
     # Optional machine-checkable form of ``invalidation`` (per-symbol only).
     invalidation_side: str = ""
     invalidation_price: float | None = None
+    # Realised result recorded after the trade: {"pnl_pct", "note", "recorded_at"}.
+    outcome: dict[str, Any] | None = None
 
     def breached_by(self, price: float | None) -> bool:
         """True when ``price`` has crossed the structured invalidation level."""
@@ -186,6 +204,7 @@ class DecisionSignal:
             block_reasons=[str(item) for item in reasons if str(item).strip()],
             invalidation_side=_side_or_blank(data.get("invalidation_side")),
             invalidation_price=_positive_or_none(data.get("invalidation_price")),
+            outcome=_clean_outcome(data.get("outcome")),
         )
 
 
@@ -339,6 +358,27 @@ class DecisionJournal:
                     by_symbol[signal.symbol] = signal
         return strategy, by_symbol
 
+    def record_outcome(self, signal_id: str, *, pnl_pct: float, note: str = "") -> DecisionSignal:
+        """Attach the realised result (percent) to an existing entry.
+
+        Raises:
+            KeyError: no entry has ``signal_id``.
+            ValueError: ``pnl_pct`` is not a finite number.
+        """
+        outcome = _clean_outcome({"pnl_pct": pnl_pct, "note": note})
+        if outcome is None:
+            raise ValueError("pnl_pct must be a finite number")
+        outcome["recorded_at"] = _utc_now()
+        key = _text(signal_id)
+        with self._locked():
+            records = self.list()
+            for record in records:
+                if record.signal_id == key:
+                    record.outcome = outcome
+                    self._save(records)
+                    return record
+        raise KeyError(key)
+
     def history(
         self,
         run_id: str,
@@ -429,3 +469,15 @@ def _unlock(handle: Any) -> None:
 def _new_signal_id(run_id: str, symbol: str, timestamp: str) -> str:
     seed = f"{run_id}|{symbol}|{timestamp}|{uuid.uuid4()}"
     return "sig_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12]
+
+
+def outcome_summary(signals: list[DecisionSignal]) -> dict[str, Any]:
+    """Count reviewed entries and win rate / mean PnL over them."""
+    pnls = [signal.outcome["pnl_pct"] for signal in signals if signal.outcome]
+    wins = sum(1 for pnl in pnls if pnl > 0)
+    return {
+        "reviewed": len(pnls),
+        "wins": wins,
+        "win_rate": wins / len(pnls) if pnls else None,
+        "mean_pnl_pct": sum(pnls) / len(pnls) if pnls else None,
+    }

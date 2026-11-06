@@ -301,6 +301,14 @@ class JournalEntryResponse(BaseModel):
     block_reasons: List[str] = Field(default_factory=list)
     invalidation_side: str = ""
     invalidation_price: Optional[float] = None
+    outcome: Optional[Dict[str, Any]] = None
+
+
+class RecordOutcomeRequest(BaseModel):
+    """Realised result of a journal entry, in percent (e.g. ``-3.5``)."""
+
+    pnl_pct: float
+    note: Optional[str] = None
 
 
 class HistorySummaryResponse(BaseModel):
@@ -614,6 +622,43 @@ def register_monitor_routes(
         except ValueError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return [JournalEntryResponse(**row.to_dict()) for row in rows]
+
+    @app.get(
+        "/monitor/journal/summary",
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_monitor_journal_summary() -> Dict[str, Any]:
+        """Outcome review totals (reviewed count, win rate, mean PnL %) for the bound strategy."""
+        from src.hypotheses.journal import DecisionJournal, outcome_summary
+        from src.monitor.admission import journal_key_for
+
+        run_key = journal_key_for(load_monitor().strategy)
+        rows = DecisionJournal().history(run_key, limit=100000) if run_key else []
+        return outcome_summary(rows)
+
+    @app.post(
+        "/monitor/journal/{signal_id}/outcome",
+        response_model=JournalEntryResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_monitor_journal_outcome(
+        signal_id: str, body: RecordOutcomeRequest
+    ) -> JournalEntryResponse:
+        """Record the realised PnL % for one journal entry of the bound strategy."""
+        from src.hypotheses.journal import DecisionJournal
+        from src.monitor.admission import journal_key_for
+
+        run_key = journal_key_for(load_monitor().strategy)
+        journal = DecisionJournal()
+        if not any(row.signal_id == signal_id for row in journal.history(run_key, limit=100000)):
+            raise HTTPException(status_code=404, detail="journal entry not found")
+        try:
+            row = journal.record_outcome(signal_id, pnl_pct=body.pnl_pct, note=body.note or "")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="journal entry not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return JournalEntryResponse(**row.to_dict())
 
     @app.post(
         "/monitor/reset",
