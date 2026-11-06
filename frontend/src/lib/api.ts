@@ -262,6 +262,12 @@ export const api = {
     request<MonitorJournalEntry[]>(
       `/monitor/journal?limit=${limit}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
     ),
+  getMonitorJournalSummary: () => request<MonitorJournalSummary>(`/monitor/journal/summary`),
+  recordMonitorOutcome: (signalId: string, body: { pnl_pct: number; note?: string }) =>
+    request<MonitorJournalEntry>(`/monitor/journal/${encodeURIComponent(signalId)}/outcome`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -901,6 +907,14 @@ export interface MonitorJournalEntry {
   block_reasons: string[];
   invalidation_side?: string;
   invalidation_price?: number | null;
+  outcome?: { pnl_pct: number; note: string; recorded_at: string } | null;
+}
+
+export interface MonitorJournalSummary {
+  reviewed: number;
+  wins: number;
+  win_rate: number | null;
+  mean_pnl_pct: number | null;
 }
 
 export interface MonitorHistorySummary {
