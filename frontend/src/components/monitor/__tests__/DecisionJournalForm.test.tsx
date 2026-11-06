@@ -52,3 +52,23 @@ describe("missingJournalFields", () => {
     ).toEqual(["position", "risk"]);
   });
 });
+
+describe("invalidation level", () => {
+  it("blocks save until side, price and symbol are consistent and submits them", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<DecisionJournalForm {...base} bound onSave={onSave} />);
+    await user.click(screen.getByLabelText("Invalid if price falls below"));
+    expect(screen.getByText(/Pick a side and enter a price/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save decision/i })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Invalidation price"), "1600");
+    expect(screen.getByText(/Add a symbol above/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Symbol (optional)"), "600519.SH");
+    await user.click(screen.getByRole("button", { name: /save decision/i }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ symbol: "600519.SH", levelSide: "below", levelPrice: "1600" }),
+    );
+  });
+});

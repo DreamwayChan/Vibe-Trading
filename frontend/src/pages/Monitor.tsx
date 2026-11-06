@@ -350,6 +350,7 @@ const REASON_I18N = {
   invalid_timestamp: "monitor.reasonInvalidTimestamp",
   missing_timestamp: "monitor.reasonMissingTimestamp",
   journal_unreadable: "monitor.reasonJournalUnreadable",
+  invalidated: "monitor.reasonInvalidated",
   admission_error: "monitor.reasonAdmissionError",
   not_actionable: "monitor.reasonNotActionable",
   ashare_st: "monitor.reasonAshareSt",
@@ -678,6 +679,8 @@ export function Monitor() {
         planned_position: v.position.trim() || undefined,
         planned_risk: v.risk.trim() || undefined,
         symbol: v.symbol.trim() || undefined,
+        invalidation_side: v.levelSide || undefined,
+        invalidation_price: v.levelSide && v.levelPrice.trim() ? Number(v.levelPrice) : undefined,
       });
       applyBoard(next);
       await refreshJournal();
@@ -987,7 +990,16 @@ export function Monitor() {
                     </div>
                     {row.thesis && <div>{row.thesis}</div>}
                     <div className="text-muted-foreground">
-                      {[row.invalidation, row.planned_position, row.planned_risk].filter(Boolean).join(" · ")}
+                      {[
+                        row.invalidation,
+                        row.invalidation_side && row.invalidation_price
+                          ? `${t(row.invalidation_side === "above" ? "monitor.journalLevelAbove" : "monitor.journalLevelBelow")} ${row.invalidation_price}`
+                          : "",
+                        row.planned_position,
+                        row.planned_risk,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </div>
                   </li>
                 ))}

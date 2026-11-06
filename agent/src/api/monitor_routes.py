@@ -299,6 +299,8 @@ class JournalEntryResponse(BaseModel):
     symbol: str = ""
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
+    invalidation_side: str = ""
+    invalidation_price: Optional[float] = None
 
 
 class HistorySummaryResponse(BaseModel):

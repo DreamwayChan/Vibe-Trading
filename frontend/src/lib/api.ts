@@ -883,6 +883,8 @@ export interface RecordMonitorSignalRequest {
   timestamp?: string;
   symbol?: string;
   strict?: boolean;
+  invalidation_side?: "below" | "above";
+  invalidation_price?: number;
 }
 
 export interface MonitorJournalEntry {
@@ -897,6 +899,8 @@ export interface MonitorJournalEntry {
   symbol: string;
   tradable: boolean;
   block_reasons: string[];
+  invalidation_side?: string;
+  invalidation_price?: number | null;
 }
 
 export interface MonitorHistorySummary {

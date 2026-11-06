@@ -40,3 +40,17 @@ export const JOURNAL_FIX_KEY = {
   position: "monitor.journalFix.position",
   risk: "monitor.journalFix.risk",
 } as const satisfies Record<JournalField, string>;
+
+export type LevelIssue = "incomplete" | "symbol" | "number";
+
+/** Problem with the optional structured invalidation level, or null when fine. */
+export function levelIssue(side: string, price: string, symbol: string): LevelIssue | null {
+  const hasSide = side !== "";
+  const hasPrice = price.trim() !== "";
+  if (!hasSide && !hasPrice) return null;
+  if (hasSide !== hasPrice) return "incomplete";
+  const n = Number(price);
+  if (!Number.isFinite(n) || n <= 0) return "number";
+  if (!symbol.trim()) return "symbol";
+  return null;
+}
