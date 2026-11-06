@@ -148,3 +148,43 @@ def test_history_is_newest_first_and_filters_symbol(journal_path: Path) -> None:
     assert [row.timestamp[:10] for row in rows] == ["2026-01-03", "2026-01-02", "2026-01-01"]
     assert [row.symbol for row in journal.history("run_demo", symbol="AAPL")] == ["AAPL"]
     assert len(journal.history("run_demo", limit=1)) == 1
+
+def test_concurrent_records_do_not_lose_rows(journal_path: Path) -> None:
+    import threading
+
+    errors: list[BaseException] = []
+
+    def worker(index: int) -> None:
+        try:
+            DecisionJournal().record(**_full(run_id=f"run_{index}"))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(16)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(DecisionJournal().list()) == 16
+    assert not list(journal_path.parent.glob("*.tmp"))
+
+
+def test_concurrent_processes_do_not_lose_rows(journal_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; from src.hypotheses.journal import DecisionJournal;"
+        "DecisionJournal().record(run_id=sys.argv[1], thesis='t', invalidation='i',"
+        "planned_position='p', planned_risk='r')"
+    )
+    env = {**os.environ, "VIBE_TRADING_DECISION_JOURNAL_PATH": str(journal_path)}
+    procs = [
+        subprocess.Popen([sys.executable, "-c", code, f"run_{i}"], env=env)
+        for i in range(8)
+    ]
+    assert all(proc.wait() == 0 for proc in procs)
+    assert len(DecisionJournal().list()) == 8
