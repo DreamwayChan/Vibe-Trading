@@ -281,7 +281,7 @@ describe("Monitor page", () => {
     const history = await screen.findByTestId("journal-history");
     expect(await within(history).findByText("Gap reversal fades")).toBeInTheDocument();
     expect(within(history).getByText("Not tradable")).toBeInTheDocument();
-    expect(within(history).getByText("missing invalidation")).toBeInTheDocument();
+    expect(within(history).getByText(/Add an invalidation/)).toBeInTheDocument();
   });
 
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {
