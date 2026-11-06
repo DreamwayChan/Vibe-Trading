@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Lightbulb, Loader2, Save } from "lucide-react";
-import { JOURNAL_FIX_KEY, missingJournalFields, type JournalField, type JournalValues } from "@/lib/journalValidation";
+import { JOURNAL_FIX_KEY, levelIssue, missingJournalFields, type JournalField, type JournalValues } from "@/lib/journalValidation";
 import { cn } from "@/lib/utils";
 
 export interface JournalSubmit extends JournalValues {
   symbol: string;
+  levelSide: "" | "below" | "above";
+  levelPrice: string;
 }
 
 interface Props {
@@ -16,8 +18,8 @@ interface Props {
   onSave: (values: JournalSubmit) => Promise<void> | void;
 }
 
-const EMPTY: JournalSubmit = { hypothesis: "", symbol: "", thesis: "", invalidation: "", position: "", risk: "" };
-type FieldKey = keyof JournalSubmit;
+const EMPTY: JournalSubmit = { hypothesis: "", symbol: "", thesis: "", invalidation: "", position: "", risk: "", levelSide: "", levelPrice: "" };
+type FieldKey = Exclude<keyof JournalSubmit, "levelSide" | "levelPrice">;
 
 const FIELDS = {
   hypothesis: { label: "monitor.journalHypothesis", help: "monitor.journalHelpHypothesis" },
@@ -34,6 +36,18 @@ const EXAMPLE_ROWS = [
   { label: "monitor.journalPosition", value: "monitor.journalExamplePosition" },
   { label: "monitor.journalRisk", value: "monitor.journalExampleRisk" },
 ] as const;
+
+const LEVEL_SIDES = [
+  { value: "", label: "monitor.journalLevelNone" },
+  { value: "below", label: "monitor.journalLevelBelow" },
+  { value: "above", label: "monitor.journalLevelAbove" },
+] as const;
+
+const LEVEL_KEY = {
+  incomplete: "monitor.journalLevelFix.incomplete",
+  number: "monitor.journalLevelFix.number",
+  symbol: "monitor.journalLevelFix.symbol",
+} as const;
 
 const INPUT = "w-full px-3 py-2 rounded-md border bg-background text-sm";
 
@@ -56,6 +70,7 @@ export function DecisionJournalForm({ bound, busy, saving, error, onSave }: Prop
   }
 
   const missing = missingJournalFields(values);
+  const level = levelIssue(values.levelSide, values.levelPrice, values.symbol);
   const shown = (field: JournalField) => missing.includes(field) && (attempted || touched.has(field));
   const set = (key: keyof JournalSubmit) => (e: { target: { value: string } }) =>
     setValues((prev) => ({ ...prev, [key]: e.target.value }));
@@ -99,6 +114,8 @@ export function DecisionJournalForm({ bound, busy, saving, error, onSave }: Prop
       invalidation: t("monitor.journalExampleInvalidation"),
       position: t("monitor.journalExamplePosition"),
       risk: t("monitor.journalExampleRisk"),
+      levelSide: "",
+      levelPrice: "",
     });
   };
 
@@ -138,11 +155,44 @@ export function DecisionJournalForm({ bound, busy, saving, error, onSave }: Prop
         {field("position", "position")}
         {field("risk", "risk")}
       </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium">{t("monitor.journalLevel")}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="radiogroup" aria-label={t("monitor.journalLevelSide")} className="flex flex-wrap gap-3 text-sm">
+            {LEVEL_SIDES.map((side) => (
+              <label key={side.value || "none"} className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  name="journal-level-side"
+                  checked={values.levelSide === side.value}
+                  onChange={() => setValues((prev) => ({ ...prev, levelSide: side.value }))}
+                />
+                {t(side.label)}
+              </label>
+            ))}
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={values.levelPrice}
+            onChange={(e) => setValues((prev) => ({ ...prev, levelPrice: e.target.value }))}
+            aria-label={t("monitor.journalLevelPrice")}
+            className={cn(INPUT, "w-32 font-mono")}
+          />
+        </div>
+        <span className="text-xs text-muted-foreground">{t("monitor.journalHelpLevel")}</span>
+        {level && (
+          <span className="text-xs text-amber-700 dark:text-amber-400" role="alert">
+            {t(LEVEL_KEY[level])}
+          </span>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={submit}
-          disabled={saving || busy}
+          disabled={saving || busy || level !== null}
           className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

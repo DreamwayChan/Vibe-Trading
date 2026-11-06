@@ -40,6 +40,23 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _side_or_blank(value: Any) -> str:
+    text = _text(value).lower()
+    return text if text in ("below", "above") else ""
+
+
+def _positive_or_none(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")) or number <= 0:
+        return None
+    return number
+
+
 def _text(value: Any) -> str:
     if value is None or isinstance(value, bool):
         return ""
@@ -114,6 +131,19 @@ class DecisionSignal:
     symbol: str = ""
     tradable: bool = False
     block_reasons: list[str] = field(default_factory=list)
+    # Optional machine-checkable form of ``invalidation`` (per-symbol only).
+    invalidation_side: str = ""
+    invalidation_price: float | None = None
+
+    def breached_by(self, price: float | None) -> bool:
+        """True when ``price`` has crossed the structured invalidation level."""
+        if price is None or self.invalidation_price is None or price != price:
+            return False
+        if self.invalidation_side == "below":
+            return price < self.invalidation_price
+        if self.invalidation_side == "above":
+            return price > self.invalidation_price
+        return False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -135,6 +165,8 @@ class DecisionSignal:
             symbol=str(data.get("symbol") or "").strip().upper(),
             tradable=bool(data.get("tradable", False)),
             block_reasons=[str(item) for item in reasons if str(item).strip()],
+            invalidation_side=_side_or_blank(data.get("invalidation_side")),
+            invalidation_price=_positive_or_none(data.get("invalidation_price")),
         )
 
 
@@ -162,19 +194,36 @@ class DecisionJournal:
         timestamp: str = "",
         symbol: str = "",
         strict: bool = False,
+        invalidation_side: str = "",
+        invalidation_price: float | None = None,
     ) -> DecisionSignal:
         """Append a signal. Missing invalidation downgrades unless ``strict``.
 
         ``strict=True`` raises :class:`ValueError` and does not write when the
         signal cannot be tradable.
 
+        ``invalidation_side`` (``below``/``above``) with ``invalidation_price``
+        is an optional machine-checkable form of the invalidation text; the
+        monitor flags the signal ``invalidated`` once the price crosses it.
+
         Raises:
-            ValueError: ``run_id`` is blank, or ``strict`` and the signal is
+            ValueError: ``run_id`` is blank, the invalidation rule is
+                incomplete or lacks a symbol, or ``strict`` and the signal is
                 not tradable.
         """
         run_key = _text(run_id)
         if not run_key:
             raise ValueError("run_id is required")
+        side = _side_or_blank(invalidation_side)
+        level = _positive_or_none(invalidation_price)
+        if _text(invalidation_side) and not side:
+            raise ValueError("invalidation_side must be 'below' or 'above'")
+        if invalidation_price is not None and level is None:
+            raise ValueError("invalidation_price must be a positive number")
+        if bool(side) != (level is not None):
+            raise ValueError("invalidation_side and invalidation_price must be set together")
+        if side and not _text(symbol):
+            raise ValueError("a structured invalidation level needs a symbol")
 
         linked_id = _text(hypothesis_id)
         thesis_text = _text(thesis)
@@ -226,6 +275,8 @@ class DecisionJournal:
             symbol=symbol_text,
             tradable=not reasons,
             block_reasons=reasons,
+            invalidation_side=side,
+            invalidation_price=level,
         )
         if timestamp_text == "INVALID":
             # Keep the caller's raw value visible; tradable stays false.
