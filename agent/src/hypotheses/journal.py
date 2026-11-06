@@ -288,6 +288,25 @@ class DecisionJournal:
                     by_symbol[signal.symbol] = signal
         return strategy, by_symbol
 
+    def history(
+        self,
+        run_id: str,
+        *,
+        symbol: str = "",
+        limit: int = 50,
+    ) -> list[DecisionSignal]:
+        """Newest-first signals for one run, optionally narrowed to one symbol."""
+        key = _text(run_id)
+        sym = _text(symbol).upper()
+        # Reverse first so equal timestamps keep newest-written-first order.
+        rows = [
+            signal
+            for signal in reversed(self.list())
+            if signal.run_id == key and (not sym or signal.symbol == sym)
+        ]
+        rows.sort(key=lambda signal: signal.timestamp, reverse=True)
+        return rows[: max(0, limit)]
+
     def _find(self, hypothesis_id: str) -> Hypothesis | None:
         for hypothesis in self.registry.list():
             if hypothesis.hypothesis_id == hypothesis_id:

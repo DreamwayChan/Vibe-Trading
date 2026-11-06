@@ -19,6 +19,7 @@ vi.mock("@/lib/api", () => ({
     scanMonitor: vi.fn(),
     resetMonitor: vi.fn(),
     recordMonitorSignal: vi.fn(),
+    listMonitorJournal: vi.fn(),
     listMonitorHistory: vi.fn(),
     getMonitorHistoryDay: vi.fn(),
     forecastMonitor: vi.fn(),
@@ -245,6 +246,42 @@ describe("Monitor page", () => {
     expect(screen.getByText("missing invalidation")).toBeInTheDocument();
     expect(screen.getByText("Not tradable")).toBeInTheDocument();
     expect(screen.getByText("Bars: data center")).toBeInTheDocument();
+  });
+
+  it("lists decision-journal history for the bound strategy", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: [],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: null,
+      suggestions: [],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+    vi.mocked(api.listMonitorJournal).mockResolvedValue([
+      {
+        signal_id: "sig_1",
+        timestamp: "2026-01-02T00:00:00Z",
+        run_id: "run_1",
+        hypothesis_id: "",
+        thesis: "Gap reversal fades",
+        invalidation: "",
+        planned_position: "2% NAV",
+        planned_risk: "0.5% NAV",
+        symbol: "AAPL",
+        tradable: false,
+        block_reasons: ["missing_invalidation"],
+      },
+    ]);
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+    const history = await screen.findByTestId("journal-history");
+    expect(await within(history).findByText("Gap reversal fades")).toBeInTheDocument();
+    expect(within(history).getByText("Not tradable")).toBeInTheDocument();
+    expect(within(history).getByText("missing invalidation")).toBeInTheDocument();
   });
 
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {

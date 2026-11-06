@@ -285,6 +285,20 @@ class RecordSignalRequest(BaseModel):
     strict: bool = False
 
 
+class JournalEntryResponse(BaseModel):
+    signal_id: str
+    timestamp: str
+    run_id: str
+    hypothesis_id: str = ""
+    thesis: str = ""
+    invalidation: str = ""
+    planned_position: str = ""
+    planned_risk: str = ""
+    symbol: str = ""
+    tradable: bool = False
+    block_reasons: List[str] = Field(default_factory=list)
+
+
 class HistorySummaryResponse(BaseModel):
     as_of: str
     scanned_at: str
@@ -572,6 +586,28 @@ def register_monitor_routes(
             config.tradable_reasons = ["admission_error"]
         save_monitor(config)
         return _to_response(config)
+
+    @app.get(
+        "/monitor/journal",
+        response_model=List[JournalEntryResponse],
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_monitor_journal(
+        symbol: Optional[str] = None,
+        limit: int = Query(50, ge=1, le=500),
+    ) -> List[JournalEntryResponse]:
+        """Decision-journal history (newest first) for the bound strategy."""
+        from src.hypotheses.journal import DecisionJournal
+        from src.monitor.admission import journal_key_for
+
+        run_key = journal_key_for(load_monitor().strategy)
+        if not run_key:
+            return []
+        try:
+            rows = DecisionJournal().history(run_key, symbol=symbol or "", limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return [JournalEntryResponse(**row.to_dict()) for row in rows]
 
     @app.post(
         "/monitor/reset",

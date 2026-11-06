@@ -137,6 +137,19 @@ def test_assess_lists_every_gap() -> None:
     ]
 
 
+def test_history_is_newest_first_and_filters_symbol(journal_path: Path) -> None:
+    journal = DecisionJournal()
+    journal.record(**_full(timestamp="2026-01-01T00:00:00Z"))
+    journal.record(**_full(symbol="aapl", timestamp="2026-01-03T00:00:00Z"))
+    journal.record(**_full(symbol="MSFT", timestamp="2026-01-02T00:00:00Z"))
+    journal.record(**_full(run_id="other", timestamp="2026-01-04T00:00:00Z"))
+
+    rows = journal.history("run_demo")
+    assert [row.timestamp[:10] for row in rows] == ["2026-01-03", "2026-01-02", "2026-01-01"]
+    assert [row.symbol for row in journal.history("run_demo", symbol="AAPL")] == ["AAPL"]
+    assert len(journal.history("run_demo", limit=1)) == 1
+
+
 def test_concurrent_records_do_not_lose_rows(journal_path: Path) -> None:
     import threading
 

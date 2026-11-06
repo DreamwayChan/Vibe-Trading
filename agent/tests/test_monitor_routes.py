@@ -681,3 +681,20 @@ def test_post_signal_admits_when_journal_and_gate_pass(
     assert body["suggestions"][0]["tradable"] is True
     assert body["decision_signal"]["invalidation"] == "Exit on a close above the gap high."
     assert body["validation_gate"]["passed"] is True
+
+
+def test_get_journal_history_for_bound_strategy(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert client.get("/monitor/journal").json() == []
+    _bind_run(home, monkeypatch, "20260101_000000_00_api09")
+    client.post("/monitor/signal", json={"thesis": "t", "symbol": "aapl"})
+    client.post("/monitor/signal", json={"thesis": "t2"})
+
+    rows = client.get("/monitor/journal").json()
+    assert len(rows) == 2
+    assert rows[0]["thesis"] == "t2"
+    assert "missing_invalidation" in rows[0]["block_reasons"]
+    only = client.get("/monitor/journal", params={"symbol": "AAPL"}).json()
+    assert [row["symbol"] for row in only] == ["AAPL"]
+    assert client.get("/monitor/journal", params={"limit": 0}).status_code == 422
