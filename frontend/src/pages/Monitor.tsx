@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import { Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
+import { DecisionJournalForm, type JournalSubmit } from "@/components/monitor/DecisionJournalForm";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
 import { TermHint } from "@/components/process/TermHint";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/api";
 import { formatMetricVal, formatRunListOption } from "@/lib/formatters";
 import { sortByTrendAction, trendActionClass, trendActionHintI18nKey, trendActionI18nKey } from "@/lib/trendAction";
+import { JOURNAL_FIX_KEY, reasonField } from "@/lib/journalValidation";
 import { cn } from "@/lib/utils";
 
 /** Compact metrics line for the maintain-source list (title is shown separately). */
@@ -428,12 +430,6 @@ export function Monitor() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [forecastOpen, setForecastOpen] = useState(false);
   const [poolOverride, setPoolOverride] = useState<PoolView | null>(null);
-  const [journalHypothesis, setJournalHypothesis] = useState("");
-  const [journalThesis, setJournalThesis] = useState("");
-  const [journalInvalidation, setJournalInvalidation] = useState("");
-  const [journalPosition, setJournalPosition] = useState("");
-  const [journalRisk, setJournalRisk] = useState("");
-  const [journalSymbol, setJournalSymbol] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
@@ -670,18 +666,18 @@ export function Monitor() {
     void refreshJournal();
   }, [strategyKey, strategyBound, journalFilter]);
 
-  const saveDecision = async () => {
+  const saveDecision = async (v: JournalSubmit) => {
     if (journalSaving || !strategyBound) return;
     setJournalSaving(true);
     setJournalError(null);
     try {
       const next = await api.recordMonitorSignal({
-        hypothesis_id: journalHypothesis.trim() || undefined,
-        thesis: journalThesis.trim() || undefined,
-        invalidation: journalInvalidation.trim() || undefined,
-        planned_position: journalPosition.trim() || undefined,
-        planned_risk: journalRisk.trim() || undefined,
-        symbol: journalSymbol.trim() || undefined,
+        hypothesis_id: v.hypothesis.trim() || undefined,
+        thesis: v.thesis.trim() || undefined,
+        invalidation: v.invalidation.trim() || undefined,
+        planned_position: v.position.trim() || undefined,
+        planned_risk: v.risk.trim() || undefined,
+        symbol: v.symbol.trim() || undefined,
       });
       applyBoard(next);
       await refreshJournal();
@@ -939,68 +935,13 @@ export function Monitor() {
             )}
           </div>
         )}
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input
-            type="text"
-            value={journalHypothesis}
-            onChange={(e) => setJournalHypothesis(e.target.value)}
-            placeholder={t("monitor.journalHypothesis")}
-            aria-label={t("monitor.journalHypothesis")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-          <input
-            type="text"
-            value={journalSymbol}
-            onChange={(e) => setJournalSymbol(e.target.value)}
-            placeholder={t("monitor.journalSymbol")}
-            aria-label={t("monitor.journalSymbol")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
-          />
-          <input
-            type="text"
-            value={journalThesis}
-            onChange={(e) => setJournalThesis(e.target.value)}
-            placeholder={t("monitor.journalThesis")}
-            aria-label={t("monitor.journalThesis")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalInvalidation}
-            onChange={(e) => setJournalInvalidation(e.target.value)}
-            placeholder={t("monitor.journalInvalidation")}
-            aria-label={t("monitor.journalInvalidation")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalPosition}
-            onChange={(e) => setJournalPosition(e.target.value)}
-            placeholder={t("monitor.journalPosition")}
-            aria-label={t("monitor.journalPosition")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-          <input
-            type="text"
-            value={journalRisk}
-            onChange={(e) => setJournalRisk(e.target.value)}
-            placeholder={t("monitor.journalRisk")}
-            aria-label={t("monitor.journalRisk")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={saveDecision}
-            disabled={journalSaving || saving || scanning || resetting || !strategyBound}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
-          >
-            {journalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {journalSaving ? t("monitor.journalSaving") : t("monitor.journalSubmit")}
-          </button>
-          {journalError && <span className="text-sm text-destructive">{journalError}</span>}
-        </div>
+        <DecisionJournalForm
+          bound={strategyBound}
+          busy={saving || scanning || resetting}
+          saving={journalSaving}
+          error={journalError}
+          onSave={saveDecision}
+        />
         {strategyBound && (
           <div className="flex flex-col gap-2 border-t pt-3" data-testid="journal-history">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1035,7 +976,12 @@ export function Monitor() {
                       </span>
                       {row.block_reasons.length > 0 && (
                         <span className="text-muted-foreground">
-                          {row.block_reasons.map((code) => reasonLabel(code, t)).join(" · ")}
+                          {row.block_reasons
+                            .map((code) => {
+                              const field = reasonField(code);
+                              return field ? t(JOURNAL_FIX_KEY[field]) : reasonLabel(code, t);
+                            })
+                            .join(" · ")}
                         </span>
                       )}
                     </div>
