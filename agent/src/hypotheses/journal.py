@@ -14,14 +14,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
+import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:  # POSIX advisory lock (Linux/macOS).
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows byte-range lock.
+    import msvcrt
+except ImportError:
+    msvcrt = None  # type: ignore[assignment]
 
 from src.config.accessor import get_env_config
 from src.hypotheses.registry import Hypothesis, HypothesisRegistry
+
+
+_LOCK_TIMEOUT_S = 10.0
+_LOCK_POLL_S = 0.02
+_THREAD_LOCK = threading.RLock()
 
 
 def default_journal_path() -> Path:
@@ -230,9 +249,10 @@ class DecisionJournal:
         if timestamp_text == "INVALID":
             # Keep the caller's raw value visible; tradable stays false.
             signal.timestamp = _text(timestamp) or "INVALID"
-        records = self.list()
-        records.append(signal)
-        self._save(records)
+        with self._locked():
+            records = self.list()
+            records.append(signal)
+            self._save(records)
         return signal
 
     def list(self) -> list[DecisionSignal]:
@@ -274,14 +294,66 @@ class DecisionJournal:
                 return hypothesis
         return None
 
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Serialize read-modify-write across threads and processes.
+
+        Raises:
+            TimeoutError: the lock could not be acquired in time.
+        """
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        with _THREAD_LOCK:
+            with open(lock_path, "a+b") as handle:
+                deadline = time.monotonic() + _LOCK_TIMEOUT_S
+                while True:
+                    try:
+                        _try_lock(handle)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(
+                                f"decision journal is locked: {lock_path}"
+                            ) from None
+                        time.sleep(_LOCK_POLL_S)
+                try:
+                    yield
+                finally:
+                    _unlock(handle)
+
     def _save(self, records: list[DecisionSignal]) -> None:
         payload = [signal.to_dict() for signal in records]
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        tmp_path.replace(self.path)
+        # Unique temp name so concurrent writers never share a half-written file.
+        tmp_path = self.path.with_name(f"{self.path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+                fh.flush()
+                os.fsync(fh.fileno())
+            tmp_path.replace(self.path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+def _try_lock(handle: Any) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return
+    if msvcrt is not None:  # pragma: no cover - Windows
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+    raise OSError("no supported advisory lock backend")
+
+
+def _unlock(handle: Any) -> None:
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        elif msvcrt is not None:  # pragma: no cover - Windows
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 
 def _new_signal_id(run_id: str, symbol: str, timestamp: str) -> str:
