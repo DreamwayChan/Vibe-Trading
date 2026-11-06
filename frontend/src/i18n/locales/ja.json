@@ -739,6 +739,7 @@
     "reasonInvalidTimestamp": "タイムスタンプが無効",
     "reasonMissingTimestamp": "タイムスタンプがない",
     "reasonJournalUnreadable": "ジャーナルを読めない",
+    "reasonStaleJournal": "意思決定ジャーナルが古くなっています。新しく記録してください",
     "reasonAdmissionError": "入場チェック失敗",
     "reasonNotActionable": "執行可能なシグナルではない",
     "reasonAshareSt": "ST銘柄",

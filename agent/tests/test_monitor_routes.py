@@ -672,7 +672,6 @@ def test_post_signal_admits_when_journal_and_gate_pass(
             "invalidation": "Exit on a close above the gap high.",
             "planned_position": "2% NAV",
             "planned_risk": "max loss 0.4% NAV",
-            "timestamp": "2024-06-07T01:00:00Z",
         },
     )
     assert response.status_code == 200

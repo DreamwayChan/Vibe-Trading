@@ -877,6 +877,7 @@
     "reasonInvalidTimestamp": "invalid timestamp",
     "reasonMissingTimestamp": "missing timestamp",
     "reasonJournalUnreadable": "decision journal unreadable",
+    "reasonStaleJournal": "decision journal entry is stale; record a fresh decision",
     "reasonAdmissionError": "admission check failed",
     "reasonNotActionable": "not an actionable signal",
     "reasonAshareSt": "ST name",

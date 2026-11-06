@@ -187,3 +187,41 @@ def test_scan_downgrades_when_invalidation_is_missing(
     assert "missing_invalidation" in result.tradable_reasons
     assert result.suggestions[0].tradable is False
     assert "missing_invalidation" in result.suggestions[0].block_reasons
+
+
+def test_stale_journal_entry_blocks_pool_and_suggestions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.monitor.admission import evaluate_admission
+    from src.monitor.models import MonitorSuggestion
+
+    monkeypatch.setenv("VIBE_TRADING_DECISION_JOURNAL_PATH", str(tmp_path / "journal.json"))
+    monkeypatch.setenv("VIBE_TRADING_HYPOTHESES_PATH", str(tmp_path / "hyp.json"))
+    reset_env_config()
+    journal = DecisionJournal()
+    journal.record(
+        run_id="run_x",
+        thesis="t",
+        invalidation="i",
+        planned_position="p",
+        planned_risk="r",
+        timestamp="2020-01-01T00:00:00Z",
+    )
+    suggestion = MonitorSuggestion(
+        symbol="AAPL", action="buy", position="long", reason="x", as_of="2026-01-01", price=1.0
+    )
+    admission, annotated = evaluate_admission(
+        run_key="run_x", run_dir=None, suggestions=[suggestion], journal=journal
+    )
+
+    assert admission.tradable is False
+    assert "stale_journal" in admission.reasons
+    assert annotated[0].tradable is False
+    assert "stale_journal" in annotated[0].block_reasons
+
+    monkeypatch.setenv("VIBE_TRADING_DECISION_JOURNAL_MAX_AGE_DAYS", "0")
+    reset_env_config()
+    admission, _ = evaluate_admission(
+        run_key="run_x", run_dir=None, suggestions=[suggestion], journal=journal
+    )
+    assert "stale_journal" not in admission.reasons

@@ -739,6 +739,7 @@
     "reasonInvalidTimestamp": "타임스탬프가 잘못됨",
     "reasonMissingTimestamp": "타임스탬프 없음",
     "reasonJournalUnreadable": "일지를 읽을 수 없음",
+    "reasonStaleJournal": "의사결정 일지가 오래되었습니다. 새로 기록하세요",
     "reasonAdmissionError": "진입 검사 실패",
     "reasonNotActionable": "실행 가능한 신호가 아님",
     "reasonAshareSt": "ST 종목",
