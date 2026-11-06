@@ -258,6 +258,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  listMonitorJournal: (limit = 50, symbol = "") =>
+    request<MonitorJournalEntry[]>(
+      `/monitor/journal?limit=${limit}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
+    ),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -879,6 +883,20 @@ export interface RecordMonitorSignalRequest {
   timestamp?: string;
   symbol?: string;
   strict?: boolean;
+}
+
+export interface MonitorJournalEntry {
+  signal_id: string;
+  timestamp: string;
+  run_id: string;
+  hypothesis_id: string;
+  thesis: string;
+  invalidation: string;
+  planned_position: string;
+  planned_risk: string;
+  symbol: string;
+  tradable: boolean;
+  block_reasons: string[];
 }
 
 export interface MonitorHistorySummary {
