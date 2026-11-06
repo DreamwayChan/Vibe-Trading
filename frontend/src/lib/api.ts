@@ -877,6 +877,7 @@ export interface MonitorBoard {
   tradable_reasons?: string[];
   validation_gate?: Record<string, unknown> | null;
   decision_signal?: Record<string, unknown> | null;
+  journal_alerts?: string[];
   bars_source?: string | null;
 }
 

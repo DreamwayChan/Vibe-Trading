@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from backtest.validation import evaluate_run_validation
-from src.hypotheses.journal import DecisionJournal, DecisionSignal
+from src.hypotheses.journal import DecisionJournal, DecisionSignal, is_stale
 from src.monitor.ashare_risk import buy_block_reasons
 from src.monitor.models import MonitorConfig, MonitorSuggestion
 from src.strategy_store.models import artifact_matches_run
@@ -79,6 +79,54 @@ def _check_invalidation(
     )
 
 
+def _expire(entry: DecisionSignal) -> DecisionSignal:
+    """Downgrade an entry older than the journal expiry window."""
+    if not is_stale(entry):
+        return entry
+    return replace(
+        entry,
+        tradable=False,
+        block_reasons=_dedupe([*entry.block_reasons, "stale_journal"]),
+    )
+
+
+def holdings_without_journal(
+    run_key: str,
+    holdings: list[Any],
+    *,
+    journal: DecisionJournal | None = None,
+) -> list[str]:
+    """Symbols currently held with no tradable journal entry behind them.
+
+    A symbol is covered by its own entry, else by the strategy-wide entry. An
+    entry only counts when it is tradable, not stale, and not invalidated.
+    Exits are skipped. An unreadable journal yields no alerts; admission
+    already reports ``journal_unreadable``.
+    """
+    if not run_key or not holdings:
+        return []
+    book = journal if journal is not None else DecisionJournal()
+    try:
+        strategy_entry, symbol_entries = book.latest_for(run_key)
+    except ValueError:
+        return []
+    if strategy_entry is not None:
+        strategy_entry = _expire(strategy_entry)
+    missing: list[str] = []
+    for row in holdings:
+        if getattr(row, "action", "") == "exit":
+            continue
+        symbol = str(getattr(row, "symbol", "") or "")
+        entry = symbol_entries.get(symbol)
+        if entry is not None:
+            entry = _check_invalidation(_expire(entry), getattr(row, "price", None))
+        else:
+            entry = strategy_entry
+        if (entry is None or not entry.tradable) and symbol and symbol not in missing:
+            missing.append(symbol)
+    return missing
+
+
 def _annotate_suggestion(
     suggestion: MonitorSuggestion,
     *,
@@ -121,6 +169,9 @@ def evaluate_admission(
     symbol_entries: dict[str, DecisionSignal] = {}
     try:
         strategy_entry, symbol_entries = book.latest_for(run_key)
+        if strategy_entry is not None:
+            strategy_entry = _expire(strategy_entry)
+        symbol_entries = {sym: _expire(entry) for sym, entry in symbol_entries.items()}
     except ValueError:
         journal_error = "journal_unreadable"
 
