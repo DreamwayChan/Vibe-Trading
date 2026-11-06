@@ -323,7 +323,8 @@ function StrategyDetailModal({
   );
 }
 
-const REASON_I18N: Record<string, string> = {
+/** `as const` so the values stay literal i18n keys — t() only accepts known keys here. */
+const REASON_I18N = {
   missing_invalidation: "monitor.reasonMissingInvalidation",
   missing_thesis: "monitor.reasonMissingThesis",
   missing_position: "monitor.reasonMissingPosition",
@@ -352,23 +353,28 @@ const REASON_I18N: Record<string, string> = {
   ashare_limit_up: "monitor.reasonAshareLimitUp",
   ashare_one_word: "monitor.reasonAshareOneWord",
   ashare_extreme_board: "monitor.reasonAshareExtremeBoard",
-};
+} as const;
 
-const RISK_I18N: Record<string, string> = {
+type ReasonI18nKey = (typeof REASON_I18N)[keyof typeof REASON_I18N];
+
+const RISK_I18N = {
   st: "monitor.riskSt",
   limit_up: "monitor.riskLimitUp",
   one_word: "monitor.riskOneWord",
   consecutive_board: "monitor.riskConsecutive",
   extreme_board: "monitor.riskExtreme",
-};
+} as const;
 
+type RiskI18nKey = (typeof RISK_I18N)[keyof typeof RISK_I18N];
+
+/** Backend sends free-form codes; unknown ones fall through as plain text. */
 function riskLabel(flag: string, t: TFunction): string {
-  const key = RISK_I18N[flag];
+  const key = (RISK_I18N as Record<string, RiskI18nKey | undefined>)[flag];
   return key ? t(key) : flag;
 }
 
 function reasonLabel(code: string, t: TFunction): string {
-  const key = REASON_I18N[code];
+  const key = (REASON_I18N as Record<string, ReasonI18nKey | undefined>)[code];
   return key ? t(key) : code;
 }
 
