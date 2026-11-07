@@ -5,6 +5,9 @@ Supports ``interval`` for bar size (1m/5m/15m/30m/1H/4H/1D, default 1D).
 Supports ``engine`` for backtest engine (daily/options, default daily).
 
 Usage: ``python -m backtest.runner <run_dir>``
+
+That invocation stays on the cost-aware engine. The paired frictionless vs
+``ashare_costs`` report is ``python -m backtest.cost_compare <run_dir>``.
 """
 
 import ast
@@ -921,17 +924,39 @@ def _maybe_inject_fundamentals_for_factor_panel(
 
 # --- Main entry ---
 
-def main(run_dir: Path) -> None:
-    """Load config, fetch data, run the selected backtest engine.
 
-    With ``source="auto"``, routes each code through the appropriate loader.
+class RunPrepError(Exception):
+    """A run directory could not be prepared. ``message`` is the JSON error text."""
 
-    Args:
-        run_dir: Run directory containing ``config.json`` and ``code/signal_engine.py``.
-            The path is validated against the allowed run roots
-            (``VIBE_TRADING_ALLOWED_RUN_ROOTS`` plus the defaults) before any
-            file is read so an arbitrary filesystem location cannot be used
-            to source ``code/signal_engine.py``.
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+@dataclass
+class PreparedRun:
+    """One loaded strategy, its bars, and the engine routing main() would use.
+
+    Shared by ``main`` and ``backtest.cost_compare`` so the paired profiles
+    cannot fetch a different window than the production run.
+    """
+
+    run_dir: Path
+    config: dict
+    loader: Any
+    signal_engine: Any
+    codes: List[str]
+    bars_per_year: int | None
+    effective_source: str
+    engine_type: str
+
+
+def prepare_backtest(run_dir: Path) -> PreparedRun:
+    """Load config, bars, and the signal engine for *run_dir*.
+
+    Raises:
+        RunPrepError: The directory, config, or signal engine cannot be used.
+            ``message`` matches the JSON ``error`` string ``main`` prints.
     """
     # Guard the CLI entry point with the same root whitelist the MCP
     # ``backtest`` tool already uses (src/tools/backtest_tool.py:23). Without
@@ -943,13 +968,11 @@ def main(run_dir: Path) -> None:
     try:
         run_dir = safe_run_dir(str(run_dir))
     except ValueError as exc:
-        print(json.dumps({"error": str(exc)}))
-        sys.exit(1)
+        raise RunPrepError(str(exc)) from exc
 
     config_path = run_dir / "config.json"
     if not config_path.exists():
-        print(json.dumps({"error": "config.json not found"}))
-        sys.exit(1)
+        raise RunPrepError("config.json not found")
 
     raw_config = json.loads(config_path.read_text(encoding="utf-8"))
 
@@ -957,19 +980,14 @@ def main(run_dir: Path) -> None:
     try:
         BacktestConfigSchema(**raw_config)
     except Exception as exc:
-        errors = str(exc)
-        print(json.dumps({"error": f"Invalid config: {errors}"}))
-        sys.exit(1)
+        raise RunPrepError(f"Invalid config: {exc}") from exc
 
     config = raw_config
-    source = config.get("source", "tushare")
-    codes = config.get("codes", [])
 
     # Load signal engine
     signal_path = run_dir / "code" / "signal_engine.py"
     if not signal_path.exists():
-        print(json.dumps({"error": "code/signal_engine.py not found"}))
-        sys.exit(1)
+        raise RunPrepError("code/signal_engine.py not found")
 
     try:
         signal_module = _load_module_from_file(signal_path, "signal_engine")
@@ -978,34 +996,27 @@ def main(run_dir: Path) -> None:
         # decorators, top-level statements) raises ValueError. Surface it as a
         # clean JSON envelope instead of a raw traceback so the agent gets an
         # actionable message.
-        print(json.dumps({"error": f"SignalEngine source error: {exc}"}))
-        sys.exit(1)
+        raise RunPrepError(f"SignalEngine source error: {exc}") from exc
     engine_cls = getattr(signal_module, "SignalEngine", None)
     if engine_cls is None:
-        print(json.dumps({"error": "SignalEngine class not found in signal_engine.py"}))
-        sys.exit(1)
+        raise RunPrepError("SignalEngine class not found in signal_engine.py")
 
     try:
         _validate_signal_engine_class(engine_cls)
     except ValueError as exc:
-        print(json.dumps({"error": f"SignalEngine interface error: {exc}"}))
-        sys.exit(1)
+        raise RunPrepError(f"SignalEngine interface error: {exc}") from exc
 
     fetch_result = fetch_data_map(config)
     data_map = fetch_result.data_map
     codes = fetch_result.codes
     source = fetch_result.source
-    loader = fetch_result.loader
     config["codes"] = codes
     config["_run_card_effective_sources"] = fetch_result.effective_sources
     interval = config.get("interval", "1D")
     if not data_map:
-        print(json.dumps({"error": "No data fetched"}))
-        sys.exit(1)
+        raise RunPrepError("No data fetched")
     data_map = _maybe_inject_fundamentals_for_factor_panel(data_map, config)
 
-    # Engine
-    engine_type = config.get("engine", "daily")
     signal_engine = engine_cls()
 
     # Annualization bars
@@ -1021,14 +1032,59 @@ def main(run_dir: Path) -> None:
     # Every source has already been fetched, sanitized, and enriched above.
     # Reuse that exact snapshot so provider costs and run-card provenance stay
     # aligned with the data consumed by the engine.
-    loader = _AutoLoader(data_map)
+    return PreparedRun(
+        run_dir=run_dir,
+        config=config,
+        loader=_AutoLoader(data_map),
+        signal_engine=signal_engine,
+        codes=list(codes),
+        bars_per_year=bars_per_year,
+        effective_source=effective_source,
+        engine_type=str(config.get("engine", "daily")),
+    )
 
-    if engine_type == "options":
+
+def main(run_dir: Path) -> None:
+    """Load config, fetch data, run the selected backtest engine.
+
+    With ``source="auto"``, routes each code through the appropriate loader.
+    The engine is the production cost-aware path. A paired frictionless run
+    is ``python -m backtest.cost_compare``, not a second default here.
+
+    Args:
+        run_dir: Run directory containing ``config.json`` and ``code/signal_engine.py``.
+            The path is validated against the allowed run roots
+            (``VIBE_TRADING_ALLOWED_RUN_ROOTS`` plus the defaults) before any
+            file is read so an arbitrary filesystem location cannot be used
+            to source ``code/signal_engine.py``.
+    """
+    try:
+        prepared = prepare_backtest(run_dir)
+    except RunPrepError as exc:
+        print(json.dumps({"error": exc.message}))
+        sys.exit(1)
+
+    if prepared.engine_type == "options":
         from backtest.engines.options_portfolio import run_options_backtest
-        run_options_backtest(config, loader, signal_engine, run_dir, bars_per_year=bars_per_year)
-    else:
-        market_engine = _create_market_engine(effective_source, config, codes)
-        market_engine.run_backtest(config, loader, signal_engine, run_dir, bars_per_year=bars_per_year)
+        run_options_backtest(
+            prepared.config,
+            prepared.loader,
+            prepared.signal_engine,
+            prepared.run_dir,
+            bars_per_year=prepared.bars_per_year,
+        )
+        return
+
+    market_engine = _create_market_engine(
+        prepared.effective_source, prepared.config, prepared.codes,
+    )
+    market_engine.run_backtest(
+        prepared.config,
+        prepared.loader,
+        prepared.signal_engine,
+        prepared.run_dir,
+        bars_per_year=prepared.bars_per_year,
+    )
 
 
 def _create_market_engine(source: str, config: dict, codes: List[str]):

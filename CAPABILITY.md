@@ -29,6 +29,34 @@ python -m src.paper_book show --book-id <id> --window
 
 `POST /paper-book/step` settles one session. `POST /paper-book/soak` settles the range (`{"end": "YYYY-MM-DD", "days": 20}` or `{"start", "end"}`).
 
+## Cost tax, side by side
+
+The default backtest stays cost-aware. To see the same strategy, bars, and window with no fees and no limit or halt blocks, run the named `frictionless` profile next to `ashare_costs`:
+
+```bash
+python -m backtest.cost_compare <run_dir>
+vibe-trading cost-compare <run_dir>
+```
+
+`POST /runs/{run_id}/cost-compare` returns the same JSON and writes `artifacts/cost_compare.json`. `GET /runs/{run_id}` includes that object as `cost_compare` when the file is present. The comparison does not replace `metrics.csv` or the run card. Monitor re-bench stays on the single cost-aware engine.
+
+`metrics.delta` is **ashare_costs − frictionless** (the cost tax). A negative `total_return` or `nav` means fees, slippage, or refused limit/halt/T+1 orders reduced the result. `nav` is ending equity (`final_value`). `fill_count` includes opening fills, signal exits, and the terminal liquidation.
+
+Frictionless knobs are fixed by `FRICTIONLESS_PROFILE` in `agent/backtest/ashare_costs.py`. They replace `config.json` and `VIBE_TRADING_ASHARE_*`.
+
+| Knob | Frictionless | Cost-aware default |
+|---|---|---|
+| `commission_rate` | 0 | 0.00025 (万2.5) |
+| `commission_min` | 0 | ¥5 |
+| `stamp_tax` | 0 | 0.0005 (万5, sell only) |
+| `transfer_fee` | 0 | 0.00001 (万0.1) |
+| `slippage` | 0 | 0.001 |
+| `t_plus_one` | false (same-day sells allowed) | true |
+| `block_suspension` | false (halts and zero-volume bars may fill) | true |
+| `enforce_price_limits` | false (limit-up buys and limit-down sells may fill) | true |
+
+Short sales stay blocked. Buys still round down to 100-share lots. The tradability panel may still be attached so both legs share it; with `block_suspension` and `enforce_price_limits` false, frictionless does not apply halt flags or price bands. There is no environment switch for `enforce_price_limits`. Omitting it keeps the cost-aware default.
+
 Sessions come from the A-share calendar (`agent/src/data/calendar.py`). Weekends and exchange holidays are not sessions. With no calendar seed, weekdays are used. Each session trades that day's monitor snapshot when `~/.vibe-trading/monitor/history/<run_id>/<date>.json` exists, otherwise the live board when its suggestions are dated that session. Days with neither still mark the book and write a daily report. `--signals schedule.json` replays an explicit schedule, either `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}` or a list of rows with `as_of`. `tradable` defaults to true in that file. The window report (NAV, fills, unfilled, turnover, cumulative deviation versus the bound run's `artifacts/equity.csv`) is `reports/window.json` under the book root. A deviation past `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` still clears `tradable` for the rest of the window. Nothing on this path sends a broker order.
 
 ## What this is for

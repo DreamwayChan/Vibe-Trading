@@ -111,6 +111,14 @@ class RunResponse(BaseModel):
     artifacts_metrics_csv: Optional[List[Dict[str, Any]]] = Field(None, description="Full metrics rows")
     artifacts_trades_csv: Optional[List[Dict[str, Any]]] = Field(None, description="Full trade rows")
     validation: Optional[Dict[str, Any]] = Field(None, description="Statistical validation results")
+    cost_compare: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Side-by-side frictionless vs A-share cost+tradability report "
+            "when artifacts/cost_compare.json exists. The default backtest "
+            "stays cost-aware."
+        ),
+    )
 
     run_directory: str = Field(..., description="Run directory path")
     run_stage: Optional[str] = Field(None, description="UI-facing run stage")

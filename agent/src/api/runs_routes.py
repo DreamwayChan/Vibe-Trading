@@ -178,6 +178,15 @@ def _build_response_from_run_dir(
         except (json.JSONDecodeError, OSError):
             pass
 
+    cost_compare_path = run_dir / "artifacts" / "cost_compare.json"
+    if cost_compare_path.is_file():
+        try:
+            loaded = json.loads(cost_compare_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            loaded = None
+        if isinstance(loaded, dict):
+            response.cost_compare = loaded
+
     if response.artifacts_equity_csv:
         filtered_equity = []
         for row in response.artifacts_equity_csv[:1000]:
@@ -323,6 +332,50 @@ def register_runs_routes(
             "exists": True,
             "content": pine_path.read_text(encoding="utf-8"),
         }
+
+    @app.post("/runs/{run_id}/cost-compare", dependencies=[Depends(require_auth)])
+    def post_cost_compare(run_id: str):
+        """Run frictionless vs A-share cost+tradability on this run's strategy.
+
+        Same bars and window as ``python -m backtest.cost_compare``. Writes
+        ``artifacts/cost_compare.json`` and does not replace the cost-aware
+        metrics or run card. The production default stays cost-aware.
+        """
+        from backtest.cost_compare import compare_run_dir
+        from backtest.runner import RunPrepError
+
+        _host_validate_path_param(run_id, "run_id")
+        run_dir = _host_RUNS_DIR() / run_id
+        if not run_dir.is_dir():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run {run_id} not found",
+            )
+        try:
+            return compare_run_dir(run_dir)
+        except RunPrepError as exc:
+            raise HTTPException(status_code=400, detail=exc.message) from exc
+
+    @app.get("/runs/{run_id}/cost-compare", dependencies=[Depends(require_auth)])
+    def get_cost_compare(run_id: str):
+        """Return a previously written cost comparison, without re-running it."""
+        _host_validate_path_param(run_id, "run_id")
+        path = _host_RUNS_DIR() / run_id / "artifacts" / "cost_compare.json"
+        if not path.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"cost comparison for {run_id} not found; "
+                    "POST /runs/{run_id}/cost-compare"
+                ),
+            )
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise HTTPException(status_code=500, detail="cost_compare.json is unreadable") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=500, detail="cost_compare.json must be an object")
+        return payload
 
     @app.get("/runs/{run_id}", response_model=RunResponse, dependencies=[Depends(require_auth)])
     async def get_run_result(

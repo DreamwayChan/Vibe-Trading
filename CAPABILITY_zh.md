@@ -29,6 +29,34 @@ python -m src.paper_book show --book-id <id> --window
 
 `POST /paper-book/step` 结算一个交易日。`POST /paper-book/soak` 结算一段区间（`{"end": "YYYY-MM-DD", "days": 20}` 或 `{"start", "end"}`）。
 
+## 成本税，并排
+
+默认回测仍然计成本。同一策略、同一批 K 线、同一窗口，要看「无成本」和「成本+涨跌停」并排结果，用命名的 `frictionless` 配置对照 `ashare_costs`：
+
+```bash
+python -m backtest.cost_compare <run_dir>
+vibe-trading cost-compare <run_dir>
+```
+
+`POST /runs/{run_id}/cost-compare` 返回同一份 JSON，并写入 `artifacts/cost_compare.json`。文件存在时，`GET /runs/{run_id}` 的 `cost_compare` 字段带上它。这次对照不会替换 `metrics.csv` 或 run card。监控里的重新回测仍然只跑计成本的那一条引擎。
+
+`metrics.delta` 是 **成本+涨跌停 − 无成本**（成本税）。`total_return` 或 `nav` 为负，表示佣金、滑点，或涨跌停、停牌、T+1 拒单拉低了结果。`nav` 是期末权益（`final_value`）。`fill_count` 含开仓、信号平仓，以及回测结束时的强制平仓。
+
+无成本旋钮写死在 `agent/backtest/ashare_costs.py` 的 `FRICTIONLESS_PROFILE`。它们覆盖 `config.json` 和 `VIBE_TRADING_ASHARE_*`。
+
+| 旋钮 | 无成本 | 计成本默认 |
+|---|---|---|
+| `commission_rate` | 0 | 0.00025（万 2.5） |
+| `commission_min` | 0 | 5 元 |
+| `stamp_tax` | 0 | 0.0005（万 5，仅卖出） |
+| `transfer_fee` | 0 | 0.00001（万 0.1） |
+| `slippage` | 0 | 0.001 |
+| `t_plus_one` | false（允许当日卖出） | true |
+| `block_suspension` | false（停牌和零成交可以成交） | true |
+| `enforce_price_limits` | false（涨停可以买、跌停可以卖） | true |
+
+融券卖空仍然禁止。买入仍然向下取整到 100 股。可交易性面板可以仍然挂在两次运行上，两边看到的是同一个对象；`block_suspension` 和 `enforce_price_limits` 为 false 时，无成本路径不使用停牌标记和涨跌停价。`enforce_price_limits` 没有环境变量。不写这个键就保持计成本默认。
+
 交易日来自 A 股日历（`agent/src/data/calendar.py`）。周末和交易所休市日不是交易日。没有日历种子时按工作日计算。每个交易日优先用当天的监控快照 `~/.vibe-trading/monitor/history/<run_id>/<date>.json`；没有快照时，如果当前监控板的建议日期就是这一天，就用这块板。两样都没有的日子仍然盯市并写日报。`--signals schedule.json` 用显式日程回放，格式是 `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}`，或带 `as_of` 的列表。文件里省略 `tradable` 时视为可交易。窗口报表（净值、成交、未成交、换手、相对绑定回测 `artifacts/equity.csv` 的累计偏离）写在账本目录的 `reports/window.json`。累计偏离超过 `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` 后，`tradable` 被取消，窗口里之后的交易日不再成交。这条路径不会向券商发单。
 
 ## 做什么

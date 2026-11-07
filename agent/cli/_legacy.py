@@ -4805,6 +4805,20 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    cost_compare = subparsers.add_parser(
+        "cost-compare",
+        help="Side-by-side frictionless vs A-share cost+tradability for one run",
+        description=(
+            "Run the same strategy, bars, and window twice: the named "
+            "frictionless profile versus the production ashare_costs engine. "
+            "Writes artifacts/cost_compare.json. Does not change the default backtest."
+        ),
+    )
+    cost_compare.add_argument(
+        "run_dir",
+        help="Run directory with config.json and code/signal_engine.py",
+    )
+
     return parser
 
 
@@ -5683,6 +5697,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "paper-book":
         from src.paper_book.cli import main as _paper_main
         return _paper_main(list(getattr(args, "paper_args", None) or []))
+    if args.command == "cost-compare":
+        from backtest.cost_compare import main as _cost_compare_main
+        return _cost_compare_main([args.run_dir])
     if args.command == "connector":
         return _coerce_exit_code(_dispatch_connector(args))
     if args.command == "memory":

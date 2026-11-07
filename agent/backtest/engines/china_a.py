@@ -31,6 +31,11 @@ class ChinaAEngine(BaseEngine):
         to allow same-day sells.
       - block_suspension: default True. Zero volume, or a panel halt, does not
         fill. ``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0`` turns that off.
+      - enforce_price_limits: default True. Limit-up buys and limit-down
+        sells do not fill (panel band, or the close-to-close heuristic when
+        the panel cannot answer). The named frictionless profile sets this
+        false. There is no environment switch; omitting the key keeps the
+        cost-aware default.
       - tradability_index: optional :class:`src.data.tradability.TradabilityIndex`.
         When supplied, halt flags and exact price bands come from the panel;
         when absent the engine falls back to the close-to-close heuristic
@@ -52,6 +57,9 @@ class ChinaAEngine(BaseEngine):
         self.slippage_rate: float = float(config.get("slippage", 0.001))
         self.t_plus_one: bool = bool(config.get("t_plus_one", True))
         self.block_suspension: bool = bool(config.get("block_suspension", True))
+        # Default True so a config that never mentions the key stays cost-aware.
+        # ``bool(False)`` is False; an explicit 0 opts out for one run.
+        self.enforce_price_limits: bool = bool(config.get("enforce_price_limits", True))
         self.tradability_index = config.get("tradability_index")
 
     def can_execute(self, symbol: str, direction: int, bar: pd.Series) -> bool:
@@ -112,6 +120,8 @@ class ChinaAEngine(BaseEngine):
         """Apply the panel's halt flag and limit prices to one order."""
         if self.block_suspension and _row_suspended(row):
             return False
+        if not self.enforce_price_limits:
+            return True
 
         # ``band_mismatch`` means the band contradicts the bar's own move: the
         # source was adjusted (dividend/split) or the bar is corrupt. Trust the
@@ -138,6 +148,8 @@ class ChinaAEngine(BaseEngine):
 
     def _heuristic_allows(self, *, symbol: str, direction: int, bar: pd.Series) -> bool:
         """Pre-panel price-limit rule, kept for rows the panel cannot vouch for."""
+        if not self.enforce_price_limits:
+            return True
         pct_chg = _calc_pct_change(bar)
         if pct_chg is None:
             return True
