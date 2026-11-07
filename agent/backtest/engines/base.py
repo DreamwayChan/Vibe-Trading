@@ -364,6 +364,11 @@ class BaseEngine(ABC):
         self.positions: Dict[str, Position] = {}
         self.trades: List[TradeRecord] = []
         self.equity_snapshots: List[EquitySnapshot] = []
+        self.fill_count: int = 0
+        self.unfill_count: int = 0
+        # The open-sizing search re-plans the same orders. Count a refused
+        # open once, on the first plan, not on every bisection.
+        self._suppress_unfill: bool = False
         self._bar_idx: int = 0
         self._active_symbol: str = ""  # set by _rebalance/_close_position for subclass use
 
@@ -462,6 +467,8 @@ class BaseEngine(ABC):
         signal_engine: Any,
         run_dir: Path,
         bars_per_year: int = 252,
+        *,
+        persist: bool = True,
     ) -> Dict[str, Any]:
         """Full backtest pipeline.
 
@@ -473,10 +480,16 @@ class BaseEngine(ABC):
             signal_engine: SignalEngine with ``generate()`` method.
             run_dir: Artifacts output directory.
             bars_per_year: Annualisation factor.
+            persist: When True (default), write artifacts, the run card, and
+                the stdout metrics JSON. The frictionless comparison passes
+                False so a second leg cannot replace the cost-aware report.
 
         Returns:
             Metrics dictionary.
         """
+        self.fill_count = 0
+        self.unfill_count = 0
+        self._suppress_unfill = False
         codes = config.get("codes", [])
         interval = config.get("interval", "1D")
         extra_fields = config.get("extra_fields") or None
@@ -586,16 +599,20 @@ class BaseEngine(ABC):
             write_rebalance_notes,
         )
         rebalance_notes = compute_rebalance_notes(target_pos)
-        write_rebalance_notes(run_dir / "artifacts" / "rebalance_notes.json", rebalance_notes)
-        (run_dir / "artifacts" / "rebalance_notes.md").write_text(
-            render_rebalance_notes_markdown(rebalance_notes), encoding="utf-8"
-        )
+        if persist:
+            write_rebalance_notes(run_dir / "artifacts" / "rebalance_notes.json", rebalance_notes)
+            (run_dir / "artifacts" / "rebalance_notes.md").write_text(
+                render_rebalance_notes_markdown(rebalance_notes), encoding="utf-8"
+            )
         m["rebalance_count"] = rebalance_notes["summary"]["rebalance_count"]
         m["rebalance_turnover_mean"] = rebalance_notes["summary"]["turnover_mean"]
         m["rebalance_turnover_max"] = rebalance_notes["summary"]["turnover_max"]
 
-        # 7. Validation (optional — triggered by config["validation"])
-        if config.get("validation"):
+        # 7. Validation (optional — triggered by config["validation"]).
+        # Skipped when persist is False: the comparison leg must not spend a
+        # second Monte Carlo pass or overwrite validation.json. The production
+        # cost-aware run remains the gate.
+        if persist and config.get("validation"):
             from backtest.validation import run_validation, write_validation_json
             v_results = run_validation(
                 config, equity_series, self.trades, self.initial_capital, bars_per_year,
@@ -608,27 +625,28 @@ class BaseEngine(ABC):
             # also creates the artifacts dir, which step 8 otherwise creates.
             write_validation_json(run_dir / "artifacts" / "validation.json", v_results)
 
-        # 8. Artifacts
-        self._write_artifacts(
-            run_dir, data_map, dates, equity_series, bench_equity, bench_ret,
-            target_pos, m, valid_codes,
-        )
+        # 8–9. Artifacts, run card, stdout. Comparison legs pass persist=False
+        # so equity.csv / metrics.csv / run_card.json stay on the cost-aware run.
+        if persist:
+            self._write_artifacts(
+                run_dir, data_map, dates, equity_series, bench_equity, bench_ret,
+                target_pos, m, valid_codes,
+            )
 
-        # 9. Trust Layer run card
-        from backtest.run_card import write_run_card
-        write_run_card(
-            run_dir,
-            config,
-            m,
-            data_sources=_run_card_data_sources(config, loader),
-            strategy_path=run_dir / "code" / "signal_engine.py",
-            warnings=config.get("content_filter_warnings") or None,
-        )
+            from backtest.run_card import write_run_card
+            write_run_card(
+                run_dir,
+                config,
+                m,
+                data_sources=_run_card_data_sources(config, loader),
+                strategy_path=run_dir / "code" / "signal_engine.py",
+                warnings=config.get("content_filter_warnings") or None,
+            )
 
-        # Print scalar metrics (skip nested dicts for JSON compat).
-        # Explosive annual_return may be +inf; match options/run_card and emit
-        # null instead of a bare Infinity token (invalid RFC-8259 JSON).
-        print(json.dumps(_json_safe_scalar_metrics(m), indent=2, allow_nan=False))
+            # Print scalar metrics (skip nested dicts for JSON compat).
+            # Explosive annual_return may be +inf; match options/run_card and emit
+            # null instead of a bare Infinity token (invalid RFC-8259 JSON).
+            print(json.dumps(_json_safe_scalar_metrics(m), indent=2, allow_nan=False))
         return m
 
     # ── Execution loop ──
@@ -725,14 +743,18 @@ class BaseEngine(ABC):
 
             planned = _plans(1.0)
             if sum(order.cost for order in planned) > self.capital + 1e-9:
-                low, high = 0.0, 1.0
-                for _ in range(50):
-                    mid = (low + high) / 2.0
-                    candidate = _plans(mid)
-                    if sum(order.cost for order in candidate) <= self.capital + 1e-9:
-                        low, planned = mid, candidate
-                    else:
-                        high = mid
+                self._suppress_unfill = True
+                try:
+                    low, high = 0.0, 1.0
+                    for _ in range(50):
+                        mid = (low + high) / 2.0
+                        candidate = _plans(mid)
+                        if sum(order.cost for order in candidate) <= self.capital + 1e-9:
+                            low, planned = mid, candidate
+                        else:
+                            high = mid
+                finally:
+                    self._suppress_unfill = False
 
             for order in planned:
                 self._execute_open_order(order, ts)
@@ -925,6 +947,7 @@ class BaseEngine(ABC):
                     price = self.apply_slippage(open_price, -current_pos.direction)
                     self._close_position(symbol, price, ts, "signal")
                 else:
+                    self.unfill_count += 1
                     return  # blocked (e.g. limit-down can't sell)
 
         if target_dir != 0 and symbol not in self.positions:
@@ -947,6 +970,8 @@ class BaseEngine(ABC):
             return None
         bar = df.loc[ts]
         if not self.can_execute(symbol, direction, bar):
+            if not self._suppress_unfill:
+                self.unfill_count += 1
             return None
         open_price = float(bar.get("open", bar.get("close", 0)))
         if open_price <= 0:
@@ -990,6 +1015,7 @@ class BaseEngine(ABC):
             entry_bar_idx=self._bar_idx,
             entry_commission=order.commission,
         )
+        self.fill_count += 1
 
     def _close_position(
         self,
@@ -1031,6 +1057,7 @@ class BaseEngine(ABC):
             entry_margin=margin,
             exit_margin=exit_margin,
         ))
+        self.fill_count += 1
 
     # ── Artifacts ──
 

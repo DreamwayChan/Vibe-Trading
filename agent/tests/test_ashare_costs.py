@@ -30,6 +30,7 @@ def test_runner_a_share_defaults_match_the_retail_schedule() -> None:
     assert engine.slippage_rate == pytest.approx(0.001)
     assert engine.t_plus_one is True
     assert engine.block_suspension is True
+    assert engine.enforce_price_limits is True
 
 
 def test_config_overrides_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:

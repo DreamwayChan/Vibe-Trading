@@ -23,6 +23,11 @@ over these defaults when the config omits the key. See ``DataConfig`` in
 (``VIBE_TRADING_ASHARE_COMMISSION_RATE``, ``VIBE_TRADING_ASHARE_STAMP_TAX``,
 ``VIBE_TRADING_ASHARE_SLIPPAGE``, ``VIBE_TRADING_ASHARE_TPLUS1``,
 ``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION``, ``VIBE_TRADING_TRADABILITY_PANEL``).
+
+The production default is this cost-aware schedule. A side-by-side view of the
+same strategy with no fees and no limit/halt blocks uses the named
+:data:`FRICTIONLESS_PROFILE` (``python -m backtest.cost_compare``). That
+profile replaces config and environment keys; it does not change the default.
 """
 
 from __future__ import annotations
@@ -60,6 +65,49 @@ _ENV_FIELDS = {
     "t_plus_one": "vibe_trading_ashare_tplus1",
     "block_suspension": "vibe_trading_ashare_block_suspension",
 }
+
+
+# Named comparison profile. ``backtest.cost_compare`` overlays these values
+# verbatim so the frictionless leg cannot pick up ``VIBE_TRADING_ASHARE_*``
+# or a fee key left on ``config.json``.
+#
+# Turned off:
+#   commission_rate, commission_min, stamp_tax, transfer_fee, slippage
+#   t_plus_one — same-day sells are allowed (the cost-aware default keeps T+1)
+#   block_suspension — halted names and zero-volume bars may fill
+#   enforce_price_limits — limit-up buys and limit-down sells may fill.
+#     Both the tradability-panel band and the close-to-close heuristic are
+#     skipped. A panel may still be attached; it is not consulted for bands
+#     or halts while these two flags are false.
+#
+# Left on:
+#   short sales stay blocked
+#   buys still round down to 100-share lots
+FRICTIONLESS_PROFILE: dict[str, Any] = {
+    "commission_rate": 0.0,
+    "commission_min": 0.0,
+    "stamp_tax": 0.0,
+    "transfer_fee": 0.0,
+    "slippage": 0.0,
+    "t_plus_one": False,
+    "block_suspension": False,
+    "enforce_price_limits": False,
+}
+
+PROFILE_FRICTIONLESS = "frictionless"
+PROFILE_ASHARE_COSTS = "ashare_costs"
+
+
+def apply_frictionless(config: dict | None) -> dict:
+    """Copy of *config* with :data:`FRICTIONLESS_PROFILE` overlaid.
+
+    Profile keys replace explicit config values and anything
+    :func:`merge_assumptions` would fill from the environment. Other keys
+    (codes, cash, ``tradability_index``) pass through.
+    """
+    merged = dict(config or {})
+    merged.update(FRICTIONLESS_PROFILE)
+    return merged
 
 
 def resolved_defaults() -> dict[str, Any]:
