@@ -923,7 +923,7 @@ skill + MCP config 会下载到你的智能体 skills 目录。详情见 [ClawHu
 
 **免费数据（无需 key）：** A 股通过 AKShare，港/美股通过 yfinance，加密通过 OKX，100+ 加密交易所通过 CCXT。系统会为每个市场自动选择最佳可用数据源。
 
-**A 股纸面账本。** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>`（或 `python -m src.paper_book`，或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。标了 ST、涨停、一字板或三连板的买入不会进入这组信号。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离、仓位/回撤上限）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`（默认 `0.20`）把单只股票限制在盯市净值的 20%。`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`（默认 `0.15`）在自高点回撤达到 15% 后停止新买入，卖出照常结算。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。见 [CAPABILITY_zh.md](CAPABILITY_zh.md)。
+**A 股纸面账本。** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>`（或 `python -m src.paper_book`，或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。`vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>`（或 `soak --from YYYY-MM-DD --to YYYY-MM-DD`，或 `POST /paper-book/soak`）一次结算连续多个交易所交易日，并把净值、成交、未成交、换手、相对绑定回测的累计偏离写入 `reports/window.json`。周末和交易所休市日不算交易日。标了 ST、涨停、一字板或三连板的买入不会进入这组信号。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离、仓位/回撤上限）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`（默认 `0.20`）把单只股票限制在盯市净值的 20%。`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`（默认 `0.15`）在自高点回撤达到 15% 后停止新买入，卖出照常结算。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。见 [CAPABILITY_zh.md](CAPABILITY_zh.md)。
 
 ### 🎯 Recommended Models
 
@@ -944,7 +944,8 @@ Vibe-Trading 是高度依赖工具的智能体：skills、backtests、memory 和
 ```bash
 vibe-trading               # interactive TUI
 vibe-trading hypothesis list   # 默认路径：信号可交易之前先写日志
-vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # 默认路径的终点
+vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # 结算一个交易日
+vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>  # 连续 20 个交易日
 vibe-trading run -p "..."  # 单次运行；prop_* 提示词仅供研究
 vibe-trading serve         # API server
 vibe-trading alpha list    # 浏览 469 个预置 alpha；custom 因子库仅供研究

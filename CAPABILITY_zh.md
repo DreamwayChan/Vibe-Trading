@@ -17,15 +17,19 @@
 | 计成本回测 | 成交使用 A 股佣金、印花税、过户费、滑点、T+1、涨跌停与停牌规则。 | `agent/backtest/ashare_costs.py` |
 | 验证门 | 蒙特卡洛、bootstrap、走步检验都要过线，而且回测必须计成本。 | `agent/backtest/validation.py` |
 | 可交易 | 监控池只在日志和验证门都通过时打开。ST、涨停、一字板、三连板以上的买入仍然排除。 | `agent/src/monitor/admission.py` |
-| 纸面账本 | 用这些可交易信号逐日结算。成交规则相同。单名仓位上限，回撤过大则停止新开仓。 | `vibe-trading paper-book` 或 `python -m src.paper_book` |
+| 纸面账本 | 单日，或按交易日历连续多日。日报加窗口报表：净值、成交、未成交、换手，以及相对绑定回测的累计偏离。偏离超过阈值仍会取消可交易。单名仓位上限，回撤过大则停止新开仓。 | `vibe-trading paper-book` 或 `python -m src.paper_book` |
 
 ```bash
 vibe-trading hypothesis list
 vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>
-python -m src.paper_book show --book-id <id>
+vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>
+python -m src.paper_book soak --from YYYY-MM-DD --to YYYY-MM-DD --run-id <id>
+python -m src.paper_book show --book-id <id> --window
 ```
 
-`POST /paper-book/step` 是同一个日结。这条路径不会向券商发单。
+`POST /paper-book/step` 结算一个交易日。`POST /paper-book/soak` 结算一段区间（`{"end": "YYYY-MM-DD", "days": 20}` 或 `{"start", "end"}`）。
+
+交易日来自 A 股日历（`agent/src/data/calendar.py`）。周末和交易所休市日不是交易日。没有日历种子时按工作日计算。每个交易日优先用当天的监控快照 `~/.vibe-trading/monitor/history/<run_id>/<date>.json`；没有快照时，如果当前监控板的建议日期就是这一天，就用这块板。两样都没有的日子仍然盯市并写日报。`--signals schedule.json` 用显式日程回放，格式是 `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}`，或带 `as_of` 的列表。文件里省略 `tradable` 时视为可交易。窗口报表（净值、成交、未成交、换手、相对绑定回测 `artifacts/equity.csv` 的累计偏离）写在账本目录的 `reports/window.json`。累计偏离超过 `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` 后，`tradable` 被取消，窗口里之后的交易日不再成交。这条路径不会向券商发单。
 
 ## 做什么
 

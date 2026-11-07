@@ -8,7 +8,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from src.paper_book.models import BookState, DailyReport
+from src.paper_book.models import BookState, DailyReport, WindowReport
 
 _BOOK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -89,6 +89,50 @@ def load_report(root: Path, book_id: str, as_of: str) -> dict | None:
     except (OSError, json.JSONDecodeError) as exc:
         raise PaperBookError(f"paper book report unreadable: {exc}") from exc
     return raw if isinstance(raw, dict) else None
+
+
+def save_window(root: Path, report: WindowReport) -> Path:
+    """Write the latest window and a copy named by its first and last session."""
+    payload = report.to_dict()
+    latest = _window_path(root, report.book_id)
+    named = _window_path(root, report.book_id, report.start, report.end)
+    _atomic_json(latest, payload)
+    if named != latest:
+        _atomic_json(named, payload)
+    return latest
+
+
+def load_window(
+    root: Path,
+    book_id: str,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict | None:
+    """Load one window report. Without dates, load the latest soak."""
+    path = _window_path(root, book_id, start, end)
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PaperBookError(f"paper book window unreadable: {exc}") from exc
+    return raw if isinstance(raw, dict) else None
+
+
+def _window_path(
+    root: Path,
+    book_id: str,
+    start: str | None = None,
+    end: str | None = None,
+) -> Path:
+    folder = book_dir(root, book_id) / "reports"
+    if start or end:
+        if not start or not end:
+            raise PaperBookError("window start and end are both required")
+        name = f"window_{require_date(start)}_{require_date(end)}.json"
+    else:
+        name = "window.json"
+    return folder / name
 
 
 def list_report_dates(root: Path, book_id: str) -> list[str]:
