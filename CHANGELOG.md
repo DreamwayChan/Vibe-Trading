@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Sector wind → in-sector factor screen → factor cards (A-share, long-only,
+  T+1, research-only).** `sector_pick/wind.py` scores each catalog sector's
+  tailwind (turnover share, limit-up count, momentum) into a
+  dormant/launch/main/divergence/fade state and validates that the score
+  predicted excess return over CSI 300 from the next open (T+1). Only sectors
+  with an actionable, validated wind reach `factor_select.py`, which screens
+  library factors with shrunk IC, an out-of-sample sign/t-stat gate and
+  limit-up-open exclusion, then `factor_card.py` emits cards with
+  applies-when / retire-when conditions and a rolling-IC decay check. Exposed
+  as `POST /sector-pick/wind-cards` and the `sector_wind` agent tool. Not yet
+  validated on real market data.
 - **A backtest can now be retired from the Monitor picker without deleting it.**
   Dropping an `ARCHIVED` marker file into a run directory removes that run from
   `GET /runs?strategy_ready=true`, so a strategy that failed the promotion gate

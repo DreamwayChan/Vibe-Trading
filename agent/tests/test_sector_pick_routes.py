@@ -216,3 +216,12 @@ def test_history_day_404(client: TestClient) -> None:
 def test_holdings_unknown_key(client: TestClient) -> None:
     response = client.post("/sector-pick/holdings", json={"key": "nope"})
     assert response.status_code == 400
+
+
+def test_wind_cards_route_delegates(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.sector_pick.wind_scan as ws
+
+    monkeypatch.setattr(ws, "run_wind_cards", lambda keys=None: [{"sector": "robot", "cards": []}])
+    response = client.post("/sector-pick/wind-cards", json=["robot"])
+    assert response.status_code == 200
+    assert response.json() == {"sectors": [{"sector": "robot", "cards": []}]}

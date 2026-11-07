@@ -273,6 +273,11 @@ export const api = {
   getMarketPickHistoryDay: (asOf: string) =>
     request<MarketPickResult>(`/market-pick/history/${encodeURIComponent(asOf)}`),
   getSectorPick: () => request<SectorPickBoard>(`/sector-pick`),
+  getSectorWindCards: (keys?: string[]) =>
+    request<SectorWindCardsResponse>(`/sector-pick/wind-cards`, {
+      method: "POST",
+      body: JSON.stringify(keys && keys.length ? keys : null),
+    }),
   updateSectorPick: (body: { enabled_keys: string[] }) =>
     request<SectorPickBoard>(`/sector-pick`, {
       method: "PUT",
@@ -1262,6 +1267,53 @@ export interface SectorPickResult {
   lock_event?: string | null;
   lock_reason?: string | null;
   horizons?: IndexHorizons | null;
+}
+
+export interface SectorWindValidation {
+  n: number;
+  ic: number | null;
+  top_mean: number | null;
+  top_hit: number | null;
+  passed: boolean;
+}
+
+export interface SectorWindInfo {
+  status?: string;
+  state?: string;
+  score?: number | null;
+  members?: number;
+  actionable?: boolean;
+  validation?: SectorWindValidation;
+}
+
+export interface SectorFactorCard {
+  sector: string;
+  factor: string;
+  entry: string;
+  horizon_days: number;
+  shrunk_ic: number;
+  ic_in: number;
+  ic_out: number;
+  t_out: number;
+  applies_when: { wind_states: string[]; wind_state_now?: string | null };
+  retire_when: {
+    rolling_ic_window: number;
+    rolling_ic_below: number;
+    wind_states: string[];
+  };
+}
+
+export interface SectorWindSector {
+  sector: string;
+  status?: string;
+  error?: string;
+  reason?: string;
+  wind?: SectorWindInfo;
+  cards: SectorFactorCard[];
+}
+
+export interface SectorWindCardsResponse {
+  sectors: SectorWindSector[];
 }
 
 export interface SectorPickBoard {
