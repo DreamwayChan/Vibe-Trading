@@ -4790,15 +4790,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "paper-book",
         help="A-share paper book (default closed-loop endpoint)",
         description=(
-            "Settle one session from tradable monitor signals, or show the book. "
-            "Default path: lake → hypothesis → cost backtest → validation gate → "
-            "tradable → paper-book."
+            "Settle one session, or a calendar range of sessions, from tradable "
+            "monitor signals. Default path: lake → hypothesis → cost backtest → "
+            "validation gate → tradable → paper-book."
         ),
     )
     paper.add_argument(
         "paper_args",
         nargs=argparse.REMAINDER,
-        help="step --date YYYY-MM-DD [--run-id ID] | show --book-id ID",
+        help=(
+            "step --date YYYY-MM-DD [--run-id ID] | "
+            "soak --days 20 --end YYYY-MM-DD [--run-id ID] | "
+            "show --book-id ID [--window]"
+        ),
     )
 
     return parser

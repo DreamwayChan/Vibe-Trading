@@ -238,7 +238,7 @@ agent/prop_国泰君安_<sector>_最优.md        ← frozen research prompt, no
         监控看板 Monitor — journal + validation gate
         ST / limit-up / one-word / 3-board buys stay out
                      ▼
-        paper_book — one session, 20% name cap, 15% drawdown cap
+        paper_book — one session or 20 consecutive sessions, 20% name cap, 15% drawdown cap
 ```
 
 | Surface | Route | Module | CLI |
@@ -947,7 +947,7 @@ Copy `agent/.env.example` to `agent/.env` and uncomment the provider block you w
 
 **Free data (no key needed):** A-shares via AKShare, HK/US equities via yfinance, crypto via OKX, 100+ crypto exchanges via CCXT. The system automatically selects the best available source for each market.
 
-**A-share paper book.** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>` (or `python -m src.paper_book`, or `POST /paper-book/step`) settles one session from monitor signals that already passed the decision journal and validation gate. Buys marked ST, limit-up, one-word board, or a 3-board streak never enter that set. Fills use the same commission, stamp, transfer, slippage, T+1, and limit/halt rules as the A-share backtest (`VIBE_TRADING_ASHARE_*`). State and the daily report (NAV, fills, unfilled orders, turnover, slippage gap, deviation versus the bound run's `artifacts/equity.csv`, position/drawdown cap) live under `VIBE_TRADING_PAPER_BOOK_ROOT` (default `~/.vibe-trading/paper_book`). `VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` defaults to `1000000`. `VIBE_TRADING_PAPER_BOOK_MAX_POSITION` (default `0.20`) clips one name to 20% of marked NAV. `VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN` (default `0.15`) blocks new buys after a 15% peak-to-mark drawdown; sells still settle. `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` (default `0.05`, five percentage points of cumulative return) clears the strategy `tradable` flag on the monitor board and the strategy store when the paper path leaves the backtest. Decay lifecycle status is left unchanged. See [CAPABILITY.md](CAPABILITY.md).
+**A-share paper book.** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>` (or `python -m src.paper_book`, or `POST /paper-book/step`) settles one session from monitor signals that already passed the decision journal and validation gate. `vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>` (or `soak --from YYYY-MM-DD --to YYYY-MM-DD`, or `POST /paper-book/soak`) settles that many consecutive exchange sessions in one invocation and writes `reports/window.json` with NAV, fills, unfilled orders, turnover, and cumulative deviation versus the bound backtest. Weekends and exchange holidays are not sessions. Buys marked ST, limit-up, one-word board, or a 3-board streak never enter that set. Fills use the same commission, stamp, transfer, slippage, T+1, and limit/halt rules as the A-share backtest (`VIBE_TRADING_ASHARE_*`). State and the daily report (NAV, fills, unfilled orders, turnover, slippage gap, deviation versus the bound run's `artifacts/equity.csv`, position/drawdown cap) live under `VIBE_TRADING_PAPER_BOOK_ROOT` (default `~/.vibe-trading/paper_book`). `VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` defaults to `1000000`. `VIBE_TRADING_PAPER_BOOK_MAX_POSITION` (default `0.20`) clips one name to 20% of marked NAV. `VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN` (default `0.15`) blocks new buys after a 15% peak-to-mark drawdown; sells still settle. `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` (default `0.05`, five percentage points of cumulative return) clears the strategy `tradable` flag on the monitor board and the strategy store when the paper path leaves the backtest. Decay lifecycle status is left unchanged. See [CAPABILITY.md](CAPABILITY.md).
 
 ### 🎯 Recommended Models
 
@@ -970,7 +970,8 @@ The interactive TUI (`vibe-trading`) now uses a terminal-native transcript: a st
 ```bash
 vibe-trading               # interactive TUI
 vibe-trading hypothesis list   # default path: journal before a signal is tradable
-vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # default path endpoint
+vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # one session
+vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>  # 20 consecutive sessions
 vibe-trading run -p "..."  # single run; prop_* prompts are research-only
 vibe-trading serve         # API server
 vibe-trading alpha list    # browse 469 pre-built alphas; the custom zoo is research-only

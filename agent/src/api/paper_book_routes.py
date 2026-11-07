@@ -19,7 +19,15 @@ from src.monitor.store import (
     save_board,
 )
 from src.paper_book.book import resolve_run_dir, step_day
-from src.paper_book.store import PaperBookError, load_report, load_state, paper_book_root, require_book_id
+from src.paper_book.soak import calendar_kind, plan_window, step_range
+from src.paper_book.store import (
+    PaperBookError,
+    load_report,
+    load_state,
+    load_window,
+    paper_book_root,
+    require_book_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +40,28 @@ class StepPaperBookRequest(BaseModel):
     book_id: Optional[str] = Field(None, description="Paper book id. Default: the run id")
 
 
+class SoakPaperBookRequest(BaseModel):
+    """Settle consecutive exchange sessions and return the window report.
+
+    Pass ``start`` and ``end``, or ``end`` plus ``days`` (default 20). Weekends
+    and exchange holidays are not sessions.
+    """
+
+    start: Optional[str] = Field(None, description="First calendar day YYYY-MM-DD")
+    end: Optional[str] = Field(None, description="Last calendar day YYYY-MM-DD")
+    days: Optional[int] = Field(
+        None,
+        description="Session count ending on `end`. Default 20 when `start` is omitted",
+    )
+    run_id: Optional[str] = Field(None, description="Backtest run id. Default: active monitor board")
+    book_id: Optional[str] = Field(None, description="Paper book id. Default: the run id")
+
+
 def register_paper_book_routes(
     app: FastAPI,
     require_auth: Any | None = None,
 ) -> None:
-    """Register POST /paper-book/step and GET /paper-book/{book_id}."""
+    """Register paper-book step, soak, and read routes."""
     import sys as _sys
 
     host = _sys.modules.get("api_server") or _sys.modules.get("agent.api_server")
@@ -67,8 +92,40 @@ def register_paper_book_routes(
             save_board(board_id_for_strategy(config.strategy), config)
         return report.to_dict()
 
+    @app.post("/paper-book/soak", dependencies=[Depends(require_auth)])
+    async def post_paper_book_soak(body: SoakPaperBookRequest) -> dict:
+        run_id = (body.run_id or "").strip()
+        if run_id:
+            config = load_board_for_strategy(StrategyRef(type="run_dir", run_id=run_id))
+        else:
+            config = load_monitor()
+            run_id = (config.strategy.run_id or "").strip()
+        try:
+            start, end, sessions = plan_window(start=body.start, end=body.end, days=body.days)
+            report = step_range(
+                start=start,
+                end=end,
+                sessions=sessions,
+                calendar=calendar_kind() if sessions is not None else None,
+                config=config,
+                book_id=(body.book_id or "").strip() or None,
+                run_dir=resolve_run_dir(run_id),
+            )
+        except PaperBookError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("paper book soak failed")
+            raise HTTPException(status_code=500, detail=f"paper book soak failed: {exc}") from exc
+        if report.downgraded:
+            save_board(board_id_for_strategy(config.strategy), config)
+        return report.to_dict()
+
     @app.get("/paper-book/{book_id}", dependencies=[Depends(require_auth)])
-    async def get_paper_book(book_id: str, as_of: Optional[str] = None) -> dict:
+    async def get_paper_book(
+        book_id: str,
+        as_of: Optional[str] = None,
+        window: bool = False,
+    ) -> dict:
         try:
             safe = require_book_id(book_id)
         except PaperBookError as exc:
@@ -83,4 +140,7 @@ def register_paper_book_routes(
                 report = load_report(paper_book_root(), safe, day)
             except PaperBookError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"state": state.to_dict(), "report": report}
+        payload = {"state": state.to_dict(), "report": report}
+        if window:
+            payload["window"] = load_window(paper_book_root(), safe)
+        return payload

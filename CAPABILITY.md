@@ -17,15 +17,19 @@ lake → hypothesis → cost-aware backtest → validation gate → tradable →
 | Cost-aware backtest | Fills use A-share commission, stamp, transfer, slippage, T+1, and limit/halt rules. | `agent/backtest/ashare_costs.py` |
 | Validation gate | Monte Carlo, bootstrap, and walk-forward must clear their thresholds on that cost-aware run. | `agent/backtest/validation.py` |
 | Tradable | The monitor pool opens only when the journal and the gate both pass. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. | `agent/src/monitor/admission.py` |
-| Paper book | One session at a time from those tradable signals. Same fill rules. Single-name cap and a drawdown cap on new buys. | `vibe-trading paper-book` or `python -m src.paper_book` |
+| Paper book | One session, or a calendar range of consecutive sessions. Daily report plus a window report: NAV, fills, unfilled, turnover, and cumulative deviation versus the bound backtest. A deviation past the threshold still clears `tradable`. Single-name cap and a drawdown cap on new buys. | `vibe-trading paper-book` or `python -m src.paper_book` |
 
 ```bash
 vibe-trading hypothesis list
 vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>
-python -m src.paper_book show --book-id <id>
+vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>
+python -m src.paper_book soak --from YYYY-MM-DD --to YYYY-MM-DD --run-id <id>
+python -m src.paper_book show --book-id <id> --window
 ```
 
-`POST /paper-book/step` is the same day-step. Nothing on this path sends a broker order.
+`POST /paper-book/step` settles one session. `POST /paper-book/soak` settles the range (`{"end": "YYYY-MM-DD", "days": 20}` or `{"start", "end"}`).
+
+Sessions come from the A-share calendar (`agent/src/data/calendar.py`). Weekends and exchange holidays are not sessions. With no calendar seed, weekdays are used. Each session trades that day's monitor snapshot when `~/.vibe-trading/monitor/history/<run_id>/<date>.json` exists, otherwise the live board when its suggestions are dated that session. Days with neither still mark the book and write a daily report. `--signals schedule.json` replays an explicit schedule, either `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}` or a list of rows with `as_of`. `tradable` defaults to true in that file. The window report (NAV, fills, unfilled, turnover, cumulative deviation versus the bound run's `artifacts/equity.csv`) is `reports/window.json` under the book root. A deviation past `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` still clears `tradable` for the rest of the window. Nothing on this path sends a broker order.
 
 ## What this is for
 

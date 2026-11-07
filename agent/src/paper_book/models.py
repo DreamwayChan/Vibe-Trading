@@ -242,6 +242,69 @@ class DailyReport:
         }
 
 
+@dataclass
+class WindowReport:
+    """Consecutive sessions: one row per day plus the cumulative path gap.
+
+    ``return_deviation`` is the last session's cumulative gap versus the bound
+    backtest, the same figure each daily report already stores. ``turnover``
+    is the sum of those daily turnover ratios.
+    """
+
+    book_id: str
+    run_id: str
+    start: str
+    end: str
+    sessions: list[str]
+    session_count: int
+    calendar: str
+    nav: float
+    cash: float
+    market_value: float
+    initial_cash: float
+    cum_return: float
+    turnover: float
+    traded_notional: float
+    fill_count: int
+    unfilled_count: int
+    return_deviation: float | None
+    max_return_deviation: float | None
+    max_return_deviation_on: str | None
+    expectation: dict[str, Any] = field(default_factory=dict)
+    downgraded: bool = False
+    downgrade_reason: str | None = None
+    downgraded_on: str | None = None
+    days: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "book_id": self.book_id,
+            "run_id": self.run_id,
+            "start": self.start,
+            "end": self.end,
+            "sessions": list(self.sessions),
+            "session_count": self.session_count,
+            "calendar": self.calendar,
+            "nav": self.nav,
+            "cash": self.cash,
+            "market_value": self.market_value,
+            "initial_cash": self.initial_cash,
+            "cum_return": self.cum_return,
+            "turnover": self.turnover,
+            "traded_notional": self.traded_notional,
+            "fill_count": self.fill_count,
+            "unfilled_count": self.unfilled_count,
+            "return_deviation": self.return_deviation,
+            "max_return_deviation": self.max_return_deviation,
+            "max_return_deviation_on": self.max_return_deviation_on,
+            "expectation": dict(self.expectation),
+            "downgraded": self.downgraded,
+            "downgrade_reason": self.downgrade_reason,
+            "downgraded_on": self.downgraded_on,
+            "days": list(self.days),
+        }
+
+
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
