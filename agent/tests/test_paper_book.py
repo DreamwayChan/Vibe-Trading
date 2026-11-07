@@ -215,6 +215,18 @@ def test_limit_up_buy_is_unfilled(tmp_path: Path) -> None:
     assert report.cash == pytest.approx(report.initial_cash)
 
 
+def test_st_buy_is_unfilled(tmp_path: Path) -> None:
+    report = _step(
+        tmp_path,
+        _config([_suggestion()]),
+        {SYMBOL: _bar(is_st=True)},
+    )
+    assert report.fills == []
+    assert report.unfilled[0].reason == "st"
+    assert report.unfilled[0].shares > 0
+    assert report.nav == pytest.approx(report.initial_cash)
+
+
 def test_growth_board_ten_percent_move_still_fills(tmp_path: Path) -> None:
     symbol = "300750.SZ"
     report = _step(
@@ -458,6 +470,34 @@ def test_default_position_cap_clips_a_full_weight_buy(tmp_path: Path) -> None:
     assert again.fills[0].shares == fill.shares
     assert again.risk["clipped"] == [SYMBOL]
     assert again.intents[0]["target_weight"] == pytest.approx(0.20)
+
+
+def test_volume_ratio_cap_clips_buy_size(tmp_path: Path) -> None:
+    report = _step(
+        tmp_path,
+        _config([_suggestion()]),
+        {SYMBOL: _bar(volume=1_000.0)},
+        max_position=1.0,
+        max_volume_ratio=0.20,
+    )
+    assert len(report.fills) == 1
+    assert report.fills[0].shares == 200
+    assert report.unfilled == []
+    assert report.risk["max_volume_ratio"] == pytest.approx(0.20)
+    assert report.risk["liquidity_clipped"] == [SYMBOL]
+
+
+def test_volume_ratio_cap_blocks_under_one_lot(tmp_path: Path) -> None:
+    report = _step(
+        tmp_path,
+        _config([_suggestion()]),
+        {SYMBOL: _bar(volume=500.0)},
+        max_position=1.0,
+        max_volume_ratio=0.10,
+    )
+    assert report.fills == []
+    assert report.unfilled[0].reason == "liquidity_cap"
+    assert report.risk["liquidity_clipped"] == [SYMBOL]
 
 
 def test_drawdown_cap_blocks_new_buys(tmp_path: Path) -> None:
