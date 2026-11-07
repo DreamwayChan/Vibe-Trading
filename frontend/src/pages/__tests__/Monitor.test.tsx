@@ -248,6 +248,48 @@ describe("Monitor page", () => {
     expect(screen.getByText("Bars: data center")).toBeInTheDocument();
   });
 
+  it("explains a closed pool with the observed value and threshold", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: [],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: false,
+      tradable_reasons: ["monte_carlo_p_value", "costs_not_applied"],
+      bars_source: "lake",
+      validation_gate: {
+        passed: false,
+        reasons: ["monte_carlo_p_value", "costs_not_applied"],
+        cost_aware: false,
+        checks: {
+          enabled: true,
+          costs: { passed: false },
+          monte_carlo: { passed: false, metric: "p_value_sharpe", observed: 0.165, threshold: 0.1 },
+          bootstrap: { passed: true, metric: "ci_lower", observed: 0.4, threshold: 0 },
+          walk_forward: { passed: true, metric: "consistency_rate", observed: 0.8, threshold: 0.6 },
+        },
+      },
+      suggestions: [],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByText(
+        "Weak statistical evidence: Monte Carlo p=0.165, needs ≤0.100 · Backtest applied no trading costs, so the result is not admissible",
+      ),
+    ).toBeInTheDocument();
+    // The codes those notes explain are dropped so the strip says it once.
+    expect(screen.queryByText("Monte Carlo p-value above threshold")).not.toBeInTheDocument();
+    expect(screen.queryByText("backtest is not cost-aware")).not.toBeInTheDocument();
+  });
+
   it("lists decision-journal history for the bound strategy", async () => {
     vi.mocked(api.getMonitor).mockResolvedValue({
       symbols: [],
@@ -272,6 +314,21 @@ describe("Monitor page", () => {
         tradable: false,
         block_reasons: ["missing_invalidation"],
       },
+      {
+        signal_id: "sig_0",
+        timestamp: "2025-09-26T00:00:00Z",
+        run_id: "run_1",
+        hypothesis_id: "",
+        thesis: "Old thesis",
+        invalidation: "close above high",
+        planned_position: "2% NAV",
+        planned_risk: "0.5% NAV",
+        symbol: "",
+        tradable: true,
+        block_reasons: [],
+        stale: true,
+        age_days: 41,
+      },
     ]);
     render(
       <MemoryRouter>
@@ -280,8 +337,12 @@ describe("Monitor page", () => {
     );
     const history = await screen.findByTestId("journal-history");
     expect(await within(history).findByText("Gap reversal fades")).toBeInTheDocument();
-    expect(within(history).getByText("Not tradable")).toBeInTheDocument();
+    expect(within(history).getByText("Missing fields")).toBeInTheDocument();
     expect(within(history).getByText("missing invalidation")).toBeInTheDocument();
+    // The badge describes field completeness, not pool admission: a complete
+    // row can still be past its expiry window.
+    expect(within(history).getByText("Fields complete")).toBeInTheDocument();
+    expect(within(history).getByText("Expired 41d")).toBeInTheDocument();
   });
 
   it("fills the journal form from the example gallery", async () => {

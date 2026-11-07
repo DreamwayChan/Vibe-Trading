@@ -108,6 +108,26 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   methodology/limitations panel.
 
 ### Changed
+- **A closed pool now says by how much, not just which check.** The strip under
+  the monitor board used to show reason codes only ("monte_carlo_p_value"), which
+  names the failed check but hides the gap. It now reads the gate payload and
+  renders the observed value against the threshold — "statistical evidence
+  weak: Monte Carlo p=0.165, needs ≤0.100" — for Monte Carlo, bootstrap, and
+  walk-forward, plus an explicit line when the backtest applied no costs. Codes
+  that a sentence already explains are dropped from the code list, while journal
+  codes the gate knows nothing about (missing/stale entries) still show through.
+  Uses the `validation_gate` the board already carried, so no extra request.
+- **The decision-history badge no longer reuses the words "tradable / not
+  tradable".** That badge only reflects whether a row carries a thesis,
+  invalidation, position, risk, and a valid timestamp — the write-time snapshot.
+  Pool admission is a separate AND of that snapshot, the validation gate, and a
+  fresh expiry check, so a complete-but-expired row used to read "tradable"
+  while the board called the same strategy blocked. The badge now says
+  "fields complete / missing fields", a tooltip states that admission also needs
+  a passing gate, and an "expired Nd" chip appears when the row is past the
+  journal window. `GET /monitor/journal` recomputes `stale` and `age_days` on
+  read via the same `is_stale` the admission gate uses, so list and board can no
+  longer disagree.
 - **Market pick reads the data lake instead of re-downloading**: a scan now asks
   `hub.bars_frame` for the 400-day window first and pulls a loader only for what
   the lake cannot answer. Ingestion already writes settled daily bars, so the
@@ -133,6 +153,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   a log line.
 
 ### Fixed
+- **A deleted validation artifact is no longer reported as "costs not
+  applied"**: the gate's early return for a missing `artifacts/validation.json`
+  stamped `checks.costs = {passed: false}`, so any reader that rendered the
+  checks concluded the backtest had ignored fees. It now returns no cost check
+  at all — a missing file is no evidence either way — and the pool strip only
+  prints the cost line when at least one statistical section exists.
 - **Capital monitor no longer freezes an unpublished day as "未披露"**: both
   bourses answer `200` with zero rows while a session's ETF-share file is still
   being published, and that empty answer was cached under the "settled day =

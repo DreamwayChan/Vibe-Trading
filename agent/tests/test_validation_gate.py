@@ -77,6 +77,9 @@ def test_missing_artifact_is_denied() -> None:
     gate = evaluate_validation_gate(None, config=_ashare_config())
     assert gate.passed is False
     assert gate.reasons == ["missing_validation"]
+    # No artifact means no cost evidence: a missing file must not be reported as
+    # "costs not applied", which is what a reader would otherwise see.
+    assert "costs" not in gate.checks
 
 
 def test_zero_cost_crypto_is_denied_even_with_strong_stats() -> None:

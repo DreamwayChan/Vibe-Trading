@@ -1,0 +1,49 @@
+{
+ "orphan": [
+  "20260729_143500_00_ac_universe",
+  "20260729_150000_00_snack_universe",
+  "20260729_153000_00_truck_universe",
+  "20260729_184000_00_softdrink_universe",
+  "20260730_162800_00_agrochem_universe",
+  "20260730_162800_00_autoparts_universe",
+  "20260730_162800_00_tcm_universe",
+  "20260731_tech3_00_semeq_universe",
+  "20260821_163600_00_cro0899_universe"
+ ],
+ "referenced": {
+  "20260821_160000_00_cro_universe": [
+   "20260821_160000_03_F0_cro_171_075"
+  ],
+  "20261103_201500_00_trendstock_universe": [
+   "20261103_204727_05_F0_trendstock_vsumn60__cord30_ksft",
+   "20261103_232628_05_F0_trendstock_gtja_124__002_168"
+  ],
+  "20260827_083500_00_coking_universe": [
+   "20260827_090400_05_F0_coking_slowbull_no_timing"
+  ],
+  "20260807_drug_00_universe": [
+   "20260725_184000_05_F0_drug_129"
+  ],
+  "20260726_123500_00_VRAR_universe": [
+   "20260726_123500_03_F0_vrar_077"
+  ],
+  "20260729_135623_00_broker_universe": [
+   "20260729_135623_02_F1_broker"
+  ],
+  "20260726_131500_00_copper_universe": [
+   "20260726_131500_03_F0_copper_081_160"
+  ],
+  "20260730_162800_00_foodbev_universe": [
+   "20260730_162800_03_F0_foodbev_127"
+  ],
+  "20260731_tech3_00_compute_universe": [
+   "20260731_tech3_05_F0_compute_178_156"
+  ],
+  "20260731_tech3_00_memory_universe": [
+   "20260731_tech3_05_F0_memory_185_070"
+  ],
+  "20260730_162800_00_speceq_universe": [
+   "20260730_162800_03_F0_speceq_127_111"
+  ]
+ }
+}

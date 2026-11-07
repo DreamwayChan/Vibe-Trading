@@ -297,6 +297,12 @@ class JournalEntryResponse(BaseModel):
     symbol: str = ""
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
+    # Recomputed on read, not the value stored at write time: a row keeps its
+    # ``tradable`` snapshot forever, but expiry depends on "now". Without these
+    # two fields the history list would still say "tradable" for a row the
+    # admission gate is already rejecting as ``stale_journal``.
+    stale: bool = False
+    age_days: Optional[int] = None
 
 
 class HistorySummaryResponse(BaseModel):
@@ -597,7 +603,7 @@ def register_monitor_routes(
         limit: int = Query(50, ge=1, le=500),
     ) -> List[JournalEntryResponse]:
         """Decision-journal history (newest first) for the bound strategy."""
-        from src.hypotheses.journal import DecisionJournal
+        from src.hypotheses.journal import DecisionJournal, is_stale, signal_age_days
         from src.monitor.admission import journal_key_for
 
         run_key = journal_key_for(load_monitor().strategy)
@@ -607,7 +613,15 @@ def register_monitor_routes(
             rows = DecisionJournal().history(run_key, symbol=symbol or "", limit=limit)
         except ValueError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return [JournalEntryResponse(**row.to_dict()) for row in rows]
+        entries: List[JournalEntryResponse] = []
+        for row in rows:
+            payload = row.to_dict()
+            # ``tradable`` is the write-time snapshot; expiry is judged against
+            # the current clock so the list cannot contradict the board.
+            payload["stale"] = is_stale(row)
+            payload["age_days"] = signal_age_days(row)
+            entries.append(JournalEntryResponse(**payload))
+        return entries
 
     @app.post(
         "/monitor/reset",

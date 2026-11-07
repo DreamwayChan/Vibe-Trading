@@ -697,3 +697,39 @@ def test_get_journal_history_for_bound_strategy(
     only = client.get("/monitor/journal", params={"symbol": "AAPL"}).json()
     assert [row["symbol"] for row in only] == ["AAPL"]
     assert client.get("/monitor/journal", params={"limit": 0}).status_code == 422
+
+
+def test_journal_history_marks_expired_rows(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """History reports expiry on read; ``tradable`` stays the write-time snapshot."""
+    _bind_run(home, monkeypatch, "20260101_000000_00_api10")
+    client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "old call",
+            "invalidation": "close above high",
+            "planned_position": "2% NAV",
+            "planned_risk": "0.4% NAV",
+            "timestamp": "2020-01-01T00:00:00Z",
+        },
+    )
+    client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "fresh call",
+            "invalidation": "close above high",
+            "planned_position": "2% NAV",
+            "planned_risk": "0.4% NAV",
+        },
+    )
+
+    rows = client.get("/monitor/journal").json()
+    fresh, old = rows[0], rows[1]
+    assert fresh["stale"] is False
+    assert fresh["age_days"] == 0
+    # All hard fields are present, so the stored verdict never changes...
+    assert old["tradable"] is True
+    # ...but the row is past the 30-day window the admission gate enforces.
+    assert old["stale"] is True
+    assert old["age_days"] > 30

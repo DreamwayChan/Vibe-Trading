@@ -897,6 +897,8 @@ export interface MonitorJournalEntry {
   symbol: string;
   tradable: boolean;
   block_reasons: string[];
+  stale?: boolean;
+  age_days?: number | null;
 }
 
 export interface MonitorHistorySummary {

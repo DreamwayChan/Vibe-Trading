@@ -140,6 +140,21 @@ def is_stale(signal: "DecisionSignal", *, max_age_days: int | None = None, now: 
     return (reference - moment).total_seconds() > limit * 86400
 
 
+def signal_age_days(signal: "DecisionSignal", *, now: datetime | None = None) -> int | None:
+    """Whole days since ``signal.timestamp``; None when it cannot be parsed.
+
+    Used by read paths that must show the same expiry the admission gate
+    applies. ``is_stale`` answers yes/no; this answers "how old", so a history
+    row can say why it no longer counts instead of silently looking valid.
+    """
+    parsed = parse_timestamp(signal.timestamp)
+    if not parsed:
+        return None
+    moment = datetime.fromisoformat(parsed[:-1] + "+00:00")
+    reference = now or datetime.now(timezone.utc)
+    return max(0, int((reference - moment).total_seconds() // 86400))
+
+
 @dataclass
 class DecisionSignal:
     """One journal row. ``tradable`` is false when any hard field is missing."""

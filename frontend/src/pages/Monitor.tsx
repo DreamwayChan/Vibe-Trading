@@ -392,7 +392,61 @@ type PoolView = {
   tradable?: boolean;
   tradable_reasons?: string[];
   bars_source?: string | null;
+  validation_gate?: Record<string, unknown> | null;
 };
+
+type GateCheckView = {
+  passed?: boolean;
+  observed?: number | null;
+  threshold?: number | null;
+};
+
+/**
+ * Turn the validation gate payload into a sentence a reader can act on.
+ *
+ * The board used to show only reason codes ("monte_carlo_p_value"), which say
+ * which check failed but not by how much. These notes carry the observed value
+ * and the threshold so the gap is visible; codes covered here are dropped from
+ * the code list to avoid saying the same thing twice.
+ */
+function gateFailureNotes(
+  gate: Record<string, unknown> | null | undefined,
+  t: TFunction,
+): { codes: Set<string>; lines: string[] } {
+  const codes = new Set<string>();
+  const lines: string[] = [];
+  const checks = (gate?.checks ?? null) as Record<string, GateCheckView> | null;
+  if (!checks) return { codes, lines };
+
+  const fmt = (value: number) => (Math.abs(value) >= 1 ? value.toFixed(2) : value.toFixed(3));
+  const push = (code: string, text: string) => {
+    codes.add(code);
+    lines.push(text);
+  };
+
+  const bounds = (check: GateCheckView | undefined) =>
+    check && check.passed === false && typeof check.observed === "number" && typeof check.threshold === "number"
+      ? { observed: fmt(check.observed), threshold: fmt(check.threshold) }
+      : null;
+
+  const mc = bounds(checks.monte_carlo);
+  if (mc) push("monte_carlo_p_value", t("monitor.gateDetailMonteCarlo", mc));
+
+  const bs = bounds(checks.bootstrap);
+  if (bs) push("bootstrap_ci_lower", t("monitor.gateDetailBootstrap", bs));
+
+  const wf = bounds(checks.walk_forward);
+  if (wf) push("walk_forward_consistency", t("monitor.gateDetailWalkForward", wf));
+
+  if (checks.costs && checks.costs.passed === false) {
+    // Only meaningful when an artifact existed: a missing validation.json used
+    // to stamp costs as failed, which read as "this backtest ignored fees".
+    const hasArtifact = Boolean(checks.monte_carlo || checks.bootstrap || checks.walk_forward);
+    if (hasArtifact) push("costs_not_applied", t("monitor.gateDetailCosts"));
+  }
+
+  return { codes, lines };
+}
 
 type JournalSampleKind = "stock" | "strategy";
 
@@ -686,6 +740,7 @@ export function Monitor() {
               tradable: detail.tradable,
               tradable_reasons: detail.tradable_reasons,
               bars_source: detail.bars_source,
+              validation_gate: detail.validation_gate,
             }
           : null,
       );
@@ -706,8 +761,13 @@ export function Monitor() {
           tradable: board.tradable,
           tradable_reasons: board.tradable_reasons,
           bars_source: board.bars_source,
+          validation_gate: board.validation_gate,
         }
       : null);
+  const gateNotes = pool && !pool.tradable ? gateFailureNotes(pool.validation_gate, t) : null;
+  const remainingPoolReasons = (pool?.tradable_reasons || []).filter(
+    (code) => !gateNotes?.codes.has(code),
+  );
   const strategyBound = Boolean(runId.trim() || board?.strategy?.shadow_id);
 
   const strategyKey = `${board?.strategy?.type ?? ""}:${board?.strategy?.run_id ?? ""}:${board?.strategy?.shadow_id ?? ""}`;
@@ -1003,10 +1063,15 @@ export function Monitor() {
                 {t("monitor.barsSource", { source: barsLabel(pool.bars_source, t) })}
               </span>
             )}
-            {(pool.tradable_reasons || []).length > 0 && (
+            {remainingPoolReasons.length > 0 && (
               <span className="text-xs text-muted-foreground">
-                {(pool.tradable_reasons || []).map((code) => reasonLabel(code, t)).join(" · ")}
+                {remainingPoolReasons.map((code) => reasonLabel(code, t)).join(" · ")}
               </span>
+            )}
+            {gateNotes && gateNotes.lines.length > 0 && (
+              <p className="w-full text-xs text-amber-700 dark:text-amber-400">
+                {gateNotes.lines.join(" · ")}
+              </p>
             )}
           </div>
         )}
@@ -1140,6 +1205,7 @@ export function Monitor() {
                       <span className="font-mono text-muted-foreground">{row.timestamp}</span>
                       <span className="font-mono">{row.symbol || t("monitor.journalWholeStrategy")}</span>
                       <span
+                        title={t("monitor.journalFieldsHint")}
                         className={cn(
                           "inline-flex rounded px-1.5 py-0.5 font-medium",
                           row.tradable
@@ -1147,8 +1213,13 @@ export function Monitor() {
                             : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
                         )}
                       >
-                        {row.tradable ? t("monitor.journalTradable") : t("monitor.journalNotTradable")}
+                        {row.tradable ? t("monitor.journalFieldsComplete") : t("monitor.journalFieldsMissing")}
                       </span>
+                      {row.stale && (
+                        <span className="inline-flex rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">
+                          {t("monitor.journalStale", { days: row.age_days ?? 0 })}
+                        </span>
+                      )}
                       {row.block_reasons.length > 0 && (
                         <span className="text-muted-foreground">
                           {row.block_reasons.map((code) => reasonLabel(code, t)).join(" · ")}

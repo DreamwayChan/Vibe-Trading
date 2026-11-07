@@ -696,11 +696,15 @@ def evaluate_validation_gate(
     if not isinstance(results, Mapping) or not any(
         key in results for key in ("monte_carlo", "bootstrap", "walk_forward")
     ):
+        # No artifact means no evidence either way, including on costs. Stamping
+        # ``costs.passed = false`` here made a missing file look like a
+        # zero-cost backtest, and readers reported "costs not applied" for a run
+        # whose artifact had simply been deleted.
         return ValidationGateResult(
             passed=False,
             reasons=["missing_validation"],
             cost_aware=aware,
-            checks={"enabled": True, "costs": {"passed": aware}},
+            checks={"enabled": True},
             thresholds=rules.to_dict(),
         )
 
