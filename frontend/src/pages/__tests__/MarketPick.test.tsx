@@ -110,6 +110,84 @@ describe("MarketPick page", () => {
     expect(api.scanMarketPick).not.toHaveBeenCalled();
   });
 
+  it("shows a degraded banner when the board universe is partial", async () => {
+    vi.mocked(api.getMarketPick).mockResolvedValue({
+      result: {
+        ...snapshot,
+        member_coverage: 0.21,
+        degraded_reason: "板块成分覆盖 21%（386/490 个板块待补全），后台正在低频率补拉。",
+      },
+      cached: true,
+    });
+    render(
+      <MemoryRouter>
+        <MarketPick />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/板块成分覆盖 21%/)).toBeInTheDocument();
+    });
+  });
+
+  it("shows no degraded banner on a full-coverage snapshot", async () => {
+    vi.mocked(api.getMarketPick).mockResolvedValue({
+      result: { ...snapshot, member_coverage: 1, degraded_reason: null },
+      cached: true,
+    });
+    render(
+      <MemoryRouter>
+        <MarketPick />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText("金属铜").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/板块成分覆盖/)).not.toBeInTheDocument();
+  });
+
+  it("badges a screen served entirely by the data centre", async () => {
+    vi.mocked(api.getMarketPick).mockResolvedValue({
+      result: { ...snapshot, bars_source: "lake" },
+      cached: true,
+    });
+    render(
+      <MemoryRouter>
+        <MarketPick />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Bars: data centre/i)).toBeInTheDocument();
+    });
+  });
+
+  it("badges a screen that had to pull bars from a vendor", async () => {
+    vi.mocked(api.getMarketPick).mockResolvedValue({
+      result: { ...snapshot, bars_source: "network" },
+      cached: true,
+    });
+    render(
+      <MemoryRouter>
+        <MarketPick />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Bars: vendor/i)).toBeInTheDocument();
+    });
+  });
+
+  it("omits the provenance badge on snapshots that predate it", async () => {
+    vi.mocked(api.getMarketPick).mockResolvedValue({ result: snapshot, cached: true });
+    render(
+      <MemoryRouter>
+        <MarketPick />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText("金属铜").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/Bars:/i)).not.toBeInTheDocument();
+  });
+
   it("shows skip_reason under a board that is not the pick", async () => {
     vi.mocked(api.getMarketPick).mockResolvedValue({
       result: {

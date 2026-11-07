@@ -101,6 +101,20 @@ class TestEnvConfigDefaults:
         assert c.data.vibe_trading_sec_ua == ""
         assert c.data.vibe_trading_data_cache is True
         assert c.data.vibe_trading_data_cache_root == ""
+        assert c.data.vibe_trading_datahub_strict is False
+        assert c.data.vibe_trading_daily_include_forming is False
+        assert c.data.vibe_trading_tradability_panel is True
+        assert c.data.vibe_trading_ashare_commission_rate == pytest.approx(0.00025)
+        assert c.data.vibe_trading_ashare_commission_min == pytest.approx(5.0)
+        assert c.data.vibe_trading_ashare_stamp_tax == pytest.approx(0.0005)
+        assert c.data.vibe_trading_ashare_transfer_fee == pytest.approx(0.00001)
+        assert c.data.vibe_trading_ashare_slippage == pytest.approx(0.001)
+        assert c.data.vibe_trading_ashare_tplus1 is True
+        assert c.data.vibe_trading_ashare_block_suspension is True
+        assert c.data.vibe_trading_paper_book_deviation_threshold == pytest.approx(0.05)
+        assert c.data.vibe_trading_paper_book_initial_cash == pytest.approx(1_000_000.0)
+        assert c.data.vibe_trading_paper_book_max_position == pytest.approx(0.20)
+        assert c.data.vibe_trading_paper_book_max_drawdown == pytest.approx(0.15)
         assert c.data.aliyun_iqs_api_key == ""
         assert c.data.longbridge_app_key == ""
         assert c.data.longbridge_app_secret == ""
@@ -142,7 +156,8 @@ class TestEnvConfigDefaults:
         assert c.agent_tuning.vibe_trading_enable_advisory is False
         assert c.agent_tuning.vibe_trading_enable_scheduler is False
         assert c.agent_tuning.vibe_trading_monitor_refresh_report is True
-        assert c.agent_tuning.vibe_trading_channels_auto_start is False
+        # Tri-state: unset means "defer to channels.auto_start in agent.json".
+        assert c.agent_tuning.vibe_trading_channels_auto_start is None
         assert c.agent_tuning.vibe_trading_disable_bottleneck is False
         assert c.agent_tuning.vibe_trading_bench_workers == 0
         assert c.agent_tuning.vibe_trading_search_backends == ""
@@ -154,6 +169,7 @@ class TestEnvConfigDefaults:
         assert c.paths.vibe_trading_goal_db_path == ""
         assert c.paths.vibe_trading_swarm_agent_config == ""
         assert c.paths.allow_session_mcp_servers is False
+        assert c.paths.vibe_trading_paper_book_root == ""
 
 
 # ===================================================================

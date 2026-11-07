@@ -430,7 +430,12 @@ def register_runs_routes(
 
             run_id = d.name
             has_signal_engine = (d / "code" / "signal_engine.py").is_file()
-            if strategy_ready and not has_signal_engine:
+            # ``ARCHIVED`` is a plain marker file (its body is a free-text
+            # reason). The run keeps its artifacts and stays in history; only
+            # the strategy picker drops it, so a strategy that failed the
+            # promotion gate stops advertising itself as a tradable source.
+            archived = (d / "ARCHIVED").is_file()
+            if strategy_ready and (not has_signal_engine or archived):
                 continue
 
             # Status from state.json or artifacts
@@ -536,6 +541,7 @@ def register_runs_routes(
                 start_date=run_context.get("start_date"),
                 end_date=run_context.get("end_date"),
                 has_signal_engine=has_signal_engine,
+                archived=archived,
             ))
 
         return results

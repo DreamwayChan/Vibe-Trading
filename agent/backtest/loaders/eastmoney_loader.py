@@ -56,6 +56,9 @@ class DataLoader:
     name = "eastmoney"
     markets = {"a_share", "hk_equity", "us_equity"}
     requires_auth = False
+    #: Mirrors ``eastmoney_client.KLT_BY_INTERVAL``: the kline endpoint takes a
+    #: ``klt`` period code, so minute bars are native. ``4H`` is absent.
+    SUPPORTED_INTERVALS = frozenset({"1D", "1W", "1M", "1m", "5m", "15m", "30m", "1H"})
 
     def is_available(self) -> bool:
         """Always available — uses unauthenticated throttled HTTP."""

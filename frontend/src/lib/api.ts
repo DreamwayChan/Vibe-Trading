@@ -58,7 +58,14 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
   return new ApiError(detail, res.status);
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+/**
+ * Shared JSON fetch wrapper (auth headers, Accept, error shaping).
+ *
+ * Exported so feature clients in sibling modules (e.g. ``dataClient.ts``) reuse
+ * one request path — a second fetch implementation would drift on auth and on
+ * the ``Accept: application/json`` rule that keeps SPA/API path twins apart.
+ */
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
   // Accept: application/json keeps SPA/API path twins (/monitor, /correlation,
   // /sector-pick, /market-pick, /runs/{id}) from returning the cached HTML shell
@@ -101,6 +108,88 @@ export interface UploadResult {
   filename: string;
 }
 
+// ---------------------------------------------------------------------------
+// Research-report table extraction (`POST /tables/extract`)
+// ---------------------------------------------------------------------------
+
+/** One normalised table as returned by the ``extract_tables`` tool. */
+export interface ExtractedTable {
+  id: string;
+  /** First page the table appears on (1-based). */
+  page: number;
+  /** Every page the table spans — more than one once stitched across a break. */
+  pages: number[];
+  caption: string;
+  n_rows: number;
+  n_cols: number;
+  header_rows: number;
+  columns: string[];
+  /** Inferred per-column type: ``number`` | ``date`` | ``text``. */
+  column_types: string[];
+  rows: string[][];
+  /** Declared unit label, e.g. ``亿元``. */
+  unit_label: string | null;
+  /** Multiplier implied by the unit (``亿元`` → 1e8). */
+  unit_scale: number | null;
+  /** ``income`` | ``balance`` | ``cashflow`` when recognised. */
+  statement_hint: string | null;
+  markdown: string;
+  csv: string;
+  truncated: boolean;
+  confidence: number | null;
+}
+
+export interface SecurityWarning {
+  type?: string;
+  rule_id?: string;
+  severity?: string;
+  message?: string;
+  match?: string;
+  field?: string;
+}
+
+export interface TableExtractionResult {
+  status: "ok" | "partial";
+  file: string;
+  format: string;
+  engine: string;
+  engine_version: string;
+  /** ``structural`` = document grid (merged cells honoured); ``geometric`` = inferred from text positions. */
+  quality: "geometric" | "structural" | "unknown";
+  pages_requested: number[];
+  pages_read: number[];
+  table_count: number;
+  tables: ExtractedTable[];
+  char_count: number;
+  truncated: boolean;
+  elapsed_ms: number;
+  cache: "hit" | "miss" | "off";
+  stitched_pages?: number[][];
+  note?: string;
+  security_warnings?: SecurityWarning[];
+}
+
+export interface TableEngineStatus {
+  status: "ok" | "unavailable";
+  requested: string;
+  engine: string | null;
+  version?: string;
+  quality?: string;
+  available: string[];
+  error?: string;
+  max_pages: number;
+  timeout_s?: number;
+  cache: boolean;
+}
+
+export interface ExtractTablesRequest {
+  /** Absolute path, or a path relative to the agent dir (``uploads/<hex>.pdf``). */
+  file_path: string;
+  pages?: string;
+  max_tables?: number;
+  include_csv?: boolean;
+}
+
 async function uploadFile(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
@@ -118,6 +207,19 @@ function appendQueryParam(url: string, key: string, value: string): string {
 
 export const api = {
   uploadFile,
+  /** Describe the table engine the server would use (banner diagnostics). */
+  getTableEngine: () => request<TableEngineStatus>(`/tables/engine`),
+  /** Extract tables from an already-uploaded PDF (see ``uploadFile``). */
+  extractTables: (body: ExtractTablesRequest) =>
+    request<TableExtractionResult>(`/tables/extract`, {
+      method: "POST",
+      body: JSON.stringify({
+        pages: "",
+        max_tables: 20,
+        include_csv: true,
+        ...body,
+      }),
+    }),
   getCorrelation: (codes: string, days: number, method: "pearson" | "spearman") =>
     request<CorrelationResponse>(
       `/correlation?codes=${encodeURIComponent(codes)}&days=${encodeURIComponent(String(days))}&method=${encodeURIComponent(method)}`,
@@ -151,6 +253,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ refresh_report: Boolean(body.refresh_report) }),
     }),
+  recordMonitorSignal: (body: RecordMonitorSignalRequest) =>
+    request<MonitorBoard>(`/monitor/signal`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listMonitorJournal: (limit = 50, symbol = "") =>
+    request<MonitorJournalEntry[]>(
+      `/monitor/journal?limit=${limit}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
+    ),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -224,6 +335,18 @@ export const api = {
       `/monitor/history/${encodeURIComponent(asOf)}${qs ? `?${qs}` : ""}`,
     );
   },
+  /** CSI 300 ETF-OI series + the daily subscription tape (capital-flow page). */
+  getEtfOi: (
+    params: { window?: number; mcap_mode?: CapitalMcapMode; codes?: string; refresh?: boolean } = {},
+  ) => {
+    const q = new URLSearchParams();
+    q.set("window", String(params.window ?? 120));
+    if (params.mcap_mode) q.set("mcap_mode", params.mcap_mode);
+    if (params.codes) q.set("codes", params.codes);
+    if (params.refresh) q.set("refresh", "true");
+    return request<CapitalEtfOiReport>(`/capital/etf-oi?${q.toString()}`);
+  },
+  getCapitalUniverse: () => request<CapitalUniverse>(`/capital/universe`),
   getRun: (id: string, params: RunDetailParams = {}) => {
     const q = new URLSearchParams();
     if (params.chart_payload) q.set("chart_payload", params.chart_payload);
@@ -299,6 +422,75 @@ export const api = {
   getChannelStatus: () => request<ChannelRuntimeStatus>("/channels/status"),
   startChannels: () => request<ChannelRuntimeActionResponse>("/channels/start", { method: "POST" }),
   stopChannels: () => request<ChannelRuntimeActionResponse>("/channels/stop", { method: "POST" }),
+  getChannelSettings: () => request<ChannelSettings>("/channels/settings"),
+  updateChannelSettings: (settings: UpdateChannelSettingsRequest) =>
+    request<ChannelSettings>("/channels/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  getChannelDetail: (name: string) =>
+    request<ChannelDetail>(`/channels/${encodeURIComponent(name)}`),
+  patchChannel: (name: string, patch: Record<string, unknown>) =>
+    request<ChannelRuntimeActionResponse>(`/channels/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  startChannel: (name: string) =>
+    request<ChannelRuntimeActionResponse>(`/channels/${encodeURIComponent(name)}/start`, {
+      method: "POST",
+    }),
+  stopChannel: (name: string) =>
+    request<ChannelRuntimeActionResponse>(`/channels/${encodeURIComponent(name)}/stop`, {
+      method: "POST",
+    }),
+  restartChannel: (name: string) =>
+    request<ChannelRuntimeActionResponse>(`/channels/${encodeURIComponent(name)}/restart`, {
+      method: "POST",
+    }),
+  startChannelAuth: (name: string) =>
+    request<ChannelAuthSession>(`/channels/${encodeURIComponent(name)}/auth/session`, {
+      method: "POST",
+    }),
+  getChannelAuth: (name: string, sessionId: string) =>
+    request<ChannelAuthSession>(
+      `/channels/${encodeURIComponent(name)}/auth/session/${encodeURIComponent(sessionId)}`,
+    ),
+  cancelChannelAuth: (name: string, sessionId: string) =>
+    request<{ status: string }>(
+      `/channels/${encodeURIComponent(name)}/auth/session/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    ),
+  unbindChannel: (name: string) =>
+    request<ChannelRuntimeActionResponse>(`/channels/${encodeURIComponent(name)}/auth`, {
+      method: "DELETE",
+    }),
+  getChannelLogs: (name: string, limit = 100) =>
+    request<ChannelLogsResponse>(
+      `/channels/${encodeURIComponent(name)}/logs?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  clearChannelLogs: (name: string) =>
+    request<{ status: string; channel: string }>(
+      `/channels/${encodeURIComponent(name)}/logs`,
+      { method: "DELETE" },
+    ),
+  getPendingPairings: () => request<{ pending: PendingPairing[] }>("/channels/pairing/pending"),
+  getApprovedPairings: () =>
+    request<{ approved: Record<string, string[]> }>("/channels/pairing/approved"),
+  approvePairing: (code: string) =>
+    request<{ status: string; channel: string; sender_id: string }>("/channels/pairing/approve", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  denyPairing: (code: string) =>
+    request<{ status: string }>("/channels/pairing/deny", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  revokePairing: (channel: string, senderId: string) =>
+    request<{ status: string }>(
+      `/channels/pairing/approved/${encodeURIComponent(senderId)}?channel=${encodeURIComponent(channel)}`,
+      { method: "DELETE" },
+    ),
   runChannelPairingCommand: (body: ChannelPairingCommandRequest) =>
     request<ChannelPairingCommandResponse>("/channels/pairing/command", {
       method: "POST",
@@ -455,12 +647,32 @@ export interface ChannelAdapterStatus {
   available: boolean;
   loaded: boolean;
   running: boolean;
+  /** Lifecycle state: disabled | unavailable | stopped | starting | running | needs_auth | error */
+  state?: string;
+  /** "qr" when the channel binds by scanning, "credentials" otherwise. */
+  auth_kind?: string;
+  auto_start?: boolean;
+  /** Whether the watchdog may restart this adapter after an unexpected exit. */
+  auto_restart?: boolean;
+  /** True while the operator wants the channel up (independent of `running`). */
+  desired?: boolean;
+  restarts?: number;
+  last_error?: string;
+  uptime_s?: number;
+  /** Current restart backoff in seconds (0 when healthy or not retrying). */
+  backoff_s?: number;
+  /** Seconds until the next automatic restart attempt. */
+  retry_in_s?: number;
   error?: string;
   install_hint?: string;
 }
 
 export interface ChannelRuntimeStatus {
   running: boolean;
+  channels_running?: number;
+  auto_start?: boolean;
+  /** True when the restart watchdog is active. */
+  supervisor?: boolean;
   inbound_queue: number;
   outbound_queue: number;
   session_count: number;
@@ -469,6 +681,59 @@ export interface ChannelRuntimeStatus {
 
 export interface ChannelRuntimeActionResponse extends ChannelRuntimeStatus {
   status: string;
+  channel?: string;
+}
+
+export interface ChannelSettings {
+  auto_start: boolean;
+  /** True when VIBE_TRADING_CHANNELS_AUTO_START forces the value. */
+  env_override?: boolean | null;
+  env_locked?: boolean;
+}
+
+export interface UpdateChannelSettingsRequest {
+  auto_start?: boolean;
+}
+
+export interface ChannelLogLine {
+  ts: number;
+  level: string;
+  source: string;
+  message: string;
+}
+
+export interface ChannelLogsResponse {
+  channel: string;
+  lines: ChannelLogLine[];
+}
+
+export interface ChannelDetail {
+  name: string;
+  config: Record<string, unknown>;
+  configured: boolean;
+  status: ChannelAdapterStatus;
+}
+
+export interface ChannelAuthSession {
+  session_id: string;
+  channel: string;
+  kind: "qr" | "credentials";
+  state: "pending" | "waiting_scan" | "scanned" | "confirmed" | "expired" | "failed";
+  qr_url?: string;
+  qr_svg?: string;
+  detail?: string;
+  error?: string;
+  created_at?: number;
+  expires_at?: number;
+  expires_in?: number;
+}
+
+export interface PendingPairing {
+  code: string;
+  channel: string;
+  sender_id: string;
+  created_at?: number;
+  expires_at?: number;
 }
 
 export interface ChannelPairingCommandRequest {
@@ -525,6 +790,11 @@ export interface MonitorSuggestion {
   provisional?: boolean;
   confidence?: number | null;
   signal?: number | null;
+  /** True only when this buy/sell cleared the journal and the validation gate. */
+  tradable?: boolean;
+  block_reasons?: string[];
+  /** A-share markers: st, limit_up, one_word, consecutive_board, extreme_board. */
+  risk_flags?: string[];
 }
 
 /** One strategy-implied holding row from the latest (or historical) scan. */
@@ -596,6 +866,39 @@ export interface MonitorBoard {
   ops?: MonitorDayOps;
   schedule?: string | null;
   decision?: ProcessDecision | null;
+  /** Strategy is in the monitor tradable pool. */
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  validation_gate?: Record<string, unknown> | null;
+  decision_signal?: Record<string, unknown> | null;
+  bars_source?: string | null;
+}
+
+export interface RecordMonitorSignalRequest {
+  hypothesis_id?: string;
+  thesis?: string;
+  invalidation?: string;
+  planned_position?: string;
+  planned_risk?: string;
+  timestamp?: string;
+  symbol?: string;
+  strict?: boolean;
+}
+
+export interface MonitorJournalEntry {
+  signal_id: string;
+  timestamp: string;
+  run_id: string;
+  hypothesis_id: string;
+  thesis: string;
+  invalidation: string;
+  planned_position: string;
+  planned_risk: string;
+  symbol: string;
+  tradable: boolean;
+  block_reasons: string[];
+  stale?: boolean;
+  age_days?: number | null;
 }
 
 export interface MonitorHistorySummary {
@@ -609,6 +912,9 @@ export interface MonitorHistorySummary {
   held_count: number;
   universe_size?: number;
   fetch_error_count?: number;
+  bars_source?: string | null;
+  tradable?: boolean;
+  validation_passed?: boolean;
 }
 
 export interface MonitorHistoryDetail {
@@ -621,7 +927,133 @@ export interface MonitorHistoryDetail {
   suggestions?: MonitorSuggestion[];
   universe_size?: number;
   fetch_error_count?: number;
+  bars_source?: string | null;
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  validation_gate?: Record<string, unknown> | null;
+  decision_signal?: Record<string, unknown> | null;
   decision?: ProcessDecision | null;
+}
+
+/** Denomination of the ETF-OI denominator. */
+export type CapitalMcapMode = "circ_mv" | "weight_implied";
+
+/** One trading day of the CSI 300 ETF-OI series (GET /capital/etf-oi). */
+export interface CapitalPoint {
+  date: string;
+  /** Aggregate AUM of the tracked CSI 300 funds, in CNY. */
+  aum?: number | null;
+  shares_total?: number | null;
+  index_close?: number | null;
+  index_mcap?: number | null;
+  /** AUM ÷ CSI 300 free-float market cap, in percent. */
+  oi_pct?: number | null;
+  /** Daily net subscription, in CNY (null while shares are being published). */
+  net_flow?: number | null;
+  /** Mark-to-market P&L of the held shares, in CNY. */
+  nav_pnl?: number | null;
+  /** net_flow ÷ index market cap, in bp. */
+  flow_bp?: number | null;
+  fund_count: number;
+  missing_count: number;
+  /** True when at least one fund's shares were carried forward. */
+  provisional: boolean;
+}
+
+/** Per-fund state on the latest day. */
+export interface CapitalFundRow {
+  code: string;
+  name: string;
+  exchange: string;
+  shares?: number | null;
+  shares_prev?: number | null;
+  shares_change?: number | null;
+  nav?: number | null;
+  nav_prev?: number | null;
+  aum?: number | null;
+  aum_prev?: number | null;
+  net_flow?: number | null;
+  nav_pnl?: number | null;
+  /** Share of the tracked group's AUM (0-1). */
+  group_weight?: number | null;
+  stale: boolean;
+}
+
+export type CapitalFlowRegime = "surge" | "inflow" | "neutral" | "outflow" | "drain";
+
+export interface CapitalFlowStats {
+  oi_pct?: number | null;
+  oi_change_bp?: number | null;
+  aum?: number | null;
+  aum_change?: number | null;
+  net_flow?: number | null;
+  flow_5d?: number | null;
+  flow_20d?: number | null;
+  flow_window?: number | null;
+  flow_5d_bp?: number | null;
+  flow_20d_bp?: number | null;
+  flow_z?: number | null;
+  inflow_streak: number;
+  oi_percentile?: number | null;
+  regime: CapitalFlowRegime;
+  score?: number | null;
+  observed_days: number;
+  flow_days: number;
+}
+
+export interface CapitalMcapReference {
+  date: string;
+  weights_date: string;
+  index_close?: number | null;
+  per_point?: number | null;
+  total?: number | null;
+  mode: CapitalMcapMode;
+  total_circ_mv?: number | null;
+  total_weight_implied?: number | null;
+  constituents: number;
+  covered: number;
+}
+
+export interface CapitalMethodology {
+  index?: { code?: string; label?: string };
+  formulas?: Record<string, string>;
+  denominator?: Record<string, unknown>;
+  universe?: CapitalUniverseFund[];
+  sources?: { name: string; url?: string }[];
+  caveats?: string[];
+  warnings?: string[];
+}
+
+export interface CapitalEtfOiReport {
+  as_of: string;
+  built_at: string;
+  window: number;
+  points: CapitalPoint[];
+  funds: CapitalFundRow[];
+  stats: CapitalFlowStats;
+  mcap: CapitalMcapReference;
+  methodology: CapitalMethodology;
+  warnings: string[];
+  provisional: boolean;
+  universe_size: number;
+  cached: boolean;
+}
+
+export interface CapitalUniverseFund {
+  code: string;
+  name: string;
+  exchange: string;
+}
+
+export interface CapitalUniverse {
+  index_code: string;
+  index_label: string;
+  funds: CapitalUniverseFund[];
+  count: number;
+  note: string;
+  sources: { name: string; url?: string }[];
+  default_window: number;
+  mcap_modes: CapitalMcapMode[];
 }
 
 /** One OHLC bar on a monitor forecast chart (realized or projected). */
@@ -907,6 +1339,15 @@ export interface MarketPickResult {
   unique_symbols?: number;
   ohlcv_ok?: number;
   fetch_error_count?: number;
+  /** Share of boards with a resolved constituent list (1.0 == full market). */
+  member_coverage?: number | null;
+  /** Set when the screen rests on a partial universe (member cache warming). */
+  degraded_reason?: string | null;
+  /**
+   * Where the K-line data came from: `lake` (data centre only, no vendor call),
+   * `lake+network` (stored history plus a tail pull), `network` (nothing stored).
+   */
+  bars_source?: "lake" | "lake+network" | "network" | string | null;
   boards: MarketPickBoardScore[];
   horizons?: IndexHorizons | null;
 }

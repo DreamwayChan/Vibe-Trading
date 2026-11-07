@@ -37,6 +37,18 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+_BARS_SOURCES = ("lake", "lake+network", "network")
+
+
+def _bars_source(value: Any) -> str | None:
+    """Keep only labels this build knows; a newer/older snapshot is not a guess."""
+    text = _optional_str(value)
+    if text is None:
+        return None
+    text = text.strip().lower()
+    return text if text in _BARS_SOURCES else None
+
+
 @dataclass
 class BoardScore:
     """One Eastmoney board after dual-track aggregation."""
@@ -116,6 +128,16 @@ class MarketPickResult:
     unique_symbols: int = 0
     ohlcv_ok: int = 0
     fetch_error_count: int = 0
+    # Share of boards that resolved at least one constituent. Below 1.0 the
+    # screen is built on a partial universe (member cache still warming), so the
+    # UI must say so instead of presenting a confident ranking.
+    member_coverage: float | None = None
+    degraded_reason: str | None = None
+    # Where this screen's bars came from: "lake" (data centre only, no vendor
+    # call), "lake+network" (stored history plus a tail pull), "network"
+    # (nothing stored for the window). None on old snapshots and on scans whose
+    # fetcher was injected, where the provenance was never observed.
+    bars_source: str | None = None
     boards: list[BoardScore] = field(default_factory=list)
     # Short / medium / long CSI 300 split. Medium == market_regime.
     horizons: dict[str, Any] | None = None
@@ -133,6 +155,9 @@ class MarketPickResult:
             "unique_symbols": self.unique_symbols,
             "ohlcv_ok": self.ohlcv_ok,
             "fetch_error_count": self.fetch_error_count,
+            "member_coverage": self.member_coverage,
+            "degraded_reason": self.degraded_reason,
+            "bars_source": self.bars_source,
             "boards": [row.to_dict() for row in self.boards],
         }
         if self.horizons:
@@ -168,6 +193,9 @@ class MarketPickResult:
             unique_symbols=int(raw.get("unique_symbols") or 0),
             ohlcv_ok=int(raw.get("ohlcv_ok") or 0),
             fetch_error_count=int(raw.get("fetch_error_count") or 0),
+            member_coverage=_optional_float(raw.get("member_coverage")),
+            degraded_reason=_optional_str(raw.get("degraded_reason")),
+            bars_source=_bars_source(raw.get("bars_source")),
             boards=boards,
             horizons=raw.get("horizons") if isinstance(raw.get("horizons"), dict) else None,
         )

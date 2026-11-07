@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from src.api.helpers import RUNS_DIR
+from src.data.lake_fetch import FetchStats, fetch_lake_first
 from src.monitor.holdings import (
     build_holdings_and_ops,
     previous_weights_from_holdings,
@@ -65,6 +66,7 @@ def run_monitor_scan(
     lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
     runs_root: Path | None = None,
     refresh_report: bool = False,
+    strategy_store: Any | None = None,
 ) -> MonitorConfig:
     """Run one scan; update suggestions, holdings, ops; persist day snapshot.
 
@@ -76,6 +78,9 @@ def run_monitor_scan(
             the bound ``run_dir`` through ``as_of`` so RunDetail K-lines /
             buy-sell markers stay current. Default False keeps legacy scan-only
             behaviour; the UI checkbox opts in per click.
+        strategy_store: When set, stamp validation-gate status and pool
+            membership onto artifacts whose ``run_dir`` matches this run.
+            ``None`` leaves the store untouched (unit scans).
     """
     strategy = config.strategy
     as_of_date = as_of or date.today()
@@ -129,6 +134,25 @@ def run_monitor_scan(
         horizons=horizons,
     )
 
+    # Journal + cost-aware validation. Suggestions stay on the board either
+    # way; only ``tradable`` changes. A gate failure must not abort the scan.
+    run_dir = (root / run_key) if strategy.type == "run_dir" else None
+    try:
+        from src.monitor.admission import apply_admission
+
+        apply_admission(
+            config,
+            run_key=run_key,
+            run_dir=run_dir,
+            bars_source=snap_meta.get("bars_source"),
+            strategy_store=strategy_store,
+        )
+    except Exception as exc:  # noqa: BLE001 — board suggestions already succeeded
+        logger.warning("monitor admission failed: %s", exc)
+        config.tradable = False
+        config.tradable_reasons = ["admission_error"]
+        config.bars_source = snap_meta.get("bars_source")
+
     # Persist daily snapshot (same-day overwrite) for history UI / overnight
     # baseline. Intraday writes are display-only: the next same-day scan still
     # diffs against the prior calendar day's holdings, not this file.
@@ -140,13 +164,18 @@ def run_monitor_scan(
             provisional=bool(snap_meta.get("provisional")),
             holdings=list(holdings),
             ops=ops,
-            suggestions=list(suggestions),
+            suggestions=list(config.suggestions),
             universe_size=int(snap_meta.get("universe_size") or 0),
             fetch_error_count=int(snap_meta.get("fetch_error_count") or 0),
             live_quote_ok=int(snap_meta.get("live_quote_ok") or 0),
             live_quote_total=int(snap_meta.get("live_quote_total") or 0),
             live_quote_coverage=float(snap_meta.get("live_quote_coverage") or 0.0),
+            bars_source=config.bars_source,
             decision=config.decision,
+            tradable=config.tradable,
+            tradable_reasons=list(config.tradable_reasons),
+            validation_gate=config.validation_gate,
+            decision_signal=config.decision_signal,
         )
         try:
             save_day_snapshot(snapshot)
@@ -207,9 +236,10 @@ def _scan_run_dir(
     end = as_of_date.isoformat()
     start = (as_of_date - timedelta(days=max(30, lookback_days))).isoformat()
 
-    # One batched loader call (Tushare packs ~20 A-shares per daily()) instead
-    # of N keep-alive round-trips that reset mid-scan on Windows.
-    data_map, fetch_errors = _fetch_universe_ohlcv(
+    # Data centre first. Settled daily bars stop at Beijing T-1: a missing
+    # "today" is not a lake tail (that used to spend a daily vendor pull which
+    # cannot be stored). Today's price is the live-quote overlay below.
+    data_map, fetch_errors, bars_stats = _fetch_universe_lake_first(
         universe,
         start=start,
         end=end,
@@ -238,6 +268,7 @@ def _scan_run_dir(
     snap_meta: dict[str, Any] = {
         "universe_size": len(universe),
         "fetch_error_count": len(fetch_errors),
+        "bars_source": bars_stats.label(),
         "provisional": False,
     }
 
@@ -326,6 +357,9 @@ def _scan_run_dir(
         source=source,
         interval=interval,
     )
+    from src.monitor.ashare_risk import stamp_suggestions
+
+    stamp_suggestions(suggestions, data_map, as_of=as_of_iso)
     return suggestions, holdings, ops, snap_meta
 
 
@@ -403,7 +437,7 @@ def _csi300_frame_for_trends(
     lookback = max(int(lookback_days), _CSI300_LOOKBACK_DAYS)
     start = (as_of_date - timedelta(days=lookback)).isoformat()
     try:
-        extra, errors = _fetch_universe_ohlcv(
+        extra, errors, _stats = _fetch_universe_lake_first(
             [CSI300],
             start=start,
             end=fetch_end.isoformat(),
@@ -721,6 +755,33 @@ def _run_source_interval(run_dir: Path) -> tuple[str, str]:
     return source, interval
 
 
+def _fetch_universe_lake_first(
+    symbols: list[str],
+    *,
+    start: str,
+    end: str,
+    source: str,
+    interval: str,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str], FetchStats]:
+    """Serve the universe from the data centre; only gaps reach a loader.
+
+    Same contract as :func:`_fetch_universe_ohlcv`, plus the provenance of what
+    was actually used. Ingestion writes settled bars to the lake once, so a scan
+    that re-derives them from Tushare every morning (400 days × N names) is pure
+    duplicate work — and the loader cache cannot save it, because its key is
+    content-addressed on (start, end) and both move with the calendar day.
+    """
+    return fetch_lake_first(
+        symbols,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=_fetch_universe_ohlcv,
+        label="monitor",
+    )
+
+
 def _fetch_universe_ohlcv(
     symbols: list[str],
     *,
@@ -757,12 +818,19 @@ def _fetch_universe_ohlcv(
         )
         batch_ok = True
         fetched = getattr(result, "data_map", None) or {}
+        origins = [str(name) for name in (getattr(result, "effective_sources", None) or [])]
+        # A fallback (Tencent 前复权, for example) must not be written into the
+        # unadjusted lake. Only a pure Tushare result is cacheable.
+        cache_origin = "tushare" if origins == ["tushare"] else "skip"
         for symbol in symbols:
             frame = fetched.get(symbol)
             if frame is None and len(fetched) == 1 and len(symbols) == 1:
                 frame = next(iter(fetched.values()))
             if frame is None or getattr(frame, "empty", True):
                 continue
+            attrs = getattr(frame, "attrs", None)
+            if isinstance(attrs, dict):
+                attrs["data_center_source"] = cache_origin
             data_map[symbol] = frame
     except Exception as exc:  # noqa: BLE001 — fail-soft; fill via _fetch_one
         batch_error = str(exc)

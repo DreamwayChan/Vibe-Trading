@@ -18,6 +18,7 @@ import pandas as pd
 
 from src.api.helpers import RUNS_DIR
 from src.monitor.models import DayOps, HoldingRow, MonitorConfig, StrategyRef
+from src.data.lake_fetch import ensure_bars
 from src.monitor.scan import (
     MonitorScanError,
     _apply_same_day_overlay,
@@ -696,7 +697,7 @@ def _fetch_closes(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
     end = as_of_date.isoformat()
     start = (as_of_date - timedelta(days=max(30, lookback_days))).isoformat()
-    data_map, fetch_errors = _fetch_universe_ohlcv(
+    data_map, fetch_errors = _fetch_bars(
         symbols,
         start=start,
         end=end,
@@ -744,6 +745,27 @@ def _error_row(recipe: SectorRecipe, message: str) -> SectorScore:
     )
 
 
+def _fetch_bars(
+    symbols: list[str],
+    *,
+    start: str,
+    end: str,
+    source: str,
+    interval: str,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
+    """OHLCV for a sector book, from the data centre first."""
+    data_map, errors, _stats = ensure_bars(
+        symbols,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=_fetch_universe_ohlcv,
+        label="sector-pick",
+    )
+    return data_map, errors
+
+
 def _fetch_universe(
     run_dir: Path,
     *,
@@ -761,9 +783,9 @@ def _fetch_universe(
     end = as_of_date.isoformat()
     start = (as_of_date - timedelta(days=max(30, lookback_days))).isoformat()
 
-    # Same batched Tushare path as the monitor board. A thread pool of per-symbol
-    # calls shared one HTTP session and produced ConnectionResetError 10054.
-    data_map, fetch_errors = _fetch_universe_ohlcv(
+    # Same data-centre path as the monitor board. The loader runs only for a
+    # gap the lake does not already cover, and a confirmed pull is written back.
+    data_map, fetch_errors = _fetch_bars(
         universe,
         start=start,
         end=end,

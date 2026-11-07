@@ -35,7 +35,7 @@ from src.monitor.models import WEIGHT_EPSILON, HoldingRow, MonitorConfig
 from src.monitor.scan import (
     MonitorScanError,
     _apply_same_day_overlay,
-    _fetch_universe_ohlcv,
+    _fetch_universe_lake_first,
     _is_daily_interval,
     _run_source_interval,
 )
@@ -1287,9 +1287,11 @@ def _default_fetch(
     source: str,
     interval: str,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
-    return _fetch_universe_ohlcv(
+    """Forecast K-lines come from the data centre; only a gap hits a loader."""
+    data_map, errors, _stats = _fetch_universe_lake_first(
         symbols, start=start, end=end, source=source, interval=interval
     )
+    return data_map, errors
 
 
 def run_monitor_forecast(

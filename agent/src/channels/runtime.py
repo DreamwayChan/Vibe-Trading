@@ -68,14 +68,23 @@ class ChannelRuntime:
         self._handler_tasks: set[asyncio.Task[None]] = set()
         self._running = False
 
-    async def start(self, *, start_manager: bool = True) -> None:
-        """Start channel processing and, optionally, platform adapters."""
+    async def start(self, *, start_manager: bool = True, autostart_only: bool = False) -> None:
+        """Start channel processing and, optionally, platform adapters.
+
+        Args:
+            start_manager: When True, also bring up the platform adapters.
+            autostart_only: When True, skip adapters whose per-channel
+                ``auto_start`` is disabled. Used on process startup so an
+                operator can keep a channel enabled but not auto-connected.
+        """
         if self._running:
             return
         self._session_map = self._load_session_map()
         self._running = True
         if start_manager and self.manager is not None:
-            self._manager_task = asyncio.create_task(self.manager.start_all())
+            self._manager_task = asyncio.create_task(
+                self.manager.start_all(autostart_only=autostart_only)
+            )
             await asyncio.sleep(0)
         self._consumer_task = asyncio.create_task(self._consume_loop())
 
@@ -102,13 +111,68 @@ class ChannelRuntime:
 
     def status(self) -> dict[str, Any]:
         """Return runtime and channel status."""
+        channels = self.manager.get_status() if self.manager is not None else {}
+        running_channels = (
+            [name for name, item in channels.items() if item.get("running")]
+            if channels
+            else []
+        )
         return {
             "running": self._running,
+            "channels_running": len(running_channels),
+            "auto_start": self._global_auto_start(),
+            "supervisor": bool(self.manager is not None and self.manager.supervisor_running),
             "inbound_queue": self.bus.inbound_size,
             "outbound_queue": self.bus.outbound_size,
             "session_count": len(self._session_map),
-            "channels": self.manager.get_status() if self.manager is not None else {},
+            "channels": channels,
         }
+
+    def _global_auto_start(self) -> bool:
+        """Global ``channels.auto_start`` flag (default True)."""
+        cfg = getattr(self.manager, "config", None) if self.manager is not None else None
+        if isinstance(cfg, dict):
+            value = cfg.get("auto_start", cfg.get("autoStart"))
+        else:
+            value = getattr(cfg, "auto_start", None)
+        return value if isinstance(value, bool) else True
+
+    async def start_channel(self, name: str) -> bool:
+        """Start a single channel adapter."""
+        if self.manager is None:
+            return False
+        if not self._running:
+            await self.start(start_manager=False)
+        return await self.manager.start_channel(name)
+
+    async def stop_channel(self, name: str) -> bool:
+        """Stop a single channel adapter."""
+        if self.manager is None:
+            return False
+        return await self.manager.stop_channel(name)
+
+    async def restart_channel(self, name: str) -> bool:
+        """Restart a single channel adapter."""
+        if self.manager is None:
+            return False
+        return await self.manager.restart_channel(name)
+
+    async def apply_section(self, name: str, section: Any) -> bool:
+        """Apply a new config section to a channel without a full restart."""
+        if self.manager is None:
+            return False
+        return await self.manager.apply_section(name, section)
+
+    def channel_logs(self, name: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Return the recent log records buffered for one channel."""
+        if self.manager is None:
+            return []
+        return self.manager.channel_logs(name, limit=limit)
+
+    def clear_channel_logs(self, name: str) -> None:
+        """Empty one channel's log buffer."""
+        if self.manager is not None:
+            self.manager.clear_channel_logs(name)
 
     async def _consume_loop(self) -> None:
         while True:

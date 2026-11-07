@@ -1,0 +1,376 @@
+[
+ {
+  "run_id": "20261103_204727_05_F0_trendstock_vsumn60__cord30_ksft",
+  "status": "success",
+  "title": "趋势股BK1715 F0' vsumn60+cord30_ksft — Qlib158最优因子组合",
+  "prompt": "市场扫描第2板块 趋势股 BK1715 成分股回测（80只，2024-01-01~2026-11-03）：动量 vsumn60 + 硬确认 cord30_ksft，参考金属铜/存储芯片 F0' 过程，两段式搜索（快筛+引擎排名+动量腿消融）选出 excess_return 最优组合。",
+  "metrics": {
+   "total_return": "1.042402174332958",
+   "excess_return": "0.639204",
+   "sharpe": "2.318889606356995",
+   "max_drawdown": "-0.07442375729807317",
+   "win_rate": "0.5872093023255814"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-11-03",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "F0' engine for 趋势股 BK1715: sort on qlib158_vsumn60, confirm on cord30/ksft. Frozen reproduction of run 20261103_204727_05_F0_trendstock_vsumn60__cord30_ksft. Process (same family as the 金属铜 / 存储芯片 F0' runs): * weekly rebalance on the first "
+ },
+ {
+  "run_id": "20260827_090400_05_F0_coking_slowbull_no_timing",
+  "status": null,
+  "title": "F0'慢牛优化-焦煤-no_timing",
+  "prompt": "请用国泰君安191做焦煤慢牛过程优化回测：BK1494，动量164+确认093/171，过程=no_timing",
+  "metrics": {
+   "total_return": "0.09938364293275082",
+   "excess_return": "0.259556",
+   "sharpe": "0.27420743063310704",
+   "max_drawdown": "-0.3235654333626854",
+   "win_rate": "0.4166666666666667"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-08-26",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260821_163600_03_F0_cro0899_171_054",
+  "status": null,
+  "title": "F0'最优确认-CRO-171+054",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：CRO BK0899，动量164+确认171+054",
+  "metrics": {
+   "total_return": "0.6518231371060008",
+   "excess_return": "0.220313",
+   "sharpe": "1.1410412035198898",
+   "max_drawdown": "-0.16132234917014576",
+   "win_rate": "0.5142857142857142"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-08-20",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260821_160000_03_F0_cro_171_075",
+  "status": null,
+  "title": "F0'最优确认-医疗研发外包-171+075",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：医疗研发外包 BK1600，动量164+确认171+075",
+  "metrics": {
+   "total_return": "1.909106409004763",
+   "excess_return": "1.306203",
+   "sharpe": "1.6624005589529816",
+   "max_drawdown": "-0.2065322509293647",
+   "win_rate": "0.5470085470085471"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-08-20",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260731_tech3_05_F0_memory_185_070",
+  "status": null,
+  "title": "F0'最优确认-存储芯片-185+070",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：存储芯片 BK1137，动量164+确认185+070",
+  "metrics": {
+   "total_return": "2.481424823779651",
+   "excess_return": "0.921042",
+   "sharpe": "2.0346708434664915",
+   "max_drawdown": "-0.1701409581245105",
+   "win_rate": "0.5575221238938053"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-31",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260731_tech3_05_F0_compute_178_156",
+  "status": null,
+  "title": "F0'最优确认-算力硬件-178+156",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：算力硬件（光模块∪PCB∪液冷），动量164+确认178+156",
+  "metrics": {
+   "total_return": "2.508711149932391",
+   "excess_return": "-0.001416",
+   "sharpe": "2.872023167088287",
+   "max_drawdown": "-0.11009892344414035",
+   "win_rate": "0.6883116883116883"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-31",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260730_162800_03_F0_speceq_127_111",
+  "status": null,
+  "title": "F0'最优确认-其他专用设备-127+111",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：其他专用设备 BK1405，动量164+确认127+111",
+  "metrics": {
+   "total_return": "0.9411468023628922",
+   "excess_return": "0.654306",
+   "sharpe": "1.633832149300297",
+   "max_drawdown": "-0.14042685902026078",
+   "win_rate": "0.6206896551724138"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-28",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260730_162800_03_F0_foodbev_127",
+  "status": null,
+  "title": "F0'最优确认-食品饮料-127",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：食品饮料 BK0438，动量164+确认127",
+  "metrics": {
+   "total_return": "0.4391860645514718",
+   "excess_return": "0.578923",
+   "sharpe": "1.2227217477313836",
+   "max_drawdown": "-0.16649849740710995",
+   "win_rate": "0.5425531914893617"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-28",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260730_162800_03_F0_autoparts_100_081",
+  "status": null,
+  "title": "F0'最优确认-其他汽车零部件-100+081",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：其他汽车零部件 BK1528，动量164+确认100+081",
+  "metrics": {
+   "total_return": "0.6931215378080726",
+   "excess_return": "0.7237",
+   "sharpe": "1.0690434738414802",
+   "max_drawdown": "-0.24310188352683845",
+   "win_rate": "0.5042735042735043"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-28",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260729_135623_02_F1_broker",
+  "status": null,
+  "title": "F1 MAX否决-券商BK0473",
+  "prompt": "请用国泰君安191+custom_max_inv做F1多因子选股并回测：A股券商（东财行业证券Ⅱ BK0473）",
+  "metrics": {
+   "total_return": "0.04516201141009102",
+   "excess_return": "-0.057734",
+   "sharpe": "0.1987310193002221",
+   "max_drawdown": "-0.1482362992383047",
+   "win_rate": "0.46017699115044247"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-28",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (veto_max_20)."
+ },
+ {
+  "run_id": "20260726_131500_03_F0_copper_081_160",
+  "status": null,
+  "title": "F0'最优确认-金属铜BK1615-081/160",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：金属铜BK1615，动量164+确认081/160",
+  "metrics": {
+   "total_return": "2.3630918339799774",
+   "excess_return": "1.173818",
+   "sharpe": "2.4553411762165895",
+   "max_drawdown": "-0.1496182313851101",
+   "win_rate": "0.5888888888888889"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-08-12",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260726_123500_03_F0_vrar_077",
+  "status": null,
+  "title": "F0'最优确认-虚拟现实-077",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：虚拟现实 BK0722，动量164+确认077",
+  "metrics": {
+   "total_return": "0.8627232889848042",
+   "excess_return": "0.710465",
+   "sharpe": "1.6752135256940142",
+   "max_drawdown": "-0.09998873465389123",
+   "win_rate": "0.5135135135135135"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260726_113500_01_ETF_F0",
+  "status": null,
+  "title": "F0双确认-A股权益ETF",
+  "prompt": "A股权益ETF截面 F0（164+171/054硬确认）Top15 筛选与回测",
+  "metrics": {
+   "total_return": "0.1318024302677563",
+   "excess_return": "-0.390049",
+   "sharpe": "0.5841636456172771",
+   "max_drawdown": "-0.1036654173349372",
+   "win_rate": "0.5294117647058824"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260726_084500_03_F0_machine_171_054",
+  "status": null,
+  "title": "F0'最优确认-工业母机-171+054",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：工业母机 BK1004，动量164+确认171+054",
+  "metrics": {
+   "total_return": "1.3025499984183853",
+   "excess_return": "0.361107",
+   "sharpe": "2.064421631090056",
+   "max_drawdown": "-0.18321209516207915",
+   "win_rate": "0.6190476190476191"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260725_193311_05_F0_aiapp_171",
+  "status": null,
+  "title": "F0'最优确认-AI应用-171",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：AI应用，动量164+确认171",
+  "metrics": {
+   "total_return": "0.5280337404376674",
+   "excess_return": "0.102256",
+   "sharpe": "0.9171863206445496",
+   "max_drawdown": "-0.22743407325120102",
+   "win_rate": "0.4636363636363636"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260725_184000_05_F0_robot_124_178",
+  "status": null,
+  "title": "F0'最优确认-人形机器人-124+178",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：人形机器人 BK1184，动量164+确认124+178",
+  "metrics": {
+   "total_return": "0.9129878000293077",
+   "excess_return": "0.011434",
+   "sharpe": "1.6818099303429563",
+   "max_drawdown": "-0.1438205340781062",
+   "win_rate": "0.6285714285714286"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ },
+ {
+  "run_id": "20260725_184000_05_F0_drug_129",
+  "status": null,
+  "title": "F0'最优确认-创新药-129",
+  "prompt": "请用国泰君安191做F0'多因子选股并回测：创新药，动量164+确认129",
+  "metrics": {
+   "total_return": "0.14220436432280215",
+   "excess_return": "0.037515",
+   "sharpe": "0.39875133117686173",
+   "max_drawdown": "-0.1758578400270079",
+   "win_rate": "0.45794392523364486"
+  },
+  "config": {
+   "start_date": "2024-01-01",
+   "end_date": "2026-07-24",
+   "frequency": null,
+   "benchmark": null,
+   "universe_size": null,
+   "universe_hint": null
+  },
+  "engine_doc": "Parameterized F0 + custom integration engine (F0)."
+ }
+]

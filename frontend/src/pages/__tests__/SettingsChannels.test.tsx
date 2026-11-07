@@ -7,6 +7,21 @@ const apiMock = vi.hoisted(() => ({
   getChannelStatus: vi.fn(),
   startChannels: vi.fn(),
   stopChannels: vi.fn(),
+  getChannelSettings: vi.fn(),
+  updateChannelSettings: vi.fn(),
+  getPendingPairings: vi.fn(),
+  startChannel: vi.fn(),
+  stopChannel: vi.fn(),
+  restartChannel: vi.fn(),
+  patchChannel: vi.fn(),
+  startChannelAuth: vi.fn(),
+  getChannelAuth: vi.fn(),
+  cancelChannelAuth: vi.fn(),
+  unbindChannel: vi.fn(),
+  approvePairing: vi.fn(),
+  denyPairing: vi.fn(),
+  getChannelLogs: vi.fn(),
+  clearChannelLogs: vi.fn(),
   updateLLMSettings: vi.fn(),
   updateDataSourceSettings: vi.fn(),
 }));
@@ -93,6 +108,19 @@ function channelStatus(overrides = {}) {
         error: "ModuleNotFoundError",
         install_hint: "pip install 'vibe-trading-ai[telegram]'",
       },
+      weixin: {
+        name: "weixin",
+        display_name: "WeChat",
+        configured: true,
+        enabled: true,
+        available: true,
+        loaded: true,
+        running: false,
+        state: "needs_auth",
+        auth_kind: "qr",
+        error: "",
+        install_hint: "",
+      },
     },
     ...overrides,
   };
@@ -103,6 +131,8 @@ describe("Settings IM channels panel", () => {
     apiMock.getLLMSettings.mockResolvedValue(llmSettings());
     apiMock.getDataSourceSettings.mockResolvedValue(dataSourceSettings());
     apiMock.getChannelStatus.mockResolvedValue(channelStatus());
+    apiMock.getChannelSettings.mockResolvedValue({ auto_start: true, env_override: null, env_locked: false });
+    apiMock.getPendingPairings.mockResolvedValue({ pending: [] });
     apiMock.startChannels.mockResolvedValue(channelStatus({ running: true }));
     apiMock.stopChannels.mockResolvedValue(channelStatus());
   });
@@ -141,5 +171,68 @@ describe("Settings IM channels panel", () => {
     expect(screen.getByText("IM Channels")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start channels" })).toBeDisabled();
+  });
+
+  it("persists the autostart toggle", async () => {
+    apiMock.updateChannelSettings.mockResolvedValue({
+      auto_start: false,
+      env_override: null,
+      env_locked: false,
+    });
+
+    render(<Settings />);
+    await screen.findByText("IM Channels");
+
+    const autoStartButton = screen.getByRole("button", { name: /Auto-connect on start/ });
+    await waitFor(() => expect(autoStartButton).toBeEnabled());
+    fireEvent.click(autoStartButton);
+
+    await waitFor(() =>
+      expect(apiMock.updateChannelSettings).toHaveBeenCalledWith({ auto_start: false }),
+    );
+  });
+
+  it("opens the QR binding wizard for scan-based channels", async () => {
+    const session = {
+      session_id: "sess-1",
+      channel: "weixin",
+      kind: "qr" as const,
+      state: "waiting_scan" as const,
+      qr_svg: "<svg></svg>",
+      expires_in: 180,
+    };
+    apiMock.startChannelAuth.mockResolvedValue(session);
+    apiMock.getChannelAuth.mockResolvedValue(session);
+
+    render(<Settings />);
+    await screen.findByText("IM Channels");
+
+    fireEvent.click(screen.getByRole("button", { name: "Re-bind" }));
+
+    await waitFor(() => expect(apiMock.startChannelAuth).toHaveBeenCalledWith("weixin"));
+    expect(await screen.findByText("Bind channel")).toBeInTheDocument();
+    expect(screen.getByText("Scan the QR code with the app")).toBeInTheDocument();
+  });
+
+  it("shows the buffered log lines for a channel", async () => {
+    apiMock.getChannelLogs.mockResolvedValue({
+      channel: "weixin",
+      lines: [
+        {
+          ts: 1_700_000_000,
+          level: "error",
+          source: "src.channels.weixin",
+          message: "getUpdates failed: ret=500",
+        },
+      ],
+    });
+
+    render(<Settings />);
+    await screen.findByText("IM Channels");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Logs" })[0]);
+
+    expect(await screen.findByText(/getUpdates failed/)).toBeInTheDocument();
+    await waitFor(() => expect(apiMock.getChannelLogs).toHaveBeenCalled());
   });
 });

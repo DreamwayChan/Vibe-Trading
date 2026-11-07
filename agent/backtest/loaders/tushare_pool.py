@@ -16,6 +16,8 @@ across loaders, fundamentals, and fallback adapters.
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import json
 import logging
 import re
@@ -23,6 +25,7 @@ import threading
 import time
 import urllib.request
 from collections import deque
+from pathlib import Path
 from typing import Any, Deque, List, Optional, Sequence
 
 import pandas as pd
@@ -77,12 +80,31 @@ _HOURLY_COOLDOWN_S = 3600.0
 # to eastmoney/tencent instead of parking the request for an hour.
 _API_BLOCK_FAIL_FAST_S = 90.0
 
+# Endpoints whose real budget is a handful of calls *per day*, far below the
+# RPM cap. A 120-point account gets ``stk_mins`` at 2 calls/day; cooling 65s and
+# walking the token list then burns every account's whole day in one request.
+# Values are per token and per Beijing calendar day.
+_API_DAILY_QUOTA: dict[str, int] = {"stk_mins": 2}
+
+# Endpoints whose per-minute allowance is *below* the account-wide RPM. The
+# same ``stk_mins`` also answers "频率超限(1次/分钟)": the sliding window has to
+# pace this endpoint separately or every second request is rejected.
+_API_MIN_INTERVAL_S: dict[str, float] = {"stk_mins": 61.0}
+
+_DAILY_LIMIT_MARKERS = ("次/天", "/天", "per day", "每日", "每天", "daily limit")
+_MINUTE_LIMIT_MARKERS = ("次/分钟", "/分钟", "次/分", "per minute")
+
+# ``stk_mins`` errors say "频率超限(2次/天)" — daily resets are wall clock in
+# Beijing, not process-relative, so they need a real timestamp, not monotonic.
+_CN_TZ = dt.timezone(dt.timedelta(hours=8))
+
 _TOKEN_SPLIT_RE = re.compile(r"[,;\n]+")
 
 _pool_lock = threading.Lock()
 _pool_singleton: Optional["TushareClientPool"] = None
 _http_lock = threading.Lock()
 _http_session: requests.Session | None = None
+_quota_lock = threading.Lock()
 
 
 def parse_token_list(raw: str) -> List[str]:
@@ -288,6 +310,146 @@ def is_hourly_rate_limit(exc: BaseException) -> bool:
     return "次/小时" in message or "/小时" in message or "per hour" in lowered
 
 
+def is_daily_quota_error(exc: BaseException) -> bool:
+    """True when Tushare's quota for this endpoint is a per-*day* allowance.
+
+    ``stk_mins`` on a 120-point account answers ``40203 频率超限(2次/天)``. That
+    is not an RPM breach: cooling 65 seconds and retrying just spends the next
+    token's daily allowance too, and one bulk request can exhaust every account
+    for the rest of the day.
+    """
+    if not is_rate_limit_error(exc):
+        return False
+    message = str(exc)
+    lowered = message.lower()
+    return any(marker in message for marker in _DAILY_LIMIT_MARKERS) or "per day" in lowered
+
+
+def daily_quota_for(api_name: str) -> int | None:
+    """Per-token per-day call allowance for *api_name* (None = only RPM-bound)."""
+    return _API_DAILY_QUOTA.get(str(api_name))
+
+
+def min_interval_for(api_name: str) -> float:
+    """Minimum seconds between two calls of *api_name* on one token."""
+    return float(_API_MIN_INTERVAL_S.get(str(api_name), 0.0))
+
+
+def is_per_minute_limit(exc: BaseException) -> bool:
+    """True when the rejection is a sub-RPM per-minute cap ("1次/分钟")."""
+    if not is_rate_limit_error(exc):
+        return False
+    message = str(exc)
+    lowered = message.lower()
+    return any(marker in message for marker in _MINUTE_LIMIT_MARKERS) or "per minute" in lowered
+
+
+def seconds_until_quota_reset(when: dt.datetime | None = None) -> float:
+    """Seconds until the next Beijing midnight, when daily quotas reset."""
+    now = when or dt.datetime.now(_CN_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_CN_TZ)
+    tomorrow = dt.datetime.combine(
+        now.astimezone(_CN_TZ).date() + dt.timedelta(days=1), dt.time.min, tzinfo=_CN_TZ
+    )
+    return max((tomorrow - now.astimezone(_CN_TZ)).total_seconds(), 0.0)
+
+
+def _quota_ledger_path() -> "Path":
+    """Location of the cross-process daily-quota ledger."""
+    try:
+        from src.data.lake import lake_root
+
+        root = lake_root()
+    except Exception:  # noqa: BLE001 — backtest must not depend on the lake pkg
+        root = Path.home() / ".vibe-trading" / "lake"
+    return Path(root) / "tushare_quota.json"
+
+
+def _beijing_day() -> str:
+    return dt.datetime.now(_CN_TZ).date().isoformat()
+
+
+def load_quota_ledger() -> dict[str, dict[str, int]]:
+    """Read today's spend per token hint and endpoint (empty when stale/missing).
+
+    Persisted so that a restart — or the next CLI invocation — does not have to
+    re-discover an exhausted allowance by burning requests.
+    """
+    path = _quota_ledger_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — missing/corrupt ledger is just empty
+        return {}
+    if not isinstance(payload, dict) or payload.get("day") != _beijing_day():
+        return {}
+    spent = payload.get("spent")
+    if not isinstance(spent, dict):
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for hint, per_api in spent.items():
+        if isinstance(per_api, dict):
+            out[str(hint)] = {
+                str(api): int(count)
+                for api, count in per_api.items()
+                if isinstance(count, (int, float))
+            }
+    return out
+
+
+def record_quota_spend(token_hint: str, api_name: str, count: int = 1) -> None:
+    """Add *count* spent calls to the ledger, atomically and best-effort."""
+    if not token_hint or not api_name:
+        return
+    path = _quota_ledger_path()
+    day = _beijing_day()
+    with _quota_lock:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            payload = {"day": day, "spent": {}}
+        if payload.get("day") != day:
+            payload = {"day": day, "spent": {}}
+        spent = payload.setdefault("spent", {})
+        per_api = spent.setdefault(token_hint, {})
+        per_api[api_name] = int(per_api.get(api_name, 0)) + int(count)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+        except Exception as exc:  # noqa: BLE001 — quota bookkeeping is advisory
+            logger.debug("tushare quota ledger write failed: %s", exc)
+
+
+class TushareAllTokensBlocked(RuntimeError):
+    """Raised when every token is cooling on this endpoint right now.
+
+    Distinct from :class:`TushareQuotaExhausted`: the day may still have budget,
+    the tokens are just inside a per-hour/per-minute block.
+    """
+
+    def __init__(self, api_name: str, wait_seconds: float) -> None:
+        self.api_name = api_name
+        self.wait_seconds = wait_seconds
+        super().__init__(
+            f"tushare {api_name} blocked on all tokens; earliest slot free in "
+            f"{wait_seconds:.0f}s"
+        )
+
+
+class TushareQuotaExhausted(RuntimeError):
+    """Raised when every token's daily allowance for an endpoint is spent."""
+
+    def __init__(self, api_name: str, reset_in: float) -> None:
+        self.api_name = api_name
+        self.reset_in = reset_in
+        super().__init__(
+            f"tushare {api_name} daily quota exhausted on all tokens; "
+            f"resets in {reset_in / 3600:.1f}h (Beijing midnight)"
+        )
+
+
 def is_transport_error(exc: BaseException) -> bool:
     """Detect dropped keep-alive / empty-body failures that deserve a retry.
 
@@ -320,6 +482,11 @@ class _TokenSlot:
         self.cooldown_until = 0.0
         # Per-endpoint blocks: index_daily 1/hour must not freeze daily().
         self._api_blocked_until: dict[str, float] = {}
+        # Per-endpoint *daily* spend (stk_mins 2/day on 120-point accounts).
+        self._api_daily_spent: dict[str, int] = {}
+        # Wall-clock (monotonic) of the last hit per endpoint, for sub-RPM caps.
+        self._api_last_hit: dict[str, float] = {}
+        self._quota_day = _beijing_day()
         # requests.Session is not safe to share across overlapping HTTP calls.
         self._call_lock = threading.Lock()
 
@@ -337,9 +504,58 @@ class _TokenSlot:
             return blocked_until - now
         return 0.0
 
+    def _roll_quota_day(self) -> None:
+        """Forget yesterday's spend once the Beijing date changes."""
+        today = _beijing_day()
+        if today != self._quota_day:
+            self._quota_day = today
+            self._api_daily_spent.clear()
+
+    def daily_left(self, api_name: str | None) -> int | None:
+        """Remaining calls today for *api_name* (None when not daily-capped)."""
+        if not api_name or daily_quota_for(api_name) is None:
+            return None
+        self._roll_quota_day()
+        return max(daily_quota_for(api_name) - self._api_daily_spent.get(api_name, 0), 0)
+
+    def mark_daily_spent(self, api_name: str, count: int = 1) -> None:
+        """Charge one call against today's allowance (persisted to the ledger)."""
+        if daily_quota_for(api_name) is None:
+            return
+        self._roll_quota_day()
+        self._api_daily_spent[api_name] = self._api_daily_spent.get(api_name, 0) + count
+        record_quota_spend(self.quota_key(), api_name, count)
+
+    def mark_daily_exhausted(self, api_name: str) -> None:
+        """Server said the day is spent: stop offering this token for the endpoint."""
+        quota = daily_quota_for(api_name)
+        if quota is None:
+            return
+        self._roll_quota_day()
+        already = self._api_daily_spent.get(api_name, 0)
+        self._api_daily_spent[api_name] = quota
+        if quota > already:
+            record_quota_spend(self.quota_key(), api_name, quota - already)
+        self.mark_api_cooldown(api_name, seconds_until_quota_reset())
+
+    def seed_daily_spent(self, per_api: dict[str, int]) -> None:
+        """Adopt spend recorded by an earlier process on the same day."""
+        if not per_api:
+            return
+        self._roll_quota_day()
+        for api_name, count in per_api.items():
+            self._api_daily_spent[api_name] = max(
+                self._api_daily_spent.get(api_name, 0), int(count)
+            )
+
     def wait_seconds(self, now: float, api_name: str | None = None) -> float:
         """Seconds until this slot may fire again (0 means ready now)."""
-        api_wait = self.api_wait_seconds(now, api_name)
+        # An endpoint can be capped below the account-wide RPM (stk_mins 1/min),
+        # so its own spacing floor wins over the shared sliding window.
+        api_wait = max(
+            self.api_wait_seconds(now, api_name),
+            self.interval_wait_seconds(now, api_name),
+        )
         if now < self.cooldown_until:
             return max(self.cooldown_until - now, api_wait)
         self._prune(now)
@@ -347,6 +563,24 @@ class _TokenSlot:
             return api_wait
         rpm_wait = max(self.hits[0] + self.window_seconds - now, 0.0)
         return max(rpm_wait, api_wait)
+
+    def interval_wait_seconds(self, now: float, api_name: str | None) -> float:
+        """Seconds left before this endpoint's minimum spacing has elapsed."""
+        if not api_name:
+            return 0.0
+        floor = min_interval_for(api_name)
+        if floor <= 0:
+            return 0.0
+        last = self._api_last_hit.get(api_name)
+        if last is None:
+            return 0.0
+        return max(floor - (now - last), 0.0)
+
+    def mark_api_hit(self, api_name: str | None, now: float | None = None) -> None:
+        """Start the minimum-spacing clock for *api_name*."""
+        if not api_name or min_interval_for(api_name) <= 0:
+            return
+        self._api_last_hit[api_name] = now if now is not None else time.monotonic()
 
     def record(self, now: float) -> None:
         self._prune(now)
@@ -382,6 +616,16 @@ class _TokenSlot:
             return "***"
         return f"...{token[-4:]}"
 
+    def quota_key(self) -> str:
+        """Stable, non-secret ledger key for this token.
+
+        ``token_hint`` collapses short tokens to ``***``, which would merge
+        distinct accounts into one ledger row and silently under-count spend.
+        A truncated digest stays unique without putting the token on disk.
+        """
+        digest = hashlib.sha1(self.token.encode("utf-8")).hexdigest()
+        return f"k{digest[:12]}"
+
 
 class TushareClientPool:
     """Thread-safe multi-token Tushare gateway with least-wait scheduling."""
@@ -401,6 +645,11 @@ class TushareClientPool:
         self._slots = [
             _TokenSlot(token, per_token_rpm, self._window_seconds) for token in resolved
         ]
+        # Adopt what earlier runs already spent today, so a restart does not
+        # rediscover an exhausted 2-calls/day allowance by wasting requests.
+        ledger = load_quota_ledger()
+        for slot in self._slots:
+            slot.seed_daily_spent(ledger.get(slot.quota_key(), {}))
         self._lock = threading.Lock()
         # Round-robin cursor used only to break ties among equally ready slots.
         self._rr = 0
@@ -411,6 +660,32 @@ class TushareClientPool:
 
     def has_tokens(self) -> bool:
         return bool(self._slots)
+
+    def earliest_wait(self, api_name: str | None = None) -> float:
+        """Shortest wait across tokens, ignoring the fail-fast skip.
+
+        Used for diagnostics: "every token is cooling, next chance in N s" is
+        very different from "the day is spent".
+        """
+        now = time.monotonic()
+        waits = [slot.wait_seconds(now, api_name) for slot in self._slots]
+        return min(waits) if waits else 0.0
+
+    def quota_report(self) -> dict[str, dict[str, int]]:
+        """Remaining allowance for every day-capped endpoint (RPM-only ones omitted).
+
+        Returns:
+            ``{api: {"per_token": n, "tokens": m, "remaining": k}}`` where
+            ``remaining`` is summed across tokens for the current Beijing day.
+        """
+        report: dict[str, dict[str, int]] = {}
+        for api_name, per_token in _API_DAILY_QUOTA.items():
+            report[api_name] = {
+                "per_token": per_token,
+                "tokens": len(self._slots),
+                "remaining": sum(slot.daily_left(api_name) or 0 for slot in self._slots),
+            }
+        return report
 
     def _pick_ready_slot(
         self,
@@ -439,6 +714,10 @@ class TushareClientPool:
             api_wait = slot.api_wait_seconds(now, api_name)
             if api_wait > _API_BLOCK_FAIL_FAST_S:
                 continue
+            # Day-capped endpoints (stk_mins 2/day) must be skipped outright:
+            # their "cooldown" is until midnight, so waiting is pointless.
+            if slot.daily_left(api_name) == 0:
+                continue
             wait = slot.wait_seconds(now, api_name)
             if best_wait is None or wait < best_wait:
                 best_wait = wait
@@ -462,6 +741,7 @@ class TushareClientPool:
                 wait_s, idx, slot = picked
                 if wait_s <= 0:
                     slot.record(now)
+                    slot.mark_api_hit(api_name, now)
                     self._rr = (idx + 1) % max(len(self._slots), 1)
                     return slot
                 sleep_for = min(wait_s, 1.0)
@@ -481,17 +761,30 @@ class TushareClientPool:
         for _ in range(max_attempts):
             slot = self.acquire(api_name)
             if slot is None:
+                if daily_quota_for(api_name) is not None and all(
+                    s.daily_left(api_name) == 0 for s in self._slots
+                ):
+                    raise TushareQuotaExhausted(api_name, seconds_until_quota_reset())
                 if last_exc is not None:
                     raise last_exc
-                raise RuntimeError(
-                    f"tushare {api_name} hourly quota exhausted on all tokens"
-                )
+                raise TushareAllTokensBlocked(api_name, self.earliest_wait(api_name))
             try:
-                return slot.invoke(api_name, **kwargs)
+                result = slot.invoke(api_name, **kwargs)
             except Exception as exc:  # noqa: BLE001 - Tushare raises varied types
                 if is_rate_limit_error(exc):
                     last_exc = exc
-                    if is_hourly_rate_limit(exc):
+                    if is_daily_quota_error(exc):
+                        # 40203 "2次/天": walking to the next token just spends
+                        # its allowance too. Mark it spent and move on once.
+                        slot.mark_daily_exhausted(api_name)
+                        logger.warning(
+                            "tushare daily quota spent on token %s for %s "
+                            "(no retry until Beijing midnight): %.120s",
+                            slot.token_hint(),
+                            api_name,
+                            exc,
+                        )
+                    elif is_hourly_rate_limit(exc):
                         # Keep daily() usable; only this endpoint is spent.
                         slot.mark_api_cooldown(api_name, _HOURLY_COOLDOWN_S)
                         logger.warning(
@@ -500,6 +793,17 @@ class TushareClientPool:
                             slot.token_hint(),
                             api_name,
                             _HOURLY_COOLDOWN_S,
+                        )
+                    elif is_per_minute_limit(exc):
+                        # Sub-RPM endpoint cap (stk_mins 1/min): wait out the
+                        # interval instead of the generic one-minute cooldown.
+                        wait_s = max(min_interval_for(api_name), self._cooldown_seconds)
+                        slot.mark_cooldown(wait_s)
+                        logger.warning(
+                            "tushare per-minute cap on token %s for %s; waiting %.0fs",
+                            slot.token_hint(),
+                            api_name,
+                            wait_s,
                         )
                     else:
                         slot.mark_cooldown(self._cooldown_seconds)
@@ -526,6 +830,10 @@ class TushareClientPool:
                     time.sleep(min(0.5 * transport_retries, 2.0))
                     continue
                 raise
+            # A successful call is what consumes a day-capped allowance; the
+            # rejected 40203 attempts above do not.
+            slot.mark_daily_spent(api_name)
+            return result
 
         assert last_exc is not None
         raise last_exc

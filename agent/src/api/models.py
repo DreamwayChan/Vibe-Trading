@@ -57,6 +57,11 @@ class RunInfo(BaseModel):
     end_date: Optional[str] = None
     # True when code/signal_engine.py exists — required for Monitor strategy binding.
     has_signal_engine: bool = False
+    # True when the run dir carries an ``ARCHIVED`` marker. Archived runs stay
+    # on disk and in history but drop out of the Monitor strategy picker, so a
+    # strategy that failed the promotion gate does not keep offering itself as
+    # a tradable source.
+    archived: bool = False
 
 
 class UpdateRunRequest(BaseModel):

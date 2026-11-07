@@ -53,6 +53,7 @@ VALID_SOURCES: set[str] = {
     "india_broker",
     "longbridge",
     "mt5",
+    "lake",
     "local",
     "auto",
 }
@@ -102,6 +103,7 @@ def _ensure_registered() -> None:
         "backtest.loaders.india_broker_loader",
         "backtest.loaders.longbridge",
         "backtest.loaders.mt5_loader",
+        "backtest.loaders.lake_loader",
         "backtest.loaders.local_loader",
     ]
     import importlib
@@ -119,7 +121,10 @@ def _ensure_registered() -> None:
 # unavailable ``local`` request can degrade into an unrelated network source.
 # An explicit ``local`` request that is unavailable is a config problem the user
 # must see, not something to paper over with a Yahoo/Tencent fetch.
-_NO_NETWORK_FALLBACK_SOURCES: frozenset[str] = frozenset({"local", "qveris"})  # QVERIS-INTEGRATION
+# ``lake`` is the same case: an explicit lake read that finds nothing means the
+# ingest job has not run for that window, and quietly showing network bars would
+# make a reproducibility run silently non-reproducible.
+_NO_NETWORK_FALLBACK_SOURCES: frozenset[str] = frozenset({"local", "lake", "qveris"})  # QVERIS-INTEGRATION
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +137,7 @@ _NO_NETWORK_FALLBACK_SOURCES: frozenset[str] = frozenset({"local", "qveris"})  #
 # that must be politely throttled; Finnhub/AlphaVantage/Tiingo/FMP are key-gated
 # REST fallbacks placed deeper in the chain.
 FALLBACK_CHAINS: dict[str, list[str]] = {
-    "a_share":   ["tencent", "mootdx", "eastmoney", "baostock", "akshare", "tushare", "local"],
+    "a_share":   ["tencent", "mootdx", "eastmoney", "baostock", "akshare", "tushare", "lake", "local"],
     "us_equity": ["yahoo", "stooq", "sina", "eastmoney", "yfinance", "tiingo", "fmp", "finnhub", "alphavantage", "longbridge", "akshare", "local"],
     "hk_equity": ["eastmoney", "yahoo", "futu", "yfinance", "akshare", "longbridge", "local"],
     "india_equity": ["yahoo", "yfinance", "india_broker", "local"],
@@ -147,7 +152,7 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
 }
 
 
-def resolve_loader(market: str) -> Any:
+def resolve_loader(market: str, *, interval: str | None = None) -> Any:
     """Return the first *available* loader instance for *market*.
 
     Walks the fallback chain (reordered by recent host health so reachable
@@ -157,6 +162,9 @@ def resolve_loader(market: str) -> Any:
 
     Args:
         market: Market type key (e.g. ``"a_share"``, ``"crypto"``).
+        interval: Optional requested bar size. When given, loaders that cannot
+            serve it are skipped — otherwise the chain hands an intraday
+            request to a daily-only loader and gets daily bars back.
 
     Returns:
         A loader instance.
@@ -164,18 +172,23 @@ def resolve_loader(market: str) -> Any:
     Raises:
         NoAvailableSourceError: If every candidate is unavailable.
     """
+    from backtest.loaders._intervals import supports_interval
     from backtest.loaders.source_health import is_cooling_down, prefer_order
 
     _ensure_registered()
     chain = FALLBACK_CHAINS.get(market, [])
     ordered = prefer_order(chain)
     tried: list[str] = []
+    skipped: list[str] = []
 
     def _try(names: list[str], *, skip_cooling: bool) -> Any | None:
         for name in names:
             if name not in LOADER_REGISTRY:
                 continue
             if skip_cooling and is_cooling_down(name):
+                continue
+            if interval is not None and not supports_interval(LOADER_REGISTRY[name], interval):
+                skipped.append(name)
                 continue
             tried.append(name)
             # Issue #50 — some loaders (e.g. Tushare) call into the SDK during
@@ -195,10 +208,25 @@ def resolve_loader(market: str) -> Any:
     hit = _try(ordered, skip_cooling=True) or _try(ordered, skip_cooling=False)
     if hit is not None:
         return hit
+    detail = f"Tried: {tried or chain}"
+    if skipped:
+        detail += f". Skipped for interval {interval!r}: {sorted(set(skipped))}"
     raise NoAvailableSourceError(
         f"No available data source for market '{market}'. "
-        f"Tried: {tried or chain}. Check network and API token config."
+        f"{detail}. Check network and API token config."
     )
+
+
+def loaders_for_interval(market: str, interval: str) -> list[str]:
+    """Return the market chain restricted to loaders that can serve *interval*."""
+    from backtest.loaders._intervals import supports_interval
+
+    _ensure_registered()
+    return [
+        name
+        for name in fallback_chain_for(market)
+        if name in LOADER_REGISTRY and supports_interval(LOADER_REGISTRY[name], interval)
+    ]
 
 
 def fallback_chain_for(market: str) -> list[str]:

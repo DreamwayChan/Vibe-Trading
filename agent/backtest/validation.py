@@ -15,7 +15,7 @@ import json
 import math
 from numbers import Integral, Real
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 import numpy as np
 import pandas as pd
@@ -311,6 +311,13 @@ def run_validation(
             bars_per_year=bars_per_year,
         )
 
+    if results:
+        # Stamp the cost schedule that produced these trades so the monitor
+        # gate can refuse a zero-cost artifact. Empty ``validation`` config
+        # still returns {} — callers that skip validation stay unchanged.
+        results["cost_aware"] = config_is_cost_aware(config)
+        results["costs"] = cost_snapshot(config)
+
     return results
 
 
@@ -422,6 +429,425 @@ def write_validation_json(path: Path, results: Dict[str, Any]) -> Dict[str, Any]
     return safe_results
 
 
+# ─── Cost-aware promotion gate ───
+#
+# A strategy may enter the monitor tradable pool only when Monte Carlo,
+# bootstrap, and walk-forward each clear a threshold AND the backtest that
+# produced the artifact paid a non-zero cost schedule. A-share books pick up
+# the P0 retail defaults (``backtest.ashare_costs``) when the run config omits
+# the keys. Thresholds are read from ``DataConfig``; see the
+# ``VIBE_TRADING_VAL_*`` variables.
+
+_FEE_KEYS = (
+    "commission",
+    "commission_rate",
+    "commission_min",
+    "stamp_tax",
+    "stamp_duty",
+    "transfer_fee",
+    "slippage",
+)
+
+_ASHARE_MARKETS = {"china_a", "a_share", "ashare", "cn"}
+
+
+def _as_positive(value: Any) -> bool:
+    """True when *value* is a finite number greater than zero."""
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0.0
+
+
+def _positive_fee(payload: Mapping[str, Any] | None) -> bool:
+    """True when any recognised fee field is a positive number."""
+    if not isinstance(payload, Mapping):
+        return False
+    return any(_as_positive(payload.get(key)) for key in _FEE_KEYS)
+
+
+def _config_codes(config: Mapping[str, Any]) -> list[str]:
+    raw = config.get("codes") or config.get("symbols") or []
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(",") if part.strip()]
+    if not isinstance(raw, list):
+        return []
+    return [str(code).strip() for code in raw if str(code).strip()]
+
+
+def book_uses_ashare_defaults(config: Mapping[str, Any] | None) -> bool:
+    """True when this run is filled by ``ChinaAEngine`` (P0 cost schedule).
+
+    Mirrors runner routing closely enough for the gate: an explicit A-share
+    market, a tushare/akshare book that is not US/HK, or a code list that is
+    entirely explicit A-share listings (lake / local / eastmoney).
+    """
+    cfg = dict(config or {})
+    market = str(cfg.get("market") or "").strip().lower()
+    engine = str(cfg.get("engine") or "").strip().lower()
+    if market in _ASHARE_MARKETS or engine in _ASHARE_MARKETS:
+        return True
+    codes = _config_codes(cfg)
+    try:
+        from backtest.engines._market_hooks import _is_explicit_a_share
+    except Exception:  # pragma: no cover — hooks are part of the backtest package
+        _is_explicit_a_share = None  # type: ignore[assignment]
+    if codes and _is_explicit_a_share is not None and all(_is_explicit_a_share(code) for code in codes):
+        return True
+    source = str(cfg.get("source") or "").strip().lower()
+    if source in {"tushare", "akshare"}:
+        if codes and any(code.upper().endswith((".US", ".HK")) for code in codes):
+            return False
+        return True
+    return False
+
+
+def cost_snapshot(config: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Fee keys explicitly present on *config* (defaults are not copied)."""
+    cfg = dict(config or {})
+    return {key: cfg[key] for key in _FEE_KEYS if key in cfg}
+
+
+def config_is_cost_aware(config: Mapping[str, Any] | None) -> bool:
+    """True when the backtest paid a non-zero commission, tax, or slippage.
+
+    An A-share book with the keys omitted is cost-aware: ``ChinaAEngine``
+    merges the P0 retail defaults. An explicit zero on every fee key opts out.
+    """
+    cfg = dict(config or {})
+    if _positive_fee(cfg) or cfg.get("cost_aware") is True:
+        return True
+    if not book_uses_ashare_defaults(cfg):
+        return False
+    try:
+        from backtest.ashare_costs import merge_assumptions
+
+        merged = merge_assumptions(cfg)
+    except Exception:  # noqa: BLE001 — a missing helper must not look cost-free by accident
+        merged = cfg
+    return _positive_fee(merged)
+
+
+def costs_applied(
+    results: Mapping[str, Any] | None,
+    config: Mapping[str, Any] | None = None,
+) -> bool:
+    """True when the validation artifact or the run config shows real costs."""
+    if isinstance(results, Mapping):
+        if results.get("cost_aware") is True:
+            return True
+        costs = results.get("costs")
+        if _positive_fee(costs if isinstance(costs, Mapping) else None):
+            return True
+    return config_is_cost_aware(config)
+
+
+class ValidationThresholds:
+    """Promotion thresholds for Monte Carlo, bootstrap, and walk-forward.
+
+    Defaults (override with ``VIBE_TRADING_VAL_*``):
+
+    * Monte Carlo ``p_value_sharpe`` ≤ 0.10
+    * Bootstrap Sharpe ``ci_lower`` ≥ 0
+    * Walk-forward ``consistency_rate`` ≥ 0.60
+    * Costs required
+    * All three sections required
+    * Gate enabled
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        max_p_value_sharpe: float = 0.10,
+        min_bootstrap_ci_lower: float = 0.0,
+        min_walk_forward_consistency: float = 0.60,
+        require_costs: bool = True,
+        require_monte_carlo: bool = True,
+        require_bootstrap: bool = True,
+        require_walk_forward: bool = True,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.max_p_value_sharpe = float(max_p_value_sharpe)
+        self.min_bootstrap_ci_lower = float(min_bootstrap_ci_lower)
+        self.min_walk_forward_consistency = float(min_walk_forward_consistency)
+        self.require_costs = bool(require_costs)
+        self.require_monte_carlo = bool(require_monte_carlo)
+        self.require_bootstrap = bool(require_bootstrap)
+        self.require_walk_forward = bool(require_walk_forward)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "max_p_value_sharpe": self.max_p_value_sharpe,
+            "min_bootstrap_ci_lower": self.min_bootstrap_ci_lower,
+            "min_walk_forward_consistency": self.min_walk_forward_consistency,
+            "require_costs": self.require_costs,
+            "require_monte_carlo": self.require_monte_carlo,
+            "require_bootstrap": self.require_bootstrap,
+            "require_walk_forward": self.require_walk_forward,
+        }
+
+
+def thresholds_from_env() -> ValidationThresholds:
+    """Read ``VIBE_TRADING_VAL_*`` (via ``DataConfig``) into thresholds."""
+    try:
+        from src.config.accessor import get_env_config
+
+        data = get_env_config().data
+    except Exception:  # noqa: BLE001 — documented defaults still gate promotion
+        return ValidationThresholds()
+    return ValidationThresholds(
+        enabled=bool(getattr(data, "vibe_trading_val_gate", True)),
+        max_p_value_sharpe=float(getattr(data, "vibe_trading_val_max_p_sharpe", 0.10)),
+        min_bootstrap_ci_lower=float(getattr(data, "vibe_trading_val_min_bootstrap_ci", 0.0)),
+        min_walk_forward_consistency=float(
+            getattr(data, "vibe_trading_val_min_wf_consistency", 0.60)
+        ),
+        require_costs=bool(getattr(data, "vibe_trading_val_require_costs", True)),
+        require_monte_carlo=bool(getattr(data, "vibe_trading_val_require_monte_carlo", True)),
+        require_bootstrap=bool(getattr(data, "vibe_trading_val_require_bootstrap", True)),
+        require_walk_forward=bool(
+            getattr(data, "vibe_trading_val_require_walk_forward", True)
+        ),
+    )
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+class ValidationGateResult:
+    """Outcome of :func:`evaluate_validation_gate`."""
+
+    def __init__(
+        self,
+        *,
+        passed: bool,
+        reasons: List[str],
+        cost_aware: bool,
+        checks: Dict[str, Any],
+        thresholds: Dict[str, Any],
+    ) -> None:
+        self.passed = passed
+        self.reasons = list(reasons)
+        self.cost_aware = cost_aware
+        self.checks = checks
+        self.thresholds = thresholds
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "reasons": list(self.reasons),
+            "cost_aware": self.cost_aware,
+            "checks": self.checks,
+            "thresholds": self.thresholds,
+        }
+
+
+def evaluate_validation_gate(
+    results: Mapping[str, Any] | None,
+    *,
+    config: Mapping[str, Any] | None = None,
+    thresholds: ValidationThresholds | None = None,
+    load_error: str | None = None,
+) -> ValidationGateResult:
+    """Decide whether a validation artifact may enter the tradable pool.
+
+    ``load_error`` is ``validation_unreadable`` or ``config_unreadable`` when
+    the run directory could not be parsed. A missing artifact (``results is
+    None`` and no load error) is ``missing_validation``.
+
+    When the gate is disabled (``VIBE_TRADING_VAL_GATE=0``) the check passes
+    and ``checks["enabled"]`` is false. The decision journal is a separate
+    requirement and is not waived here.
+    """
+    rules = thresholds if thresholds is not None else thresholds_from_env()
+    aware = costs_applied(results if isinstance(results, Mapping) else None, config)
+    if not rules.enabled:
+        return ValidationGateResult(
+            passed=True,
+            reasons=[],
+            cost_aware=aware,
+            checks={"enabled": False, "note": "gate_disabled"},
+            thresholds=rules.to_dict(),
+        )
+
+    if load_error:
+        return ValidationGateResult(
+            passed=False,
+            reasons=[load_error],
+            cost_aware=aware,
+            checks={"enabled": True},
+            thresholds=rules.to_dict(),
+        )
+
+    if not isinstance(results, Mapping) or not any(
+        key in results for key in ("monte_carlo", "bootstrap", "walk_forward")
+    ):
+        # No artifact means no evidence either way, including on costs. Stamping
+        # ``costs.passed = false`` here made a missing file look like a
+        # zero-cost backtest, and readers reported "costs not applied" for a run
+        # whose artifact had simply been deleted.
+        return ValidationGateResult(
+            passed=False,
+            reasons=["missing_validation"],
+            cost_aware=aware,
+            checks={"enabled": True},
+            thresholds=rules.to_dict(),
+        )
+
+    reasons: List[str] = []
+    checks: Dict[str, Any] = {"enabled": True}
+
+    if rules.require_costs:
+        checks["costs"] = {"passed": aware}
+        if not aware:
+            reasons.append("costs_not_applied")
+    else:
+        checks["costs"] = {"passed": True, "skipped": True}
+
+    section_specs = (
+        (
+            "monte_carlo",
+            rules.require_monte_carlo,
+            "missing_monte_carlo",
+            "monte_carlo_failed",
+            "p_value_sharpe",
+            "monte_carlo_p_value",
+            rules.max_p_value_sharpe,
+            "max",
+        ),
+        (
+            "bootstrap",
+            rules.require_bootstrap,
+            "missing_bootstrap",
+            "bootstrap_failed",
+            "ci_lower",
+            "bootstrap_ci_lower",
+            rules.min_bootstrap_ci_lower,
+            "min",
+        ),
+        (
+            "walk_forward",
+            rules.require_walk_forward,
+            "missing_walk_forward",
+            "walk_forward_failed",
+            "consistency_rate",
+            "walk_forward_consistency",
+            rules.min_walk_forward_consistency,
+            "min",
+        ),
+    )
+    for (
+        name,
+        required,
+        missing_code,
+        failed_code,
+        metric,
+        breach_code,
+        limit,
+        direction,
+    ) in section_specs:
+        section = results.get(name)
+        if not required:
+            checks[name] = {"passed": True, "skipped": True}
+            continue
+        if not isinstance(section, Mapping):
+            reasons.append(missing_code)
+            checks[name] = {"passed": False, "reason": missing_code}
+            continue
+        if section.get("error"):
+            reasons.append(failed_code)
+            checks[name] = {
+                "passed": False,
+                "reason": failed_code,
+                "detail": str(section.get("error")),
+            }
+            continue
+        observed = _finite(section.get(metric))
+        if observed is None:
+            reasons.append(failed_code)
+            checks[name] = {"passed": False, "reason": failed_code, "metric": metric}
+            continue
+        ok = observed <= limit if direction == "max" else observed >= limit
+        if not ok:
+            reasons.append(breach_code)
+        checks[name] = {
+            "passed": ok,
+            "metric": metric,
+            "observed": observed,
+            "threshold": limit,
+            **({"reason": breach_code} if not ok else {}),
+        }
+
+    return ValidationGateResult(
+        passed=not reasons,
+        reasons=reasons,
+        cost_aware=aware,
+        checks=checks,
+        thresholds=rules.to_dict(),
+    )
+
+
+def load_run_validation(run_dir: Path) -> tuple[Dict[str, Any] | None, Dict[str, Any], str | None]:
+    """Load ``config.json`` and ``artifacts/validation.json`` for the gate.
+
+    Returns:
+        ``(results, config, load_error)``. ``results`` is None when the
+        artifact is missing. ``load_error`` is set when a file exists but
+        cannot be parsed.
+    """
+    directory = Path(run_dir)
+    config: Dict[str, Any] = {}
+    config_path = directory / "config.json"
+    if config_path.is_file():
+        try:
+            raw_config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None, {}, "config_unreadable"
+        if not isinstance(raw_config, dict):
+            return None, {}, "config_unreadable"
+        config = raw_config
+
+    validation_path = directory / "artifacts" / "validation.json"
+    if not validation_path.is_file():
+        return None, config, None
+    try:
+        raw_results = json.loads(validation_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, config, "validation_unreadable"
+    if not isinstance(raw_results, dict):
+        return None, config, "validation_unreadable"
+    return raw_results, config, None
+
+
+def evaluate_run_validation(
+    run_dir: Path,
+    *,
+    thresholds: ValidationThresholds | None = None,
+) -> ValidationGateResult:
+    """Load a run directory and evaluate the promotion gate."""
+    results, config, load_error = load_run_validation(run_dir)
+    return evaluate_validation_gate(
+        results,
+        config=config,
+        thresholds=thresholds,
+        load_error=load_error,
+    )
+
+
 def main(run_dir: Path) -> Dict[str, Any]:
     """Run all three validations on existing backtest artifacts.
 
@@ -448,6 +874,8 @@ def main(run_dir: Path) -> Dict[str, Any]:
         "monte_carlo": monte_carlo_test(trades, initial_capital),
         "bootstrap": bootstrap_sharpe_ci(equity),
         "walk_forward": walk_forward_analysis(equity, trades),
+        "cost_aware": config_is_cost_aware(config),
+        "costs": cost_snapshot(config),
     }
 
     out = run_dir / "artifacts" / "validation.json"

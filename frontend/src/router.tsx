@@ -31,11 +31,20 @@ const Monitor = lazyWithReload(() =>
 const MarketPick = lazyWithReload(() =>
   import("@/pages/MarketPick").then((m) => ({ default: m.MarketPick })),
 );
+const CapitalFlow = lazyWithReload(() =>
+  import("@/pages/CapitalFlow").then((m) => ({ default: m.CapitalFlow })),
+);
 const SectorPick = lazyWithReload(() =>
   import("@/pages/SectorPick").then((m) => ({ default: m.SectorPick })),
 );
 const AlphaZoo = lazyWithReload(() =>
   import("@/pages/AlphaZoo").then((m) => ({ default: m.AlphaZoo })),
+);
+const Tables = lazyWithReload(() =>
+  import("@/pages/Tables").then((m) => ({ default: m.Tables })),
+);
+const DataCenter = lazyWithReload(() =>
+  import("@/pages/DataCenter").then((m) => ({ default: m.DataCenter })),
 );
 
 function PageLoader() {
@@ -89,13 +98,16 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: wrap(Home) },
       { path: "/agent", element: wrap(Agent) },
+      { path: "/data-center", element: wrap(DataCenter) },
       { path: "/runtime", element: wrap(Runtime) },
       { path: "/reports", element: wrap(Reports) },
+      { path: "/tables", element: wrap(Tables) },
       { path: "/settings", element: wrap(Settings) },
       { path: "/runs/:runId", element: wrap(RunDetail), errorElement: <RouteErrorPage /> },
       { path: "/compare", element: wrap(Compare) },
       { path: "/correlation", element: wrap(Correlation) },
       { path: "/monitor", element: wrap(Monitor) },
+      { path: "/capital-flow", element: wrap(CapitalFlow) },
       { path: "/market-pick", element: wrap(MarketPick) },
       { path: "/sector-pick", element: wrap(SectorPick) },
       { path: "/alpha-zoo", element: wrap(AlphaZoo) },

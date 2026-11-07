@@ -45,6 +45,7 @@ class TestSpaHtmlRouteMatcher:
             "/monitor",            # Monitor board page (shares path with API)
             "/market-pick",        # Market-pick page (shares path with API)
             "/sector-pick",        # Sector-pick page (shares path with API)
+            "/tables",             # Research-report table extraction page
             "/runs/abc",           # RunDetail (no trailing slash)
             "/runs/abc-123",       # RunDetail with dashes
             "/runs/abc/",          # RunDetail (trailing slash)
@@ -74,6 +75,8 @@ class TestSpaHtmlRouteMatcher:
             "/sector-pick/scan",    # sector-pick API subpaths stay JSON
             "/sector-pick/history",
             "/sector-pick/holdings",
+            "/tables/extract",      # tables API stays JSON
+            "/tables/engine",
         ],
     )
     def test_api_only_paths_do_not_match(self, path: str) -> None:

@@ -65,6 +65,20 @@ _CN_FUTURES_PRODUCTS = {
 }
 
 
+def _is_explicit_a_share(code: str) -> bool:
+    """True when *code* matches an A-share pattern, not the unknown default.
+
+    :func:`_detect_market` returns ``a_share`` for anything it does not
+    recognise. Engine routing must not treat that fallback as a mainland
+    listing, or a typo would pick up T+1 and stamp tax.
+    """
+    text = str(code or "").strip()
+    for pattern, market in _MARKET_PATTERNS:
+        if market == "a_share" and pattern.match(text):
+            return True
+    return False
+
+
 def _detect_market(code: str) -> str:
     """Infer market type from symbol format.
 

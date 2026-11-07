@@ -142,6 +142,8 @@ class WeixinChannel(BaseChannel):
 
     name = "weixin"
     display_name = "WeChat"
+    auth_kind = "qr"
+    supports_interactive_login = True
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:
@@ -337,12 +339,43 @@ class WeixinChannel(BaseChannel):
             raise RuntimeError(f"Failed to get QR code from WeChat API: {data}")
         return qrcode_id, (qrcode_img_content or qrcode_id)
 
-    async def _qr_login(self) -> bool:
-        """Perform QR code login flow. Returns True on success."""
+    async def _qr_login(
+        self,
+        *,
+        on_qr: Any | None = None,
+        on_state: Any | None = None,
+    ) -> bool:
+        """Perform QR code login flow. Returns True on success.
+
+        Args:
+            on_qr: Optional callback receiving each issued/refreshed login URL.
+                When omitted the QR is printed to stdout (CLI behaviour).
+            on_state: Optional callback receiving the raw platform status so a
+                browser session can mirror "waiting → scanned → confirmed".
+        """
+
+        def _emit_qr(url: str) -> None:
+            if on_qr is None:
+                self._print_qr_code(url)
+                return
+            try:
+                on_qr(url)
+            except Exception:  # noqa: BLE001 - UI callbacks must not break login
+                self.logger.debug("QR callback failed", exc_info=True)
+
+        def _emit_state(status: str) -> None:
+            if on_state is None:
+                return
+            try:
+                on_state(status)
+            except Exception:  # noqa: BLE001
+                self.logger.debug("Login state callback failed", exc_info=True)
+
         try:
             refresh_count = 0
             qrcode_id, scan_url = await self._fetch_qr_code()
-            self._print_qr_code(scan_url)
+            _emit_qr(scan_url)
+            _emit_state("wait")
             current_poll_base_url = self.config.base_url
 
             while self._running:
@@ -374,6 +407,8 @@ class WeixinChannel(BaseChannel):
                         if base_url:
                             self.config.base_url = base_url
                         self._save_state()
+                        self.clear_needs_auth()
+                        _emit_state("confirmed")
                         self.logger.info(
                             "login successful! bot_id={} user_id={}",
                             bot_id,
@@ -384,6 +419,7 @@ class WeixinChannel(BaseChannel):
                         self.logger.error("Login confirmed but no bot_token in response")
                         return False
                 elif status == "scaned_but_redirect":
+                    _emit_state(status)
                     redirect_host = str(status_data.get("redirect_host", "") or "").strip()
                     if redirect_host:
                         if redirect_host.startswith("http://") or redirect_host.startswith("https://"):
@@ -400,15 +436,20 @@ class WeixinChannel(BaseChannel):
                             refresh_count - 1,
                             MAX_QR_REFRESH_COUNT,
                         )
+                        _emit_state("expired")
                         return False
                     qrcode_id, scan_url = await self._fetch_qr_code()
                     current_poll_base_url = self.config.base_url
-                    self._print_qr_code(scan_url)
+                    _emit_qr(scan_url)
+                    _emit_state("expired")
                     continue
-                # status == "wait" — keep polling
+                elif status == "scaned":
+                    _emit_state(status)
 
                 await asyncio.sleep(1)
 
+        except asyncio.CancelledError:
+            raise
         except Exception:
             self.logger.exception("QR login failed")
 
@@ -465,6 +506,49 @@ class WeixinChannel(BaseChannel):
                 await self._client.aclose()
                 self._client = None
 
+    async def begin_login(
+        self,
+        *,
+        on_qr: Any | None = None,
+        on_state: Any | None = None,
+    ) -> bool:
+        """Run the QR login handshake for a browser-held auth session.
+
+        Unlike :meth:`login`, this always starts a fresh QR flow (the caller
+        asked to bind, so an existing token is being replaced) and reports the
+        QR/status through callbacks instead of stdout.
+        """
+        self._token = ""
+        self._get_updates_buf = ""
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60, connect=30),
+            follow_redirects=True,
+        )
+        self._running = True  # Enable the polling loop in _qr_login()
+        try:
+            ok = await self._qr_login(on_qr=on_qr, on_state=on_state)
+            if not ok:
+                self.mark_needs_auth("QR login did not complete")
+            return ok
+        finally:
+            self._running = False
+            if self._client:
+                await self._client.aclose()
+                self._client = None
+
+    async def logout(self) -> None:
+        """Forget the saved WeChat bot token so the next start needs a re-bind."""
+        self._token = ""
+        self._get_updates_buf = ""
+        self._context_tokens.clear()
+        state_file = self._get_state_dir() / "account.json"
+        try:
+            if state_file.exists():
+                state_file.unlink()
+        except OSError:
+            self.logger.warning("Could not remove %s", state_file, exc_info=True)
+        self.mark_needs_auth("logged out")
+
     async def start(self) -> None:
         self._running = True
         self._next_poll_timeout_s = self.config.poll_timeout
@@ -476,10 +560,19 @@ class WeixinChannel(BaseChannel):
         if self.config.token:
             self._token = self.config.token
         elif not self._load_state():
-            if not await self._qr_login():
-                self.logger.error("login failed. Run 'vibe-trading channels login weixin' to authenticate.")
-                self._running = False
-                return
+            # Never block a server boot on an invisible terminal QR code: go to
+            # needs_auth and let the operator bind from the Settings panel (or
+            # run `vibe-trading channels login weixin`).
+            self.logger.error(
+                "no saved WeChat credential; bind it from Settings or run "
+                "'vibe-trading channels login weixin'",
+            )
+            self._running = False
+            if self._client:
+                await self._client.aclose()
+                self._client = None
+            self.mark_needs_auth("no saved credential")
+            return
 
         self.logger.info("channel starting with long-poll...")
 
@@ -562,6 +655,9 @@ class WeixinChannel(BaseChannel):
             if errcode == ERRCODE_SESSION_EXPIRED or ret == ERRCODE_SESSION_EXPIRED:
                 self._pause_session()
                 remaining = self._session_pause_remaining_s()
+                self.mark_needs_auth(
+                    f"session expired (errcode {errcode}); re-bind or wait for the pause to end"
+                )
                 self.logger.warning(
                     "session expired (errcode {}). Pausing {} min.",
                     errcode,
@@ -571,6 +667,10 @@ class WeixinChannel(BaseChannel):
             raise RuntimeError(
                 f"getUpdates failed: ret={ret} errcode={errcode} errmsg={data.get('errmsg', '')}"
             )
+
+        # A successful poll proves the credential is healthy again (e.g. the
+        # 1h session pause elapsed).
+        self.clear_needs_auth()
 
         # Honour server-suggested poll timeout (monitor.ts:102-105)
         server_timeout_ms = data.get("longpolling_timeout_ms")

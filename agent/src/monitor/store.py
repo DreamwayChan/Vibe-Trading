@@ -266,6 +266,11 @@ def clear_board_scan_cache(config: MonitorConfig) -> MonitorConfig:
     config.holdings = []
     config.ops = DayOps()
     config.last_scan_at = None
+    config.tradable = False
+    config.tradable_reasons = []
+    config.validation_gate = None
+    config.decision_signal = None
+    config.bars_source = None
     return config
 
 
@@ -345,6 +350,9 @@ def list_snapshot_summaries(run_id: str, *, limit: int = 30) -> list[dict]:
                 "live_quote_ok": snap.live_quote_ok,
                 "live_quote_total": snap.live_quote_total,
                 "live_quote_coverage": snap.live_quote_coverage,
+                "bars_source": snap.bars_source,
+                "tradable": snap.tradable,
+                "validation_passed": bool((snap.validation_gate or {}).get("passed")),
             }
         )
     return summaries

@@ -16,6 +16,7 @@ from backtest.engines.base import BaseEngine
 from backtest.engines._market_hooks import (
     _detect_market,
     _is_china_futures,
+    _is_explicit_a_share,
     calc_crypto_funding_fee,
     check_crypto_liquidation,
     calc_forex_swap,
@@ -30,7 +31,14 @@ def _build_rule_engines(config: dict, codes: List[str]) -> Dict[str, BaseEngine]
     for market in markets:
         if market == "a_share":
             from backtest.engines.china_a import ChinaAEngine
-            engines["a_share"] = ChinaAEngine(config)
+            from backtest.runner import _attach_tradability_panel
+
+            # Same cost schedule as a pure A-share run (ChinaAEngine merges
+            # backtest.ashare_costs) and the same halt/limit panel.
+            a_codes = [c for c in codes if _is_explicit_a_share(c)]
+            engines["a_share"] = ChinaAEngine(
+                _attach_tradability_panel(config, a_codes or list(codes))
+            )
         elif market == "us_equity":
             from backtest.engines.global_equity import GlobalEquityEngine
             engines["us_equity"] = GlobalEquityEngine(config, market="us")

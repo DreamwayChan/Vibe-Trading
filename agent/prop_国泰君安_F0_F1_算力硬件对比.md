@@ -1,3 +1,5 @@
+> **Research-only / 仅供研究.** Frozen prompt, not the default path. Default: lake → hypothesis → cost backtest → validation gate → tradable → paper_book. See [CAPABILITY.md](../CAPABILITY.md).
+
 # F0 / F1 / F0' 对比报告 — A股算力硬件（BK1136∪BK1340∪BK1138）
 
 **声明：研究/回测结果，非实盘建议。**

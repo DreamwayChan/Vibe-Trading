@@ -13,8 +13,10 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from backtest.loaders.base import loader_cache_forced
 from backtest.loaders.tushare import (
     DataLoader,
+    _is_a_share_stock,
     _is_crypto,
     _is_etf_listed,
     _is_hk_equity,
@@ -276,8 +278,45 @@ class TestFetchMinutesRouting:
         assert "00700.HK" not in result
 
 
+def test_is_a_share_stock_covers_listed_boards() -> None:
+    """``daily`` only serves these prefixes; anything else is another market."""
+    for code in (
+        "000001.SZ", "001381.SZ", "002594.SZ", "300750.SZ", "301236.SZ",
+        "600519.SH", "601318.SH", "603259.SH", "605117.SH", "688981.SH",
+        "830799.BJ", "920002.BJ",
+    ):
+        assert _is_a_share_stock(code), code
+    for code in ("201872.SZ", "200002.SZ", "128136.SZ", "00700.HK", "AAPL.US",
+                 "BTC-USDT", ""):
+        assert not _is_a_share_stock(code), code
+
+
 class TestFetchDailyBatching:
     """Plain A-share stocks should share one daily() call when possible."""
+
+    @pytest.fixture(autouse=True)
+    def _no_disk_cache(self):
+        """Keep these call-count assertions independent of leftover parquet.
+
+        The loader cache is keyed on (source, symbol, range) under the real
+        user home, so a second run of the suite would find the previous run's
+        files, serve them from cache and never reach ``daily``.
+        """
+        with loader_cache_forced(False):
+            yield
+
+    def test_non_a_share_codes_are_skipped_not_requested(self) -> None:
+        """A B-share from a board list must not consume a slot in the batch."""
+        loader = self._make_loader()
+        loader.api.daily.return_value = pd.DataFrame(
+            [{"ts_code": "000001.SZ", "trade_date": "20250102", "open": 10.0,
+              "high": 11.0, "low": 9.0, "close": 10.0, "vol": 1000.0}]
+        )
+        loader.fetch(["000001.SZ", "201872.SZ"], "2025-01-02", "2025-01-03")
+
+        requested = loader.api.daily.call_args.kwargs["ts_code"]
+        assert "000001.SZ" in requested
+        assert "201872.SZ" not in requested
 
     def _make_loader(self) -> DataLoader:
         loader = object.__new__(DataLoader)

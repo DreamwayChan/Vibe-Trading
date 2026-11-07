@@ -8,6 +8,7 @@ from src.strategy_store.models import (
     BenchResult,
     DecaySignal,
     DecaySnapshot,
+    artifact_matches_run,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "BenchResult",
     "DecaySignal",
     "DecaySnapshot",
+    "artifact_matches_run",
 ]

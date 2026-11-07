@@ -45,7 +45,9 @@ __alpha_meta__ = {
     "notes": (
         "Clean rewrite of THS '主力吸货': low relative position × range "
         "compression. Chart-only ops (STICKLINE) dropped. Tuned windows "
-        "L38 + C5/40 on BK1184 panel; complementary to gtja191_164."
+        "L38 + C5/40 on BK1184 panel; complementary to gtja191_164. "
+        "Research-only: not on the default lake -> hypothesis -> cost "
+        "backtest -> validation gate -> tradable -> paper_book path."
     ),
 }
 

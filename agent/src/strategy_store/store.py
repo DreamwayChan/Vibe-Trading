@@ -18,8 +18,7 @@ import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Callable, Sequence, TypeVar, runtime_checkable
-from typing import Protocol
+from typing import Any, Callable, Protocol, Sequence, TypeVar, runtime_checkable
 
 from src.strategy_store.models import (
     Artifact,
@@ -28,6 +27,8 @@ from src.strategy_store.models import (
     BenchResult,
     DecaySnapshot,
     DecaySignal,
+    artifact_matches_run,
+    gate_payload_text,
 )
 
 
@@ -106,6 +107,26 @@ class StrategyStoreProtocol(Protocol):
 
     def update_artifact(self, artifact: Artifact) -> Artifact | None:
         """Replace an artifact record. Returns updated artifact or None if not found."""
+        ...
+
+    def record_gate(
+        self,
+        artifact_id: str,
+        *,
+        validation_gate: Any,
+        bars_source: str | None,
+        tradable: bool,
+    ) -> Artifact | None:
+        """Store monitor gate status. Does not change lifecycle status."""
+        ...
+
+    def list_artifacts_for_run(
+        self,
+        run_key: str,
+        *,
+        run_dir: str | None = None,
+    ) -> Sequence[Artifact]:
+        """Artifacts whose ``run_dir`` matches this monitor run."""
         ...
 
     # --- Bench history ---
@@ -258,6 +279,43 @@ class InMemoryStrategyStore:
         stored = replace(artifact, updated_at=now)
         self._artifacts[artifact.id] = stored
         return stored
+
+    @_synchronized
+    def record_gate(
+        self,
+        artifact_id: str,
+        *,
+        validation_gate: Any,
+        bars_source: str | None,
+        tradable: bool,
+    ) -> Artifact | None:
+        """Store monitor gate status without changing lifecycle status."""
+        existing = self._artifacts.get(artifact_id)
+        if existing is None:
+            return None
+        updated = replace(
+            existing,
+            validation_gate=gate_payload_text(validation_gate),
+            bars_source=bars_source,
+            tradable=bool(tradable),
+            updated_at=_now_iso(),
+        )
+        self._artifacts[artifact_id] = updated
+        return updated
+
+    @_synchronized
+    def list_artifacts_for_run(
+        self,
+        run_key: str,
+        *,
+        run_dir: str | None = None,
+    ) -> Sequence[Artifact]:
+        """Artifacts whose ``run_dir`` matches this monitor run."""
+        return [
+            artifact
+            for artifact in self._artifacts.values()
+            if artifact_matches_run(artifact, run_key, run_dir)
+        ]
 
     # -- Bench history -------------------------------------------------------
 

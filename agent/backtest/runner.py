@@ -27,6 +27,7 @@ try:
 except ImportError:
     pass
 
+from backtest.loaders._intervals import is_intraday, supports_interval
 from backtest.loaders.registry import (
     FALLBACK_CHAINS,
     LOADER_REGISTRY,
@@ -49,6 +50,7 @@ from backtest.engines._market_hooks import (  # noqa: F401  (re-exported)
     _detect_market,
     _detect_submarket,
     _is_china_futures,
+    _is_explicit_a_share,
 )
 
 logger = logging.getLogger(__name__)
@@ -1082,8 +1084,7 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             from backtest.engines.global_equity import GlobalEquityEngine
             market = _detect_submarket(codes)
             return GlobalEquityEngine(config, market=market)
-        from backtest.engines.china_a import ChinaAEngine
-        return ChinaAEngine(config)
+        return _china_a_engine(config, codes)
     elif source == "yfinance":
         from backtest.engines.global_equity import GlobalEquityEngine
         market = _detect_submarket(codes)
@@ -1096,8 +1097,83 @@ def _create_market_engine(source: str, config: dict, codes: List[str]):
             from backtest.engines.global_equity import GlobalEquityEngine
             market = _detect_submarket(codes)
             return GlobalEquityEngine(config, market=market)
+        # lake / local / eastmoney / auto: follow the listing, not the loader
+        # name. An A-share book must not land on CryptoEngine (no stamp tax,
+        # no T+1, no price limits).
+        if codes and all(_is_explicit_a_share(code) for code in codes):
+            return _china_a_engine(config, codes)
         from backtest.engines.crypto import CryptoEngine
         return CryptoEngine(config)
+
+
+def _china_a_engine(config: dict, codes: List[str]):
+    """A-share engine with the shared cost schedule and the tradability panel.
+
+    Cost keys are filled by :class:`ChinaAEngine` itself (config wins, then
+    env, then the retail defaults in :mod:`backtest.ashare_costs`). The panel
+    is attached here so a unit test that builds the engine by hand does not
+    touch the lake.
+    """
+    from backtest.engines.china_a import ChinaAEngine
+
+    return ChinaAEngine(_attach_tradability_panel(config, codes))
+
+
+def _attach_tradability_panel(config: dict, codes: List[str]) -> dict:
+    """Attach the tradability panel to an A-share engine config, when enabled.
+
+    The panel turns two guesses into lookups: whether a symbol was halted, and
+    where its price band actually sat (ST names are 5%, which the code prefix
+    cannot reveal).  It is on by default for monitor and runner A-share
+    backtests.  ``VIBE_TRADING_TRADABILITY_PANEL=0`` keeps the close-to-close
+    heuristic so a comparison with pre-panel runs stays reproducible.  An
+    empty panel is a no-op; the engine still refuses zero-volume bars.
+
+    Args:
+        config: Backtest configuration (carries ``start_date`` / ``end_date``).
+        codes: Instrument codes for this run.
+
+    Returns:
+        The original config when the panel is disabled, missing, or the run is
+        not A-share; otherwise a copy carrying ``tradability_index``.
+    """
+    try:
+        from src.config.accessor import get_env_config
+
+        if not get_env_config().data.vibe_trading_tradability_panel:
+            return config
+    except Exception:  # noqa: BLE001 — config failure must not break a backtest
+        return config
+
+    a_share = [c for c in codes if str(c).upper().endswith((".SZ", ".SH", ".BJ"))]
+    if not a_share:
+        return config
+
+    try:
+        from src.data.tradability import TradabilityIndex, load_panel
+
+        panel = load_panel(
+            start=config.get("start_date"),
+            end=config.get("end_date"),
+            symbols=a_share,
+        )
+    except Exception as exc:  # noqa: BLE001 — panel is an enhancement, not a gate
+        logger.warning("tradability panel load failed, using heuristic: %s", exc)
+        return config
+
+    if panel.empty:
+        logger.info(
+            "tradability panel enabled but empty for %d symbols; "
+            "run scripts/build_tradability.py to populate it",
+            len(a_share),
+        )
+        return config
+
+    logger.info(
+        "tradability panel attached: %d rows covering %d/%d symbols",
+        len(panel), panel["symbol"].nunique(), len(a_share),
+    )
+    return {**config, "tradability_index": TradabilityIndex(panel)}
 
 
 def _detect_primary_source(codes: List[str], source: str) -> str:
@@ -1119,14 +1195,22 @@ def _detect_primary_source(codes: List[str], source: str) -> str:
     return max(groups, key=lambda s: len(groups[s]))
 
 
-def _loader_for_market(market: str, codes: List[str]) -> Any:
+def _loader_for_market(market: str, codes: List[str], interval: str = "1D") -> Any:
     """Pick a loader for *market*, preferring Tushare batch on large A-share sets.
 
     ``resolve_loader('a_share')`` starts at Tencent because it needs no token.
     That is fine for a handful of names and disastrous for a market-pick
     universe: Tencent/Eastmoney are per-symbol HTTP and currently RST/501.
+
+    The Tushare batch preference is daily-only: ``daily()`` is one call for the
+    whole universe, while ``stk_mins`` is per symbol, so an intraday request
+    keeps walking the interval-aware chain instead.
     """
-    if market == "a_share" and len(codes) >= _BATCH_PRIMARY_MIN_SYMBOLS:
+    if (
+        market == "a_share"
+        and len(codes) >= _BATCH_PRIMARY_MIN_SYMBOLS
+        and not is_intraday(interval)
+    ):
         tushare = _tushare_loader_if_usable()
         if tushare is not None:
             logger.info(
@@ -1134,7 +1218,7 @@ def _loader_for_market(market: str, codes: List[str]) -> Any:
                 len(codes),
             )
             return tushare
-    return resolve_loader(market)
+    return resolve_loader(market, interval=interval)
 
 
 def _tushare_loader_if_usable() -> Any | None:
@@ -1176,7 +1260,7 @@ def _fetch_auto(
 
     for market, market_codes in market_groups.items():
         try:
-            loader = _loader_for_market(market, market_codes)
+            loader = _loader_for_market(market, market_codes, interval)
         except NoAvailableSourceError as exc:
             # Fallback: try legacy source mapping
             legacy_src = _MARKET_TO_SOURCE.get(market, "tushare")
@@ -1212,6 +1296,12 @@ def _fetch_auto(
                 break
             if fb_name == src_name or fb_name not in LOADER_REGISTRY:
                 continue
+            if not supports_interval(LOADER_REGISTRY[fb_name], interval):
+                logger.debug(
+                    "skipping fallback %s for %s: cannot serve interval %s",
+                    fb_name, market, interval,
+                )
+                continue
             if is_cooling_down(fb_name):
                 continue
             if skip_public and fb_name in _PER_SYMBOL_PUBLIC_SOURCES:
@@ -1243,11 +1333,138 @@ def _fetch_auto(
     return merged
 
 
+_DAILY_INTERVALS = frozenset({"1d", "d", "day", "daily"})
+
+
+def _data_center_eligible(config: dict) -> bool:
+    """Daily bar reads go through the lake; everything else stays on the loader.
+
+    Intraday, local files, and fundamental columns are not the daily lake
+    contract. Sending them through it would either miss or overwrite rows the
+    lake stores unadjusted.
+    """
+    if config.get("extra_fields") or config.get("fundamental_fields"):
+        return False
+    source = str(config.get("source") or "tushare").strip().lower()
+    if source in {"local", "csv"}:
+        return False
+    interval = str(config.get("interval") or "1D").strip().lower()
+    if interval not in _DAILY_INTERVALS:
+        return False
+    return bool(config.get("codes"))
+
+
+def _stamp_cache_source(frames: dict, origin: str) -> None:
+    """Tell the data centre whether these frames are safe to store."""
+    for frame in frames.values():
+        attrs = getattr(frame, "attrs", None)
+        if isinstance(attrs, dict):
+            attrs["data_center_source"] = origin
+
+
 def fetch_data_map(config: dict, *, allow_partial: bool = False) -> DataFetchResult:
+    """Fetch bars, preferring the data centre cache for daily series.
+
+    A window the lake already covers is returned without a vendor call. A gap
+    is fetched by the loader registry, and confirmed unadjusted Tushare bars
+    are written back so the next backtest, scan, or chart reads the cache.
+    Intraday intervals, local files, and fundamental fields keep the loader
+    path: they are not the daily lake contract.
+    """
+    if _data_center_eligible(config):
+        return _fetch_data_map_via_center(config, allow_partial=allow_partial)
+    return _fetch_data_map_upstream(config, allow_partial=allow_partial)
+
+
+def _fetch_data_map_via_center(config: dict, *, allow_partial: bool) -> DataFetchResult:
+    """Serve ``config`` from the lake, refreshing gaps through the loader registry."""
+    from src.data.lake_fetch import fetch_lake_first
+
+    requested = copy.deepcopy(config)
+    codes = [str(code) for code in (requested.get("codes") or [])]
+    start = str(requested.get("start_date") or "")
+    end = str(requested.get("end_date") or "")
+    source = str(requested.get("source") or "tushare")
+    interval = str(requested.get("interval") or "1D")
+    collected: list[DataFetchResult] = []
+
+    def network(symbols, *, start, end, source, interval):
+        upstream_config = dict(requested)
+        upstream_config.update(
+            codes=list(symbols),
+            start_date=start,
+            end_date=end,
+            source=source,
+            interval=interval,
+        )
+        result = _fetch_data_map_upstream(upstream_config, allow_partial=True)
+        collected.append(result)
+        frames = dict(result.data_map or {})
+        origins = [str(name) for name in (result.effective_sources or [])]
+        # Only an unmixed Tushare pull matches the lake's unadjusted contract.
+        origin = "tushare" if origins == ["tushare"] else "skip"
+        _stamp_cache_source(frames, origin)
+        errors = {
+            symbol: "no OHLCV bars returned"
+            for symbol in symbols
+            if symbol not in frames or getattr(frames.get(symbol), "empty", True)
+        }
+        return frames, errors
+
+    data_map, errors, stats = fetch_lake_first(
+        codes,
+        start=start,
+        end=end,
+        source=source,
+        interval=interval,
+        network=network,
+        label="backtest",
+    )
+    if (
+        len(collected) == 1
+        and not errors
+        and stats.lake_bases == 0
+        and stats.tail_spliced == 0
+    ):
+        return collected[0]
+
+    missing = [
+        code
+        for code in codes
+        if code not in data_map or getattr(data_map.get(code), "empty", True)
+    ]
+    if missing and not allow_partial:
+        detail = errors.get(missing[0]) or ""
+        message = f"incomplete data for source={source}; missing symbols: {missing}"
+        if detail:
+            message = f"{message}; {detail}"
+        raise NoAvailableSourceError(message)
+
+    effective: list[str] = []
+    for result in collected:
+        for name in result.effective_sources or []:
+            if name not in effective:
+                effective.append(name)
+    if stats.lake_bases and "lake" not in effective:
+        effective.insert(0, "lake")
+    if not effective:
+        effective = ["lake"]
+    served_source = collected[-1].source if collected else source
+    return DataFetchResult(
+        data_map=data_map,
+        codes=codes,
+        source=served_source,
+        loader=_AutoLoader(data_map),
+        effective_sources=effective,
+    )
+
+
+def _fetch_data_map_upstream(config: dict, *, allow_partial: bool = False) -> DataFetchResult:
     """Fetch and sanitize bars through the canonical loader registry.
 
-    This is the shared entry point for backtest execution and reconstruction
-    consumers. It preserves auto routing and the runtime fallback chain.
+    Vendor path behind :func:`fetch_data_map`. Daily reads try the data centre
+    first; this function runs only for a gap, or for intervals the lake does
+    not store. It preserves auto routing and the runtime fallback chain.
 
     Args:
         config: Backtest configuration containing codes, dates, source, and interval.
@@ -1304,6 +1521,12 @@ def fetch_data_map(config: dict, *, allow_partial: bool = False) -> DataFetchRes
                     or fallback_source == primary_source
                     or fallback_source not in LOADER_REGISTRY
                 ):
+                    continue
+                if not supports_interval(LOADER_REGISTRY[fallback_source], interval):
+                    logger.debug(
+                        "skipping fallback %s: cannot serve interval %s",
+                        fallback_source, interval,
+                    )
                     continue
                 if is_cooling_down(fallback_source):
                     continue

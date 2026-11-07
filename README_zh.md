@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <sub><b>A 股研究分支</b>，fork 自 <a href="https://github.com/HKUDS/Vibe-Trading">HKUDS/Vibe-Trading</a>（上游基线 <b>v0.1.12</b>）—— 保留上游全部能力。默认路径：<b>数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本</b>（<a href="CAPABILITY_zh.md">能力圈</a>）。板块提示词（<code>prop_*</code>）和 custom 因子库仅供研究。</sub>
+</p>
+
+<p align="center">
   <a href="https://trendshift.io/repositories/25527" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25527" alt="HKUDS%2FVibe-Trading | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
 
@@ -33,6 +37,7 @@
   <a href="https://vibetrading.wiki/docs/">文档</a> &nbsp;&middot;&nbsp;
   <a href="#-news">News</a> &nbsp;&middot;&nbsp;
   <a href="#-key-features">Features</a> &nbsp;&middot;&nbsp;
+  <a href="#ashare-loop">A股闭环</a> &nbsp;&middot;&nbsp;
   <a href="#-shadow-account">Shadow Account</a> &nbsp;&middot;&nbsp;
   <a href="#-demo">Demo</a> &nbsp;&middot;&nbsp;
   <a href="#-quick-start">Quick Start</a> &nbsp;&middot;&nbsp;
@@ -51,6 +56,16 @@
 ## 📰 News
 
 > ⚠️ **安全警告：** X 账号 `VibeTrading_HKU`、Virtuals 项目 `101845` 及代币合约 `0x640BDBF77b6447E8b7DB7894cED84BD1c40571f4` 均非 Vibe-Trading 官方。我们从未发行或背书任何代币或 meme 币。请勿购买、连接钱包或签名。[详细说明](SECURITY.md#official-channels--impersonation)。
+
+**本分支自身的改动** —— 上游发布记录已折叠在下方，它们不属于本分支：
+
+- **2026-11** 🎯 **能力圈** —— 日线到波段、只做多、中小资金。默认路径是数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本（[CAPABILITY_zh.md](CAPABILITY_zh.md)）。监控里的 ST、涨停、一字板、三连板买入不进可交易池。纸面账本把单只股票限制在净值的 20%，自高点回撤 15% 后停止新买入。`prop_*` 提示词和 `custom` 因子库标为仅研究。
+- **2026-09** 🧭 **决策合成 + 多周期状态机** —— 新增 `agent/src/process/` 的 Mandate／叠加层瀑布，以及沪深300 短／中／长三周期拆分与 MA250 年线护栏；监控看板新增 10 交易日 k-NN 相似片段推演，支持快照保存与历史回看。
+- **2026-08** 🎯 **优选板块 + 因子存活库** —— 精选「最优」板块目录、单主题 ThemeLock（挑战者连续 2 日领先且分差 > 0.25）、`factors/survival_store.py`、strict bench runner，以及 54 个 GTJA191/Qlib 因子的极性／平滑修复。
+- **2026-07** 🀄 **市场优选 + A 股闭环起步** —— 板块级双轨扫描、可执行标的与观察图的分离、7 个 `custom` 因子，以及最初的板块研究提示词（`agent/prop_国泰君安_*.md`）。
+
+<details>
+<summary><b>上游发布记录</b> <sub>HKUDS/Vibe-Trading，截至 v0.1.12 —— 保留以便追溯，非本分支改动</sub></summary>
 
 - **2026-07-23** 🔧 **可靠性清扫 + 严格 alpha-bench 接上入口 + 可选记忆生命周期**：一批 22 个贡献者 PR。一轮覆盖面很广的**可靠性清扫**端到端修正了周期（timeframe）处理——yfinance `1M`→月线（而非分钟）、CCXT `1W`/`1M`、akshare/india-broker 对不支持的周期直接拒绝而非静默返回日线，Tiger/Alpaca/OKX/Shoonya/Longbridge 连接器把 `1H`/`4H` 保持为小时线——外加交易日志的 Excel 日期归一化（eastmoney 浮点 `YYYYMMDD`、富途/同花顺序列日期）、`report_audit` 有限数值 JSON、空 `holding_days` 校验，以及飞书/CLI 的 markdown 表格边列（[#778](https://github.com/HKUDS/Vibe-Trading/pull/778)–[#794](https://github.com/HKUDS/Vibe-Trading/pull/794)，感谢 @santhreal）。**MT5** `trading_history` 现在把 numpy 标量转成原生 Python 类型，JSON 序列化不再因 `int64` 失败（[#776](https://github.com/HKUDS/Vibe-Trading/pull/776)，关闭 [#774](https://github.com/HKUDS/Vibe-Trading/issues/774)，感谢 @shadowinlife）；**PIT 基本面**对复述行去重，并防止快照在迟到的重述公告时回退到更早的财季（[#772](https://github.com/HKUDS/Vibe-Trading/pull/772)，关闭 [#771](https://github.com/HKUDS/Vibe-Trading/issues/771)，感谢 @klmtseng）。新增：**`alpha bench --strict`** 终于接上了自 0.1.9 起就存在却无入口的严格同 universe 随机对照 + OOS 闸（[#796](https://github.com/HKUDS/Vibe-Trading/pull/796)，关闭 [#773](https://github.com/HKUDS/Vibe-Trading/issues/773)，感谢 @he-yufeng）；一个可选的**记忆生命周期**（质量评分、艾宾浩斯衰减、仅归档的 GC——全部默认关闭）（[#733](https://github.com/HKUDS/Vibe-Trading/pull/733)，关闭 [#732](https://github.com/HKUDS/Vibe-Trading/issues/732)，感谢 @shadowinlife）；以及回测的**再平衡说明**产物 + 换手率指标（[#795](https://github.com/HKUDS/Vibe-Trading/pull/795)，感谢 @he-yufeng）。
 - **2026-07-22** 🚀 **v0.1.12 发布**（[Release notes](https://github.com/HKUDS/Vibe-Trading/releases/tag/v0.1.12)，`pip install -U vibe-trading-ai`）：**相关性状态（correlation regime）时间线**新增 `GET /correlation/regime` 端点 + 可选的 Correlation 页签条带——把边密度（edge density）送入一个因果迟滞状态机，标记市场「融合（FUSED）」的时段，属于描述性的风险上下文，而非交易信号（[#756](https://github.com/HKUDS/Vibe-Trading/pull/756)，关闭 [#719](https://github.com/HKUDS/Vibe-Trading/issues/719)，感谢 @ebujinovch）。Provider 端点解析现在会回退到每个 provider 的规范 base URL，并优雅处理非 SSE 端点，修复了 glm-5.1 上的原生 **zai** provider（[#758](https://github.com/HKUDS/Vibe-Trading/issues/758)）。此外还有一轮贯穿 metrics、factors、pattern、session 与 journal 的 strict-JSON / 有限数值 **可靠性清理**（[#761](https://github.com/HKUDS/Vibe-Trading/pull/761)–[#770](https://github.com/HKUDS/Vibe-Trading/pull/770)，感谢 @santhreal），以及一次 Binance 维持保证金档位解耦，让 `-PERP` 回测保持零凭证（[#757](https://github.com/HKUDS/Vibe-Trading/pull/757)，感谢 @honginp）。汇总 0.1.11 以来约 90 项修复。
@@ -190,6 +205,171 @@
 
 </details>
 
+</details>
+
+---
+
+<a id="ashare-loop"></a>
+## 🀄 A 股研究闭环 <sub>（本分支核心）</sub>
+
+本仓库是 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 的 fork。上游引擎完整保留 —— ReAct 主循环、88 个 skills、79 个默认注册工具、469 个内置因子、30 个 swarm preset、行情 fallback 链与券商连接层全部按下方文档原样可用。
+
+**默认路径**是 [CAPABILITY_zh.md](CAPABILITY_zh.md) 里的能力圈：日线到波段、只做多、中小资金、规则可解释。
+
+```text
+数据湖 → 假设 → 计成本回测 → 验证门 → 可交易 → 纸面账本
+```
+
+这条路径不会向券商发单。模型不批准 `tradable`，也不决定纸面仓位。明确禁止：全自动致富叙事、和机构高频赛跑、把 LLM 放在自动下单主路径上。
+
+`agent/prop_*.md`、`agent/scripts/run_f0_f1_*.py`、`agent/scripts/run_sectors_optimal_*.py` 和 `agent/src/factors/zoo/custom/` **仅供研究**。下面的看板仍可运行，但它们不是一只股票变成可交易的方式。
+
+```text
+agent/prop_国泰君安_<板块>_最优.md        ← 冻结的研究提示词，不是默认路径
+            │
+            ▼
+「最优」目录 — agent/src/sector_pick/catalog.py（仅研究）
+            │
+     ┌──────┴───────────────────────────────┐
+     ▼                                      ▼
+市场优选 Market Pick                  优选板块 Sector Pick
+     │                                      │
+     └───────────────┬──────────────────────┘
+                     ▼
+        监控看板 Monitor — 决策日志 + 验证门
+        ST / 涨停 / 一字板 / 三连板买入排除在外
+                     ▼
+        纸面账本 — 逐日结算，单名 20%，回撤 15% 停止新买入
+```
+
+| 界面 | 路由 | 模块 | CLI |
+|---|---|---|---|
+| 市场优选 Market Pick | `/market-pick` | `agent/src/market_pick/` | —（Web UI + REST） |
+| 优选板块 Sector Pick | `/sector-pick` | `agent/src/sector_pick/` | —（Web UI + REST） |
+| 监控看板 Monitor | `/monitor` | `agent/src/monitor/` | —（Web UI + REST） |
+| 决策合成 Decision compose | 库 | `agent/src/process/` | —（库 + REST） |
+| 研报表格 Tables | `/tables` | `agent/src/tools/tables/` | —（Web UI + REST） |
+
+这三个看板是 **Web UI 与 REST 界面**，不是 CLI 子命令。启动 `vibe-trading serve` 后访问 `/market-pick`、`/sector-pick`、`/monitor`。
+
+### 1. 市场优选 Market Pick
+
+双轨板块筛选：指数决定**要不要**承担风险，板块决定**去哪里**。
+
+| 环节 | 规则 |
+|---|---|
+| 板块池 | 东财行业板块（`m:90+t:2`）+ 概念板块（`m:90+t:3`），取全量成分股 |
+| 板块过滤 | 板块名含 ST / 退市 / 次新 / 预盈预增 / 昨日涨停 / 昨日连板 / 高送转 / 举牌 / 微盘 / 破净 的一律剔除 |
+| 个股过滤 | 剔除北交所代码与 B 股 |
+| 大盘状态 | 沪深300（`000300.SH`）按 MA20/60/120 + 120 日动量判 `bull` / `chop` / `bear`，并拆成短（5/10/20）、中（20/60/120）、长（MA250 年线护栏）三周期 |
+| 仓位立场 | `full`（可加风险）/ `half_watch`（半仓）/ `none`（不开新仓）；中期 bear 时**不推荐任何板块** |
+| 板块打分 | `live_score = rs_share − knife_share` —— 成分股自身均线多头占比减去"刀口"占比。可分类成分少于 8 只的板块带原因跳过 |
+| 输出 | `recommended_bk`（可执行标的）、`map_bk`（观察图），以及每个板块的排名、20 日收益、择时乘数和中文跳过原因 |
+
+扫描会对全部成分股并集只拉一次 OHLCV 面板。配置了 Tushare token 时**强制走 Tushare 批量路径**——逐只走免费链拉几千只标的会耗时数小时；没有 token 则回落到常规 A 股链。
+
+### 2. 优选板块 Sector Pick
+
+仅供研究。优选板块只对**已经研究过**的板块排序 —— 候选集是精选的「最优」目录，而不是把所有回测 run 全扫一遍。它不会把一只股票放进可交易池。
+
+| 概念 | 行为 |
+|---|---|
+| 目录 | 21 行。每行绑定板块（或 `∪` 并集）、获胜变体、确认腿、研究提示词，以及存放已验证 `signal_engine.py` 的 `agent/runs/<run_id>` |
+| 实时打分 | 板块等权价格 vs MA20 择时乘数 + 20 日收益 + 确认腿通过率 |
+| ThemeLock | 排名第一只是**观察图**；持久化的 lock 才是**指令**。健康的书会一直保留，直到它触发出局门槛，或者挑战者**连续 2 次扫描**领先且分差**大于 0.25** |
+| 指数 bear | 仍会推进挑战者的连续计数、也可能切换 lock key，但绝不开新书 |
+| 持仓 | 从绑定 run 的 SignalEngine 复制，再用当日结构重新打分 |
+| 输出 | `recommended_key`、`locked_key`、`map_key`、`challenger_days`、`stance`、中文原因，以及带逐股动作的持仓 |
+
+目录覆盖：人形机器人 · 存储芯片 · 食品饮料 · 算力硬件 · 创新药 · 医疗研发外包(CRO) · CRO · AI应用 · 工业母机 · 虚拟现实 · 其他专用设备 · 其他汽车零部件 · 金属铜 · 中药Ⅲ · 农化制品 · 空调 · 零食 · 软饮料 · 券商 · 商用载货车 · 半导体设备材料。
+
+### 3. 监控看板 Monitor
+
+一个绑定到单条策略的持久看板，外加确定性的每日扫描。
+
+| 组成 | 行为 |
+|---|---|
+| 看板 | 一条策略（`run_id`）+ 其标的池 + 扫描配置；落盘在 `~/.vibe-trading/` 下，重启后仍在 |
+| 每日扫描 | 重跑绑定的 SignalEngine → 目标权重 → 逐股动作（`enter` / `add` / `hold` / `reduce` / `exit`） |
+| 结构 | 每只持仓按自身均线排列判 `bull` / `chop` / `bear`，并在近期区间内给出位置（`oversold` / `mid` / `overbought`） |
+| 盘中临时日线 | 盘中按东财 → 腾讯 → 新浪（按健康度排序、带熔断）拼出当日临时日线。临时数据**不能**授权新风险 |
+| 预测 | 最长 800 天历史做 k-NN 相似片段检索 → 未来 **10** 个交易日的上涨／下跌情景路径，叠加 MA5/10/20。会报告有多少个独立相似片段参与投票，置信不足时弃权；明确是情景带，不是点位预测 |
+| 历史 | 每次扫描与每个保存的预测快照都可按 `as_of` 回看 |
+
+### 4. 决策合成 Process
+
+`agent/src/process/` 把大盘状态、F0 立场、持仓结构和可选的相似片段推演收敛成**唯一**一个正式决策，走一条"后面的关卡只能收紧"的瀑布：
+
+```text
+Mandate → 结构 → F0 立场 → Analog（可选）→ 仓位上限 → Decision
+```
+
+| Mandate 参数 | 默认值 | 含义 |
+|---|---|---|
+| `book_nav_cap` | `0.40` | 该主题书最多占用的净值比例 |
+| `max_name_weight` | `0.50` | 裁剪后单票最大权重 |
+| `max_themes` | `1` | 同一时间只做一条主题书（即 ThemeLock 的强制来源） |
+| `half_watch_mult` | `0.50` | `half_watch` 立场下的仓位乘数 |
+| `allow_short` | `false` | A 股散户不能做空 |
+| `provisional_is_decision` | `false` | 盘中代理 bar 只能警示，不能授权新风险 |
+| `analog_on_daily_scan` | `false` | 每日扫描跳过 k-NN 推演；预测重算时可选启用 |
+
+每次快照都会记录 `ProcessMandate.fingerprint()`，因此历史决策永远知道自己是哪一版"宪法"产生的。动作集是纯多头 —— `enter` / `add` / `hold` / `reduce` / `exit` —— 并且仓位一律当作**上限**，绝不是必须加满的目标。后续的 analog 重算不能重开已关闭的观望，也不能放大仓位。
+
+### 5. 板块研究方法论（F0 / F1）
+
+目录里每一行都来自同一份书面契约；`agent/prop_国泰君安_<板块>_*.md` 提示词就是这一行如何产生的原始依据。
+
+| 要素 | 契约 |
+|---|---|
+| 因子池 | 仅 GTJA191（`gtja191_*`），截面分位 → 5 日平滑 |
+| 排序 | `S` = 平滑后的动量因子 |
+| 确认 | `C` = IR 加权的确认腿（如 `124+178`、`171+054`）；IR 权重来自 bench，缺腿则跳过并重新归一 |
+| 新开仓过滤 | `C` ≥ 当日截面 40% 分位；确认腿全缺的日子不过滤 |
+| 持仓 | N = 6 等权，保留带 Top 9（N × 1.5） |
+| 调仓 | 每周第一个交易日。引擎必须打印 `is_rebalance.sum()`；超过日历周数 × 1.5 视为失败（伪周频） |
+| 换手 | 硬顶 20% —— 优先留旧仓，一旦会突破上限就停止换入 |
+| 最小持有 | 5 日；未满 5 日不因跌出保留带而卖出 |
+| 退出 | 峰值回撤 ≥ 15% → 止盈 ≥ 35% → 持有 ≥ 20 日且排名恶化 ≥ 10 名 → 调仓日跌出 Top 9 |
+| 择时 | 板块等权价格 vs MA20 → 乘数 1.0 / 0.5，仅在调仓日更新 |
+| F0 vs F1 | F1 额外叠加 `custom_max_inv` 否决。只有在同一标的池上**严格优于** F0（`Δexcess`、`ΔSharpe`）时才采用；否则保留 F0' |
+| 诚实闸门 | 必须同时报告：相对板块等权基准的超额收益、Monte-Carlo 置换检验 `p_sharpe`（阈值 0.2）、以及相对上一基线的 Δ。超额为负或 p 超过 0.2 必须明文承认 |
+
+### 6. A 股交易制度适配
+
+A 股引擎（`agent/backtest/engines/china_a.py`）对 `\d{6}\.(SZ|SH|BJ)` 代码与 A 股 ETF 前缀 51 / 15 / 56 自动路由。
+
+| 约束 | 实现 |
+|---|---|
+| T+1 | 当日买入的股份当日不可卖出 |
+| 只做多 | 卖空方向直接拒单；杠杆强制为 1.0 |
+| 涨跌停 | 涨停价不买、跌停价不卖 |
+| 整手 | 数量向下取整到 100 股 |
+| 费用 | 佣金 0.025%（最低 ¥5）+ 过户费 0.001% 双边 + 印花税 0.05% 仅卖出 |
+| 滑点 | 默认固定 0.001，可配置 |
+
+**已知实现边界** —— 写在这里是为了不夸大文档口径：
+
+- ST ±5% 与北交所 `43xxxx` / `92xxxx` 段目前在 `_price_limit` 里回落到 10% 档。
+- 集合竞价、一字板与封单量／炸板建模**尚未实现**；涨跌停判定只读 `close` / `pct_chg`。
+- 实盘闸门已识别 `AssetClass.CN_EQUITY`，但其市值／流动性下限仅支持美股（A 股 fail-closed 拒单），且每日委托计数按 **UTC** 日重置。
+- 没有大陆券商直连；A 股订单只能通过上游连接层（富途 / Tiger / 长桥 …）到达券商。
+
+上述制度的背景知识放在 `regulatory-knowledge`、`ashare-pre-st-filter`、`execution-model`、`market-microstructure` 等 skill 里，而不是硬编码在引擎中。
+
+### 本分支规模一览
+
+| 项 | 数量 | 位置 |
+|---|---|---|
+| 新增顶层模块 | 4 —— `market_pick`、`sector_pick`、`monitor`、`process` | `agent/src/` |
+| 已验证板块配方 | 21 | `agent/src/sector_pick/catalog.py` |
+| 板块研究提示词 | 55 个 `prop_国泰君安_*.md` | `agent/` |
+| 本分支新增因子 | 7 个（`custom` 家族）→ 注册总数 469 | `agent/src/factors/zoo/custom/` |
+| 带极性／平滑修复的因子 | 54 个（`REPAIR CSI300 2023-2026`） | `agent/src/factors/zoo/{gtja191,qlib158}/` |
+| 新增 REST 路由 | 21 条（market-pick 4、sector-pick 7、monitor 10） | `agent/src/api/` |
+| 新增前端页面 | 3 个（`/market-pick`、`/sector-pick`、`/monitor`） | `frontend/src/pages/` |
+| 研究脚本 | 40 个 `research_*.py` / `run_*.py` / `repair_*.py` | `agent/scripts/` |
+
 ---
 
 ## ✨ Key Features
@@ -236,6 +416,24 @@
       </div>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%" valign="top">
+      <h3>🀄 A 股研究闭环</h3>
+      <div align="left">
+        • 市场优选：沪深300 状态 + 板块双轨扫描<br>
+        • 优选板块：21 个已验证板块 + 单主题 ThemeLock<br>
+        • 监控看板：持仓、盘中临时日线、10 日情景推演
+      </div>
+    </td>
+    <td align="center" width="50%" valign="top">
+      <h3>🧭 只允许收紧的决策</h3>
+      <div align="left">
+        • ProcessMandate 约束净值占比、单票权重与主题数<br>
+        • T+1、涨跌停、100 股整手、A 股费用栈<br>
+        • 纯多头瀑布：后面的关卡绝不重开已关闭的观望
+      </div>
+    </td>
+  </tr>
 </table>
 </div>
 
@@ -254,13 +452,15 @@ Vibe-Trading 是一个开源研究工作台，用于把金融问题转化为可�
 | **提出交易问题** | 结合工具、数据、文档和可复用 session 上下文的市场研究。 |
 | **回测策略想法** | 策略代码、指标、benchmark 上下文、验证 artifacts 和 run cards。 |
 | **复盘自己的交易** | 券商日志解析、行为诊断、规则提取和 Shadow Account 对比。 |
-| **读取文档与图表** | 用可插拔 OCR 解析 PDF / DOCX / XLSX / PPTX / 图片（`read_document`），并用视觉模型语义化读取图表截图（`analyze_image`）。 |
+| **读取文档与图表** | 用可插拔 OCR 解析 PDF / DOCX / XLSX / PPTX / 图片（`read_document`）；`extract_tables` 把 PDF 表格还原成带单位与列类型的结构化行/列（装 `pip install "vibe-trading-ai[docs]"` 可解合并单元格与多行表头）；并用视觉模型语义化读取图表截图（`analyze_image`）。 |
 | **改进重复研究** | 持久记忆和可编辑 skills 将有用流程变成可复用工作流。 |
 | **运行分析师团队** | 面向投资、量化、加密、宏观和风控工作流的多智能体研究评审。 |
 | **把研究接入 IM 通道** | 通过 WebSocket、Telegram、Slack、Discord、Matrix、WhatsApp、Signal、QQ/NapCat、微信/企业微信、飞书/Lark、钉钉、Teams、email、Mochat，在 CLI、REST 和 Web UI 中管理同一套 session runtime。 |
 | **交付可用成果** | 报告、TradingView Pine Script、TDX、MetaTrader 5、MCP tools，以及可延续的研究 sessions。 |
-| **跑预置 alpha zoo 横评** | 462 个 alpha 因子（Qlib 158 + Kakushadze 101 + GTJA 191 + academic + PIT-safe fundamental），一行 CLI 在你选的 universe 上算 IC + IR + alive/reversed/dead 分类 |
+| **跑预置 alpha zoo 横评** | 469 个 alpha 因子（Qlib Alpha158 154 + Kakushadze 101 + GTJA 191 + 学术 12 + PIT 基本面 4 + 本分支 custom 7），一行 CLI 在你选的 universe 上算 IC + IR + alive/reversed/dead 分类 |
 | **识别相关性状态** | `/correlation` 界面上的边密度 + 迟滞时间线，显示市场何时融合为一个板块——属于描述性风险上下文，而非交易信号。 |
+| **今天做哪个板块** | 沪深300 状态读数（`full` / `half_watch` / `none`）+ 板块排名扫描，给出 1 个可执行标的与 1 张观察图。 |
+| **跟踪一条主题书** | 锁定板块、其引擎持仓、逐股结构、盘中临时日线、10 交易日情景推演，以及一个只允许收紧的决策。 |
 
 ---
 
@@ -274,6 +474,14 @@ vibe-trading run -p "Backtest a BTC-USDT 20/50 moving-average strategy for 2024,
 
 # 一行 CLI 跑预置 alpha zoo 横评
 vibe-trading alpha bench --zoo gtja191 --universe csi300 --period 2018-2025 --top 20
+```
+
+```bash
+# A 股研究闭环（Web UI 界面）
+vibe-trading serve --port 8899
+# → /market-pick   沪深300 状态 + 板块排名，给出 1 个可执行标的
+# → /sector-pick   对 21 个已验证板块打分，维护 ThemeLock
+# → /monitor       持仓、逐股结构、10 交易日情景推演
 ```
 
 ```bash
@@ -506,13 +714,14 @@ LONGBRIDGE_ACCESS_TOKEN=...
 </details>
 
 <details>
-<summary><b>Alpha Zoo</b> <sub>462 个预置 alpha，覆盖 5 个家族</sub></summary>
+<summary><b>Alpha Zoo</b> <sub>469 个预置 alpha，覆盖 6 个家族</sub></summary>
 
-- 🧬 462 个横截面 alpha，算子层即禁用 lookahead
+- 🧬 469 个横截面 alpha，算子层即禁用 lookahead
 - 📈 一条 CLI 命令完成 IC + IR + alive/reversed/dead 分类
 - 🔬 AST 纯函数门禁 + 300 行 lookahead 哨兵测试 + `pytest-socket` 网络阻断
 - 📦 Qlib 部分附 Apache-2 出处声明；每个 zoo 一份 `LICENSE.md`，声明公式属于数学内容
 - 🤝 社区 PR 走 Developer Certificate of Origin (DCO) 签名流程
+- 🀄 本分支新增层：7 个 `custom` 因子、54 个 GTJA191/Qlib 因子的极性／平滑修复（保留原始 `_compute_raw` 并记录修复前后 IC），以及因子存活库与 strict bench runner
 
 | Zoo | 数量 | 来源 | 许可 |
 |-----|------|------|------|
@@ -521,6 +730,7 @@ LONGBRIDGE_ACCESS_TOKEN=...
 | **gtja191** | 191 | 国君证券 (2014)《191 个短周期交易型 alpha 因子》研报 | 公式属于数学内容 |
 | **academic** | 12 | Fama-French 5 因子 + Carhart 动量（基于价格的代理实现） + Jegadeesh reversal + George-Hwang 52-week-high + Amihud illiquidity + Harvey-Siddique skew + Frazzini-Pedersen betting-against-beta + correlation-rewiring 稳定性 | 公开学术文献 |
 | **fundamental** | 4 | PIT 安全的 SEC company facts——盈利收益率、ROE、毛利率因子、资产增长（按 filed-date 锚定） | 公开财务数据 |
+| **custom**（本分支） | 7 | `max_inv`（彩票/MAX）、`ivol_inv`、`abn_to_inv`（异常换手）、`comp_low`、`near_low`、`risk_mom`、`vp_corr` —— 围绕 A 股散户主导的换手结构设计 | 公式属于数学内容 |
 
 运行 `vibe-trading alpha list` 浏览全部因子，`vibe-trading alpha show <id>` 查看公式与源码，`vibe-trading alpha bench --zoo X --universe Y --period Z` 给一整个 zoo 打分，`vibe-trading alpha compare --all` 并排对比各个 zoo。
 
@@ -531,7 +741,7 @@ LONGBRIDGE_ACCESS_TOKEN=...
 
 | 引擎 | 市场 | 说明 |
 |------|------|------|
-| **ChinaA** | A 股 | T+1、涨跌停、pre-ST 筛选 |
+| **ChinaA** | A 股 | T+1、涨跌停、100 股整手、A 股费用栈、pre-ST 筛选 |
 | **GlobalEquity** | 美股 / 港股 | T+0 |
 | **IndiaEquity** | 印度（NSE/BSE） | T+1、熔断带、config 驱动的 STT / 印花税 / SEBI / GST 成本栈 |
 | **Crypto** | 加密现货 / USD-M 永续 | 资金费结算、成交价/标记价分离 |
@@ -583,6 +793,9 @@ vibe-trading init
 vibe-trading run -p "Backtest a BTC-USDT 20/50 moving-average strategy for 2024 and summarize return and drawdown"
 ```
 
+> [!IMPORTANT]
+> **这是 fork —— PyPI 上装的是上游发行版。** `pip install vibe-trading-ai` 安装的是 HKUDS 发布的版本，**不含** A 股闭环（市场优选 / 优选板块 / 监控看板 / 决策合成）。要运行本分支，请从源码安装（Path B）或构建 `DreamwayChan/Vibe-Trading` 的 Docker 镜像（Path A）。
+
 > **从旧版本升级？** 0.1.10 升级到了 LangChain 1.x。若在 0.1.10 之前的安装上执行 `pip install -U vibe-trading-ai` 后导入报错（例如 langgraph 无法导入），请重建 venv 或运行 `pip install --force-reinstall vibe-trading-ai`。全新安装不受影响。
 
 > **包名与命令：** PyPI 包名是 `vibe-trading-ai`。安装后会获得三个命令：
@@ -623,7 +836,7 @@ vibe-trading-mcp               # start MCP server (stdio)
 ### Path A: Docker（零配置）
 
 ```bash
-git clone https://github.com/HKUDS/Vibe-Trading.git
+git clone https://github.com/DreamwayChan/Vibe-Trading.git
 cd Vibe-Trading
 cp agent/.env.example agent/.env
 # Edit agent/.env — uncomment your LLM provider and set API key
@@ -637,7 +850,7 @@ Docker 默认将后端发布在 `127.0.0.1:8899`，并以非 root 容器用户�
 ### Path B: Local install
 
 ```bash
-git clone https://github.com/HKUDS/Vibe-Trading.git
+git clone https://github.com/DreamwayChan/Vibe-Trading.git
 cd Vibe-Trading
 python -m venv .venv
 
@@ -710,6 +923,8 @@ skill + MCP config 会下载到你的智能体 skills 目录。详情见 [ClawHu
 
 **免费数据（无需 key）：** A 股通过 AKShare，港/美股通过 yfinance，加密通过 OKX，100+ 加密交易所通过 CCXT。系统会为每个市场自动选择最佳可用数据源。
 
+**A 股纸面账本。** `vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>`（或 `python -m src.paper_book`，或 `POST /paper-book/step`）用监控里已经通过决策日志和验证门的可交易信号，结算一个交易日。`vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>`（或 `soak --from YYYY-MM-DD --to YYYY-MM-DD`，或 `POST /paper-book/soak`）一次结算连续多个交易所交易日，并把净值、成交、未成交、换手、相对绑定回测的累计偏离写入 `reports/window.json`。周末和交易所休市日不算交易日。标了 ST、涨停、一字板或三连板的买入不会进入这组信号。成交沿用 A 股回测的佣金、印花税、过户费、滑点、T+1、涨跌停/停牌规则（`VIBE_TRADING_ASHARE_*`）。账本状态和日报（净值、成交、未成交、换手、相对回测成交价的滑点差、相对绑定回测 `artifacts/equity.csv` 的偏离、仓位/回撤上限）写在 `VIBE_TRADING_PAPER_BOOK_ROOT`（默认 `~/.vibe-trading/paper_book`）。`VIBE_TRADING_PAPER_BOOK_INITIAL_CASH` 默认 `1000000`。`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`（默认 `0.20`）把单只股票限制在盯市净值的 20%。`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`（默认 `0.15`）在自高点回撤达到 15% 后停止新买入，卖出照常结算。`VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD`（默认 `0.05`，累计收益相差五个百分点）超过后，会把监控板和策略库上的 `tradable` 降为不可交易，不改策略衰减生命周期。见 [CAPABILITY_zh.md](CAPABILITY_zh.md)。
+
 ### 🎯 Recommended Models
 
 Vibe-Trading 是高度依赖工具的智能体：skills、backtests、memory 和 swarms 都会通过工具调用流转。模型选择会直接决定智能体是实际使用工具，还是从训练数据中编造答案。
@@ -728,9 +943,12 @@ Vibe-Trading 是高度依赖工具的智能体：skills、backtests、memory 和
 
 ```bash
 vibe-trading               # interactive TUI
-vibe-trading run -p "..."  # single run
+vibe-trading hypothesis list   # 默认路径：信号可交易之前先写日志
+vibe-trading paper-book step --date YYYY-MM-DD --run-id <id>  # 结算一个交易日
+vibe-trading paper-book soak --days 20 --end YYYY-MM-DD --run-id <id>  # 连续 20 个交易日
+vibe-trading run -p "..."  # 单次运行；prop_* 提示词仅供研究
 vibe-trading serve         # API server
-vibe-trading alpha list    # 浏览 462 个预置 alpha；支持 show / bench / compare / export-manifest 子命令
+vibe-trading alpha list    # 浏览 469 个预置 alpha；custom 因子库仅供研究
 vibe-trading channels status --local  # 检查 IM 通道配置和依赖安装提示
 ```
 
@@ -930,6 +1148,24 @@ vibe-trading serve --port 8899
 | `GET` | `/alpha/{alpha_id}` | Alpha 元数据 + 源代码 |
 | `POST` | `/alpha/bench` | 启动一个 bench job（返回 `job_id`） |
 | `GET` | `/alpha/bench/{job_id}/stream` | SSE 进度流 |
+| `GET` | `/market-pick` | 最近一次市场优选结果（大盘状态、stance、板块排名） |
+| `POST` | `/market-pick/scan` | 运行一次市场优选扫描（`as_of`、`lookback_days`、`source`、`refresh_lists`） |
+| `GET` | `/market-pick/history` · `/history/{as_of}` | 快照历史 / 单日快照 |
+| `GET` | `/sector-pick` | 最近一次优选板块结果（目录打分、ThemeLock、持仓） |
+| `PUT` | `/sector-pick` | 保存启用的目录 key |
+| `POST` | `/sector-pick/scan` | 对启用板块打分并刷新 lock |
+| `POST` | `/sector-pick/holdings` | 预览某个板块的引擎持仓 |
+| `GET` | `/sector-pick/history` · `/history/series` · `/history/{as_of}` | 历史、分数序列、单日快照 |
+| `GET` | `/monitor` | 读取监控看板 |
+| `PUT` | `/monitor` | 更新标的池 / 绑定策略 / 扫描配置 |
+| `POST` | `/monitor/scan` | 运行确定性每日扫描 |
+| `POST` | `/monitor/reset` | 重置看板 |
+| `POST` | `/monitor/forecast` | 对当前持仓做 k-NN 相似片段推演 |
+| `GET` / `POST` | `/monitor/forecast/saves` | 列出 / 保存预测快照 |
+| `GET` | `/monitor/forecast/saves/{snapshot_id}` | 单个已保存预测 |
+| `GET` | `/monitor/history` · `/history/{as_of}` | 监控历史 / 单日快照 |
+| `GET` | `/tables/engine` | 当前表格引擎、可用引擎、页数上限与缓存状态 |
+| `POST` | `/tables/extract` | 对已上传的 PDF 抽取表格（`file_path`、`pages`、`max_tables`、`include_csv`） |
 | `GET` | `/settings/llm` | 读取 Web UI LLM settings |
 | `PUT` | `/settings/llm` | 更新本地 LLM settings |
 | `GET` | `/settings/data-sources` | 读取本地数据源 settings |
@@ -1028,7 +1264,7 @@ vibe-trading-mcp --transport sse   # legacy SSE (deprecated)
 
 </details>
 
-**暴露的 MCP tools（54）：** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `web_search`, `write_file`, `read_file`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`.
+**暴露的 MCP tools（55）：** `list_skills`, `load_skill`, `start_research_goal`, `get_research_goal`, `add_goal_evidence`, `update_research_goal_status`, `backtest`, `factor_analysis`, `analyze_options`, `pattern_recognition`, `read_url`, `read_document`, `extract_tables`, `web_search`, `write_file`, `read_file`, `list_swarm_presets`, `run_swarm`, `get_market_data`, `get_fund_flow`, `get_dragon_tiger`, `get_northbound_flow`, `get_margin_trading`, `get_block_trades`, `get_shareholder_count`, `get_lockup_expiry`, `get_sector_info`, `get_research_reports`, `get_stock_news`, `get_sec_filings`, `get_financial_statements`, `get_options_chain`, `get_stock_profile`, `screen_market`, `search_symbol`, `get_macro_series`, `iwencai_search`, `get_swarm_status`, `get_run_result`, `list_runs`, `reap_stale_runs`, `retry_run`, `analyze_trade_journal`, `extract_shadow_strategy`, `run_shadow_backtest`, `render_shadow_report`, `scan_shadow_signals`, `trading_connections`, `trading_select_connection`, `trading_check`, `trading_account`, `trading_positions`, `trading_orders`, `trading_quote`, `trading_history`.
 
 <details>
 <summary><b>从 ClawHub 安装（一条命令）</b></summary>
@@ -1128,7 +1364,9 @@ Vibe-Trading/
 ├── agent/                          # 后端（Python）
 │   ├── cli/                        # CLI 包 —— 交互式 TUI + 子命令
 │   ├── api_server.py               # FastAPI server —— runs、sessions、upload、swarm、SSE
-│   ├── mcp_server.py               # MCP server —— 54 个工具，面向 OpenClaw / Claude Desktop
+│   ├── mcp_server.py               # MCP server，面向 OpenClaw / Claude Desktop
+│   ├── prop_国泰君安_*.md            # 55 份 A 股板块研究提示词（本分支）
+│   ├── scripts/                    # 40 个研究／复跑／修复脚本（本分支）
 │   │
 │   ├── src/
 │   │   ├── agent/                  # ReAct agent 内核
@@ -1140,11 +1378,38 @@ Vibe-Trading/
 │   │   │   ├── frontmatter.py      #   共享的 YAML frontmatter 解析器
 │   │   │   └── trace.py            #   执行 trace 写入器
 │   │   │
+│   │   ├── market_pick/            # ★ 本分支：板块级双轨筛选
+│   │   │   ├── boards.py           #   东财行业 + 概念板块池与过滤
+│   │   │   ├── scan.py             #   成分股并集只拉一次 OHLCV
+│   │   │   ├── score.py            #   rs/knife 占比、stance、跳过原因
+│   │   │   └── store.py            #   每日快照 + 历史
+│   │   │
+│   │   ├── sector_pick/            # ★ 本分支：已验证板块排序
+│   │   │   ├── catalog.py          #   21 条精选「最优」配方 → prop md + run_id
+│   │   │   ├── scan.py             #   逐行打分，取锁定书的持仓
+│   │   │   ├── score.py            #   等权/MA20 择时 + 确认腿通过率 + 20 日收益
+│   │   │   └── theme_lock.py       #   单主题锁，2 日 / 0.25 挑战者规则
+│   │   │
+│   │   ├── monitor/                # ★ 本分支：持久持仓看板
+│   │   │   ├── scan.py             #   确定性每日扫描 → 逐股动作
+│   │   │   ├── forecast.py         #   10 交易日 k-NN 相似片段情景路径
+│   │   │   ├── trend_regime.py     #   沪深300 短/中/长 + 均线排列 + 年线
+│   │   │   ├── live_bar.py         #   盘中临时日线（东财→腾讯→新浪）
+│   │   │   └── store.py            #   看板状态、历史、预测快照
+│   │   │
+│   │   ├── process/                # ★ 本分支：决策合成层
+│   │   │   ├── mandate.py          #   ProcessMandate（净值/单票/主题上限、allow_short）
+│   │   │   ├── compose.py          #   Mandate→结构→F0→analog→仓位 瀑布
+│   │   │   └── models.py           #   Decision / SymbolDecision / TraceStep
+│   │   │
 │   │   ├── memory/                 # 跨 session 持久记忆
 │   │   │   └── persistent.py       #   基于文件的记忆（~/.vibe-trading/memory/）
 │   │   │
-│   │   ├── tools/                  # 68 个自动发现的 agent 工具
+│   │   ├── tools/                  # 79 个默认注册的 agent 工具
 │   │   │   ├── backtest_tool.py    #   运行回测
+│   │   │   ├── dragon_tiger_tool.py #  A 股龙虎榜
+│   │   │   ├── northbound_tool.py  #   北向资金
+│   │   │   ├── iwencai_tool.py     #   中文自然语言选股（问财）
 │   │   │   ├── remember_tool.py    #   跨 session 记忆（save/recall/forget）
 │   │   │   ├── skill_writer_tool.py #  skill CRUD（save/patch/delete/file）
 │   │   │   ├── session_search_tool.py # FTS5 跨 session 搜索
@@ -1152,14 +1417,19 @@ Vibe-Trading/
 │   │   │   ├── web_search_tool.py  #   DuckDuckGo 网络搜索
 │   │   │   └── ...                 #   bash、文件 I/O、因子分析、期权、alpha 浏览 + 横评等
 │   │   │
-│   │   ├── factors/                # Alpha Zoo —— 5 个家族共 462 个 alpha
+│   │   ├── factors/                # Alpha Zoo —— 6 个家族共 469 个 alpha
 │   │   │   ├── base.py             #   19 个算子（rank/scale/ts_*/delta/decay_linear/safe_div/vwap）
 │   │   │   ├── registry.py         #   纯 AST 元数据加载 + 惰性计算 + sanity 校验
 │   │   │   ├── bench_runner.py     #   IC + alive/reversed/dead 分类
-│   │   │   └── zoo/                #   qlib158 (154) + alpha101 (101) + gtja191 (191) + academic (12) + fundamental (4)
+│   │   │   ├── bench_runner_strict.py # 严格随机对照 + OOS 闸（本分支）
+│   │   │   ├── survival_store.py   #   逐因子存活状态（本分支）
+│   │   │   └── zoo/                #   qlib158 (154) + alpha101 (101) + gtja191 (191) + academic (12) + fundamental (4) + custom (7)
 │   │   │
 │   │   ├── api/                    # FastAPI 路由模块
-│   │   │   └── alpha_routes.py     #   /alpha/list、/alpha/{id}、/alpha/bench、SSE 流
+│   │   │   ├── alpha_routes.py     #   /alpha/list、/alpha/{id}、/alpha/bench、SSE 流
+│   │   │   ├── market_pick_routes.py #  /market-pick、/scan、/history
+│   │   │   ├── sector_pick_routes.py #  /sector-pick、/scan、/history、/holdings
+│   │   │   └── monitor_routes.py   #   /monitor、/scan、/forecast、/history
 │   │   │
 │   │   ├── skills/                 # 9 个类别共 88 个 finance skills（每个一份 SKILL.md）
 │   │   ├── swarm/                  # Swarm DAG 执行引擎
@@ -1168,16 +1438,16 @@ Vibe-Trading/
 │   │   └── providers/              # LLM provider 抽象层
 │   │
 │   └── backtest/                   # 回测引擎
-│       ├── engines/                #   7 个引擎 + 跨市场 composite 引擎 + options_portfolio
-│       ├── loaders/                #   23 个数据源：tushare、okx、binance、yfinance、akshare、baostock、tencent、mootdx、ccxt、futu、local、eastmoney、sina、stooq、yahoo、finnhub、alphavantage、tiingo、fmp、longbridge、mt5、qveris、india_broker
+│       ├── engines/                #   ChinaA（T+1、涨跌停、整手、A 股费用栈）+ 另外 7 个 + composite + options_portfolio
+│       ├── loaders/                #   20 个 loader 模块 + tushare/futu/longbridge/okx：tencent、mootdx、eastmoney、baostock、akshare、tushare、yahoo、stooq、sina、yfinance、tiingo、fmp、finnhub、alphavantage、longbridge、okx、binance、ccxt、futu、mt5、qveris、india_broker、local
 │       │   ├── base.py             #   DataLoader Protocol
 │       │   └── registry.py         #   Registry + 自动 fallback 链路
 │       └── optimizers/             #   MVO、equal vol、max div、risk parity
 │
 ├── frontend/                       # Web UI（React 19 + Vite + TypeScript）
 │   └── src/
-│       ├── pages/                  #   Home、Agent、AlphaZoo、RunDetail、Compare、Correlation、Settings
-│       ├── components/             #   chat、charts、layout
+│       ├── pages/                  #   Home、Agent、Monitor、MarketPick、SectorPick、Reports、Runtime、AlphaZoo、RunDetail、Compare、Correlation、Settings
+│       ├── components/             #   chat、charts、layout、monitor、process
 │       └── stores/                 #   Zustand 状态管理
 │
 ├── Dockerfile                      # 多阶段构建
@@ -1235,7 +1505,7 @@ Vibe-Trading 是 **[HKUDS](https://github.com/HKUDS)** 智能体生态的一部�
 | **Data Bridge** | 自带数据：本地 CSV/Parquet/SQL connectors 与 schema mapping | 本地加载器已发布 |
 | **Options Lab** | Vol surface、Greeks dashboard、payoff/scenario explorer | Planned |
 | **Portfolio Studio** | Risk x-ray、constraints、turnover-aware optimizer、rebalance notes | Turnover-aware optimizer **已发布 0.1.11**；其余 Planned |
-| **Alpha Zoo** | 462 个预置 alpha 因子（Qlib 158 + Kakushadze 101 + GTJA 191 + academic + fundamental），一行 CLI 跑横评，agent 集成，Web UI 浏览 | **已发布 0.1.8**，延续至 0.1.12 |
+| **Alpha Zoo** | 469 个预置 alpha 因子（Qlib Alpha158 154 + Kakushadze 101 + GTJA 191 + 学术 12 + 基本面 4 + 本分支 custom 7），一行 CLI 跑横评，agent 集成，Web UI 浏览 | **已发布 0.1.8**，延续至 0.1.12 并由本分支扩展 |
 | **Strategy Development Manager** | 把论文 / 券商研报注册为因子与策略，配持久化 store + 自动化 IC/Sharpe 衰减生命周期 | **已发布 0.1.11** |
 | **Correlation Regime** | 叠加在 `/correlation` 上的边密度 + 迟滞状态时间线——识别市场何时融合为一个板块 | **已发布 0.1.12** |
 | **Research Delivery** | 通过 Slack / Telegram / email-style IM channels 发送定时 briefs 与实时研究 sessions | 调度器 + IM Runtime 已发布 |

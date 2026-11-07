@@ -440,6 +440,17 @@ class ChannelsConfig(ConfigBase):
     send_tool_hints: bool = False
     send_max_retries: int = Field(default=2, ge=1, le=10)
     reply_timeout_s: float = Field(default=600.0, ge=1.0, le=86400.0)
+    # Bring enabled channels up together with the API server. Enabled already
+    # means "the operator configured this on purpose", so connecting on boot is
+    # the expected behaviour; set false (or the per-channel auto_start) to keep
+    # a channel configured but dormant. VIBE_TRADING_CHANNELS_AUTO_START can
+    # still force it off process-wide.
+    auto_start: bool = True
+    # Watchdog: restart an adapter that exits without being asked to, with a
+    # 1s → 60s exponential backoff. Disable to keep failures visible instead of
+    # retried (useful while debugging an adapter). A channel that needs a fresh
+    # login is never retried automatically — only a re-bind can fix it.
+    supervisor: bool = True
     # Channel-independent operator allowlist. Sender IDs listed here may run
     # ``/pairing`` control-plane commands from any IM channel with cross-channel
     # authority. Empty by default (fail closed): with no operators configured,

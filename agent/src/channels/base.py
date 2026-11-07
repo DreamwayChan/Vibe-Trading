@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from src.channels.auth import LoginNotSupported
 from src.channels.bus.events import InboundMessage, OutboundMessage
 from src.channels.bus.queue import MessageBus
 from src.channels.pairing import (
@@ -31,6 +32,9 @@ class BaseChannel(ABC):
     send_progress: bool = True
     send_tool_hints: bool = False
     show_reasoning: bool = True
+    # Binding UX: adapters that can be bound from the browser override these.
+    auth_kind: str = "credentials"
+    supports_interactive_login: bool = False
 
     def __init__(self, config: Any, bus: MessageBus) -> None:
         """Initialize the channel.
@@ -42,6 +46,10 @@ class BaseChannel(ABC):
         self.config = config
         self.bus = bus
         self._running = False
+        # Set by adapters when the platform rejected/expired the credential.
+        # Surfaced as the ``needs_auth`` state so the UI can offer a re-bind
+        # flow instead of pretending the channel is healthy.
+        self._needs_auth = False
         self.logger = logging.getLogger(f"{__name__}.{self.name}")
 
     async def login(self, force: bool = False) -> bool:
@@ -54,6 +62,28 @@ class BaseChannel(ABC):
         Override in subclasses that support interactive login.
         """
         return True
+
+    async def begin_login(
+        self,
+        *,
+        on_qr: Callable[[str], None] | None = None,
+        on_state: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Run an interactive login, reporting progress through callbacks.
+
+        Args:
+            on_qr: Called with the login URL each time a QR code is issued or
+                refreshed, so the UI can render it.
+            on_state: Called with the raw platform status (``wait``,
+                ``scaned``, ``confirmed``, ``expired``…).
+
+        Returns:
+            True when the credential was obtained and persisted.
+
+        Raises:
+            LoginNotSupported: The adapter has no interactive flow.
+        """
+        raise LoginNotSupported(self.name)
 
     @abstractmethod
     async def start(self) -> None:
@@ -235,3 +265,27 @@ class BaseChannel(ABC):
     def is_running(self) -> bool:
         """Check if the channel is running."""
         return self._running
+
+    # --- Credential state -------------------------------------------------
+
+    @property
+    def needs_auth(self) -> bool:
+        """True when the adapter needs a fresh login/binding before it can run."""
+        return self._needs_auth
+
+    def mark_needs_auth(self, reason: str = "") -> None:
+        """Flag the channel as requiring re-authentication."""
+        self._needs_auth = True
+        if reason:
+            self.logger.warning("%s channel needs authentication: %s", self.name, reason)
+
+    def clear_needs_auth(self) -> None:
+        """Clear the needs-auth flag after a successful login."""
+        self._needs_auth = False
+
+    async def logout(self) -> None:
+        """Drop cached credentials for this channel.
+
+        Override in adapters that persist a token on disk; the default is a
+        no-op because most adapters read a static token from config.
+        """

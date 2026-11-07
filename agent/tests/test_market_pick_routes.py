@@ -55,6 +55,7 @@ def test_get_returns_saved_snapshot(client: TestClient, home: Path) -> None:
             recommended_bk="BK1615",
             unique_symbols=12,
             ohlcv_ok=10,
+            bars_source="lake",
             boards=[
                 BoardScore(
                     bk="BK1615",
@@ -74,6 +75,8 @@ def test_get_returns_saved_snapshot(client: TestClient, home: Path) -> None:
     assert response.status_code == 200
     row = response.json()["result"]
     assert row["recommended_bk"] == "BK1615"
+    # Provenance survives the API round-trip so the page can badge the source.
+    assert row["bars_source"] == "lake"
     assert row["boards"][0]["catalog_key"] == "copper"
 
 
@@ -116,6 +119,25 @@ def test_post_scan_force_rebuilds(client: TestClient, monkeypatch: pytest.Monkey
     assert body["result"]["reason"] == "rebuilt"
     again = client.get("/market-pick")
     assert again.json()["result"]["reason"] == "rebuilt"
+
+
+def test_post_scan_refuses_while_another_scan_runs(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Impatient re-clicks must not stack a second full Eastmoney burst."""
+    from src.api import market_pick_routes
+
+    def boom():
+        raise AssertionError("must not start a second scan while one is running")
+
+    monkeypatch.setattr("src.api.market_pick_routes.run_market_pick_scan", boom)
+    assert market_pick_routes._SCAN_LOCK.acquire(blocking=False)
+    try:
+        response = client.post("/market-pick/scan", json={"force": True})
+    finally:
+        market_pick_routes._SCAN_LOCK.release()
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
 
 
 def test_history_lists_and_loads_day(client: TestClient, home: Path) -> None:

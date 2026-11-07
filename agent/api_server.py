@@ -145,8 +145,8 @@ app.middleware("http")(_apply_security_headers)
 # ============================================================================
 
 from src.api.channels_routes import (  # noqa: E402
-    _start_channel_runtime,
     _stop_channel_runtime,
+    register_channels_startup,
 )
 from src.api.scheduled_routes import (  # noqa: E402
     _start_scheduled_research_executor,
@@ -161,10 +161,6 @@ async def _run_startup_preflight() -> None:
 
     run_preflight(console)
     _start_scheduled_research_executor()
-    from src.config.accessor import get_env_config
-
-    if get_env_config().agent_tuning.vibe_trading_channels_auto_start:
-        await _start_channel_runtime()
 
 
 @app.on_event("shutdown")
@@ -229,6 +225,7 @@ from src.api.uploads_routes import (  # noqa: F401, E402
 # --- Channels ---
 from src.api.channels_routes import register_channels_routes  # noqa: E402
 register_channels_routes(app)
+register_channels_startup(app)
 from src.api.qveris_routes import qveris_router  # noqa: E402  # QVERIS-INTEGRATION
 app.include_router(qveris_router)  # QVERIS-INTEGRATION
 
@@ -297,8 +294,25 @@ register_scheduled_routes(app)
 from src.api.monitor_routes import register_monitor_routes  # noqa: E402
 register_monitor_routes(app)
 
+# --- A-share paper book (one settled session at a time) ---
+from src.api.paper_book_routes import register_paper_book_routes  # noqa: E402
+register_paper_book_routes(app)
+
+# --- Data center (lake catalog, freshness, quality) ---
+from src.api.data_routes import register_data_routes  # noqa: E402
+register_data_routes(app)
+
+# --- Capital-flow monitor (CSI 300 ETF-OI + national-team flow proxy) ---
+from src.api.capital_routes import register_capital_routes  # noqa: E402
+register_capital_routes(app)
+
 from src.api.sector_pick_routes import register_sector_pick_routes  # noqa: E402
 register_sector_pick_routes(app)
+
+# --- Research-report table extraction (PDF grid -> rows/columns) ---
+from src.api.tables_routes import register_tables_routes  # noqa: E402
+
+register_tables_routes(app)
 
 from src.api.market_pick_routes import register_market_pick_routes  # noqa: E402
 register_market_pick_routes(app)

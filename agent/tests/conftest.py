@@ -20,3 +20,20 @@ def _reset_env_config():
     reset_env_config()
     yield
     reset_env_config()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_lake(tmp_path, monkeypatch):
+    """Point the data lake at an empty temp dir for every test.
+
+    Scans now read the lake before falling back to a loader, so without this a
+    test that stubs only the network would quietly read whatever the developer's
+    real ``~/.vibe-trading/lake`` happens to hold — passing or failing by machine.
+    Tests that need stored bars set their own root on top of this.
+    """
+    monkeypatch.setenv("VIBE_TRADING_LAKE_ROOT", str(tmp_path / "lake"))
+    from src.config.accessor import reset_env_config
+
+    reset_env_config()
+    yield
+    reset_env_config()

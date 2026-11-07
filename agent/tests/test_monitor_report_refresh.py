@@ -79,6 +79,26 @@ def test_extend_run_end_date_forwards_config_and_req(tmp_path: Path) -> None:
     assert req["context"]["end_date"] == "2024-08-12"
 
 
+def test_extend_today_stops_at_the_settled_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan dated Beijing today extends the backtest through T-1, not today."""
+    from datetime import date as date_cls
+
+    monkeypatch.setattr(
+        "src.data.lake_fetch._beijing_today", lambda: date_cls(2026, 11, 5)
+    )
+    monkeypatch.setattr("src.data.calendar._cache", None)
+    run_dir = tmp_path / "run_live"
+    _write_minimal_run(run_dir, end_date="2026-10-01")
+
+    info = extend_run_end_date(run_dir, date_cls(2026, 11, 5))
+    assert info["end_date"] == "2026-11-04"
+    assert info["requested_as_of"] == "2026-11-05"
+    config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["end_date"] == "2026-11-04"
+
+
 def test_extend_run_end_date_refuses_shrink(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_keep"
     _write_minimal_run(run_dir, end_date="2024-12-01")

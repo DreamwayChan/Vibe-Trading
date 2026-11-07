@@ -221,6 +221,16 @@ def _read_pdf(path: Path, pages: str, min_text_per_page: int = _MIN_TEXT_PER_PAG
             "quality_flag": quality_flag,
         }
 
+        # Cheap geometry probe (sampled, no model) telling the agent whether a
+        # follow-up extract_tables call is worth it. Never fatal: a page the
+        # probe cannot read simply does not contribute a hint.
+        try:
+            from src.tools.tables.hint import detect_table_pages
+
+            table_pages_hint = detect_table_pages(doc, [i + 1 for i in targets])
+        except Exception:  # pragma: no cover - defensive
+            table_pages_hint = []
+
         return _envelope(
             path, "pdf", full,
             total_pages=total_pages,
@@ -229,6 +239,8 @@ def _read_pdf(path: Path, pages: str, min_text_per_page: int = _MIN_TEXT_PER_PAG
             skipped_pages=skipped_pages,
             ocr_engine=engine.name if engine else None,
             ocr_quality=ocr_quality,
+            has_tables_hint=bool(table_pages_hint),
+            table_pages_hint=table_pages_hint,
         )
     finally:
         doc.close()

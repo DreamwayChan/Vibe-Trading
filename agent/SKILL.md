@@ -165,6 +165,7 @@ Use `load_skill(name)` to access full methodology docs with code templates.
 | `web_search` | Search the web via DuckDuckGo | None |
 | `read_url` | Fetch web page as Markdown | None |
 | `read_document` | Extract text from PDF/DOCX/XLSX/PPTX/images | None |
+| `extract_tables` | Extract tables from a PDF as rows/columns with units & types; stitched across page breaks | None |
 | `write_file` | Write files (config, strategy code) | None |
 | `read_file` | Read file contents | None |
 | `analyze_trade_journal` | Parse broker CSV → profile + behavior diagnostics | None |

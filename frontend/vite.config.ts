@@ -48,10 +48,18 @@ export default defineConfig(({ mode }) => {
         // Same SPA/API path twin as /correlation — without this proxy, Vite's
         // history fallback serves index.html for fetch("/monitor") too.
         "/monitor": apiProxyWithHtmlFallback,
+        "/capital": apiProxyWithHtmlFallback,
         "/sector-pick": apiProxyWithHtmlFallback,
+        // Tables page (``/tables``) shares a prefix with the extraction API
+        // (``/tables/extract``): HTML navigation must get the shell, JSON
+        // fetches must reach FastAPI.
+        "/tables": apiProxyWithHtmlFallback,
         "/market-pick": apiProxyWithHtmlFallback,
         "/correlation": apiProxyWithHtmlFallback,
         "^/alpha(?:/|$)": apiProxy,
+        // Data-center API. Prefix ends with a slash on purpose: the SPA route
+        // is ``/data-center``, which must NOT be swallowed by this proxy.
+        "/data/": apiProxy,
       },
     },
     build: {

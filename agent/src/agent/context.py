@@ -99,6 +99,10 @@ Decide which workflow to use based on the request:
 
 **Document / web** — user provides a PDF or URL:
 - `read_document(path=...)` for PDFs, `read_url(url=...)` for web pages.
+- If `read_document` returns `has_tables_hint=true` (research reports, annual
+  reports), call `extract_tables(file_path=..., pages="<table_pages_hint>")` to
+  get the numbers as structured rows/columns instead of guessing column
+  alignment from text.
 
 **Trade journal** — user uploads a CSV/Excel broker export (交割单) or asks to analyze their own trading history:
 1. `load_skill("trade-journal")` — read analysis methodology and report templates

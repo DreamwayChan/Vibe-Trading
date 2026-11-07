@@ -38,6 +38,13 @@ from src.process.attach import clip_holdings
 
 logger = logging.getLogger(__name__)
 
+
+def _strategy_store():
+    """Strategy store for gate stamps. None when the store cannot be opened."""
+    from src.monitor.admission import open_strategy_store
+
+    return open_strategy_store()
+
 # Stable id used when the UI enables “daily scan” via scheduled-runs.
 MONITOR_SCHEDULE_JOB_ID = "monitor-scan-daily"
 # Simplified cron (no ranges): daily 07:30 UTC ≈ 15:30 CST.
@@ -222,6 +229,9 @@ class SuggestionResponse(BaseModel):
     provisional: bool = False
     confidence: Optional[float] = None
     signal: Optional[float] = None
+    tradable: bool = False
+    block_reasons: List[str] = Field(default_factory=list)
+    risk_flags: List[str] = Field(default_factory=list)
 
 
 class HoldingResponse(BaseModel):
@@ -251,6 +261,48 @@ class MonitorResponse(BaseModel):
     ops: DayOpsResponse = Field(default_factory=DayOpsResponse)
     schedule: Optional[str] = None
     decision: Optional[Dict[str, Any]] = None
+    tradable: bool = False
+    tradable_reasons: List[str] = Field(default_factory=list)
+    validation_gate: Optional[Dict[str, Any]] = None
+    decision_signal: Optional[Dict[str, Any]] = None
+    bars_source: Optional[str] = None
+
+
+class RecordSignalRequest(BaseModel):
+    """Journal fields for a monitor signal. Missing invalidation downgrades.
+
+    ``strict`` rejects the write (HTTP 422) instead of storing a non-tradable
+    row. A blank ``symbol`` covers the whole bound strategy.
+    """
+
+    hypothesis_id: Optional[str] = None
+    thesis: Optional[str] = None
+    invalidation: Optional[str] = None
+    planned_position: Optional[str] = None
+    planned_risk: Optional[str] = None
+    timestamp: Optional[str] = None
+    symbol: Optional[str] = None
+    strict: bool = False
+
+
+class JournalEntryResponse(BaseModel):
+    signal_id: str
+    timestamp: str
+    run_id: str
+    hypothesis_id: str = ""
+    thesis: str = ""
+    invalidation: str = ""
+    planned_position: str = ""
+    planned_risk: str = ""
+    symbol: str = ""
+    tradable: bool = False
+    block_reasons: List[str] = Field(default_factory=list)
+    # Recomputed on read, not the value stored at write time: a row keeps its
+    # ``tradable`` snapshot forever, but expiry depends on "now". Without these
+    # two fields the history list would still say "tradable" for a row the
+    # admission gate is already rejecting as ``stale_journal``.
+    stale: bool = False
+    age_days: Optional[int] = None
 
 
 class HistorySummaryResponse(BaseModel):
@@ -267,6 +319,9 @@ class HistorySummaryResponse(BaseModel):
     live_quote_ok: int = 0
     live_quote_total: int = 0
     live_quote_coverage: float = 0.0
+    bars_source: Optional[str] = None
+    tradable: bool = False
+    validation_passed: bool = False
 
 
 class HistoryDetailResponse(BaseModel):
@@ -282,6 +337,11 @@ class HistoryDetailResponse(BaseModel):
     live_quote_ok: int = 0
     live_quote_total: int = 0
     live_quote_coverage: float = 0.0
+    bars_source: Optional[str] = None
+    tradable: bool = False
+    tradable_reasons: List[str] = Field(default_factory=list)
+    validation_gate: Optional[Dict[str, Any]] = None
+    decision_signal: Optional[Dict[str, Any]] = None
     decision: Optional[Dict[str, Any]] = None
 
 
@@ -309,6 +369,11 @@ def _to_response(config: MonitorConfig) -> MonitorResponse:
         ops=DayOpsResponse(**config.ops.to_dict()),
         schedule=config.schedule,
         decision=config.decision.to_dict() if config.decision is not None else None,
+        tradable=config.tradable,
+        tradable_reasons=list(config.tradable_reasons),
+        validation_gate=config.validation_gate,
+        decision_signal=config.decision_signal,
+        bars_source=config.bars_source,
     )
 
 
@@ -454,7 +519,11 @@ def register_monitor_routes(
         config = load_monitor()
         try:
             validate_strategy_ref(config.strategy)
-            config = run_monitor_scan(config, refresh_report=bool(body.refresh_report))
+            config = run_monitor_scan(
+                config,
+                refresh_report=bool(body.refresh_report),
+                strategy_store=_strategy_store(),
+            )
         except MonitorScanError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
@@ -462,6 +531,97 @@ def register_monitor_routes(
             raise HTTPException(status_code=500, detail=f"monitor scan failed: {exc}") from exc
         save_monitor(config)
         return _to_response(config)
+
+    @app.post(
+        "/monitor/signal",
+        response_model=MonitorResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_monitor_signal(body: RecordSignalRequest) -> MonitorResponse:
+        """Record a decision-journal signal for the bound strategy.
+
+        Missing invalidation (or thesis, position, risk) is stored as
+        ``tradable=false``. ``strict=true`` returns 422 and does not write.
+        The validation gate is re-evaluated against the bound run; a strategy
+        still cannot enter the tradable pool without a passing artifact.
+        """
+        from src.api.helpers import RUNS_DIR
+        from src.hypotheses.journal import DecisionJournal
+        from src.monitor.admission import apply_admission, journal_key_for
+
+        config = load_monitor()
+        run_key = journal_key_for(config.strategy)
+        if not run_key:
+            raise HTTPException(
+                status_code=400,
+                detail="bind a strategy before recording a decision",
+            )
+        if config.strategy.type == "run_dir":
+            try:
+                validate_strategy_ref(config.strategy)
+            except MonitorScanError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            DecisionJournal().record(
+                run_id=run_key,
+                hypothesis_id=body.hypothesis_id or "",
+                thesis=body.thesis or "",
+                invalidation=body.invalidation or "",
+                planned_position=body.planned_position or "",
+                planned_risk=body.planned_risk or "",
+                timestamp=body.timestamp or "",
+                symbol=body.symbol or "",
+                strict=bool(body.strict),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        run_dir = None
+        if config.strategy.type == "run_dir" and (config.strategy.run_id or "").strip():
+            run_dir = RUNS_DIR / config.strategy.run_id.strip()
+        try:
+            apply_admission(
+                config,
+                run_key=run_key,
+                run_dir=run_dir,
+                bars_source=config.bars_source,
+                strategy_store=_strategy_store(),
+            )
+        except Exception as exc:  # noqa: BLE001 — journal row is already durable
+            logger.warning("monitor signal admission failed: %s", exc)
+            config.tradable = False
+            config.tradable_reasons = ["admission_error"]
+        save_monitor(config)
+        return _to_response(config)
+
+    @app.get(
+        "/monitor/journal",
+        response_model=List[JournalEntryResponse],
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_monitor_journal(
+        symbol: Optional[str] = None,
+        limit: int = Query(50, ge=1, le=500),
+    ) -> List[JournalEntryResponse]:
+        """Decision-journal history (newest first) for the bound strategy."""
+        from src.hypotheses.journal import DecisionJournal, is_stale, signal_age_days
+        from src.monitor.admission import journal_key_for
+
+        run_key = journal_key_for(load_monitor().strategy)
+        if not run_key:
+            return []
+        try:
+            rows = DecisionJournal().history(run_key, symbol=symbol or "", limit=limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        entries: List[JournalEntryResponse] = []
+        for row in rows:
+            payload = row.to_dict()
+            # ``tradable`` is the write-time snapshot; expiry is judged against
+            # the current clock so the list cannot contradict the board.
+            payload["stale"] = is_stale(row)
+            payload["age_days"] = signal_age_days(row)
+            entries.append(JournalEntryResponse(**payload))
+        return entries
 
     @app.post(
         "/monitor/reset",
@@ -485,7 +645,7 @@ def register_monitor_routes(
             config = clear_board_scan_cache(config)
             save_monitor(config)
             # Rebuild today's book with an empty prior — new holdings timeline.
-            config = run_monitor_scan(config)
+            config = run_monitor_scan(config, strategy_store=_strategy_store())
         except MonitorScanError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except HTTPException:
@@ -627,5 +787,10 @@ def register_monitor_routes(
             live_quote_ok=snap.live_quote_ok,
             live_quote_total=snap.live_quote_total,
             live_quote_coverage=snap.live_quote_coverage,
+            bars_source=snap.bars_source,
+            tradable=snap.tradable,
+            tradable_reasons=list(snap.tradable_reasons),
+            validation_gate=snap.validation_gate,
+            decision_signal=snap.decision_signal,
             decision=snap.decision.to_dict() if snap.decision is not None else None,
         )

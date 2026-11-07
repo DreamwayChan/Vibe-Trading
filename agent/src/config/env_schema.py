@@ -183,6 +183,103 @@ class DataConfig(_EnvBase):
     # Set VIBE_TRADING_DATA_CACHE=0 to force a live re-fetch every time.
     vibe_trading_data_cache: EnvBool = Field(alias="VIBE_TRADING_DATA_CACHE", default=True)
     vibe_trading_data_cache_root: str = Field(alias="VIBE_TRADING_DATA_CACHE_ROOT", default="")
+    # Local data lake (partitioned parquet, key upserts) used by the trading
+    # calendar and the tradability panel. Defaults to ~/.vibe-trading/lake.
+    # Distinct from the loader cache above: that one is content-addressed per
+    # request, this one is queryable layer by symbol/date.
+    vibe_trading_lake_root: str = Field(alias="VIBE_TRADING_LAKE_ROOT", default="")
+    # Data hub read policy. Off (default) = interactive reads may read through to
+    # the network for missing ranges so a cold lake still renders. On = reads
+    # only ever come from the lake; a gap raises instead of silently fetching,
+    # which is what backtests and research runs need to stay reproducible.
+    vibe_trading_datahub_strict: EnvBool = Field(
+        alias="VIBE_TRADING_DATAHUB_STRICT", default=False
+    )
+    # Daily lake reads stop at Beijing T-1. Today's price is a live-quote
+    # overlay, not a ``daily()`` gap. Set to 1 to ask the vendor for the
+    # forming session again (it is still not written into the lake).
+    vibe_trading_daily_include_forming: EnvBool = Field(
+        alias="VIBE_TRADING_DAILY_INCLUDE_FORMING", default=False
+    )
+    # On by default so monitor / runner A-share backtests refuse halted names
+    # and use the exchange band (including the ST 5% band the code prefix
+    # cannot reveal). Set to 0 to keep the close-to-close heuristic; zero
+    # volume is still unfillable unless VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0.
+    vibe_trading_tradability_panel: EnvBool = Field(
+        alias="VIBE_TRADING_TRADABILITY_PANEL", default=True
+    )
+    # Shared with ChinaAEngine via backtest.ashare_costs. Explicit keys on a
+    # run config.json win over these. Retail cash A-share defaults.
+    vibe_trading_ashare_commission_rate: float = Field(
+        alias="VIBE_TRADING_ASHARE_COMMISSION_RATE", default=0.00025
+    )
+    vibe_trading_ashare_commission_min: float = Field(
+        alias="VIBE_TRADING_ASHARE_COMMISSION_MIN", default=5.0
+    )
+    vibe_trading_ashare_stamp_tax: float = Field(
+        alias="VIBE_TRADING_ASHARE_STAMP_TAX", default=0.0005
+    )
+    vibe_trading_ashare_transfer_fee: float = Field(
+        alias="VIBE_TRADING_ASHARE_TRANSFER_FEE", default=0.00001
+    )
+    vibe_trading_ashare_slippage: float = Field(
+        alias="VIBE_TRADING_ASHARE_SLIPPAGE", default=0.001
+    )
+    vibe_trading_ashare_tplus1: EnvBool = Field(
+        alias="VIBE_TRADING_ASHARE_TPLUS1", default=True
+    )
+    vibe_trading_ashare_block_suspension: EnvBool = Field(
+        alias="VIBE_TRADING_ASHARE_BLOCK_SUSPENSION", default=True
+    )
+    # Monitor tradable-pool gate (backtest.validation.evaluate_validation_gate).
+    # A strategy stays out of the pool until Monte Carlo, bootstrap, and
+    # walk-forward clear these thresholds on a cost-aware artifact.
+    # VIBE_TRADING_VAL_GATE=0 skips the statistical checks (the decision
+    # journal is still required). Section flags below drop one check.
+    vibe_trading_val_gate: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_GATE", default=True
+    )
+    vibe_trading_val_max_p_sharpe: float = Field(
+        alias="VIBE_TRADING_VAL_MAX_P_SHARPE", default=0.10
+    )
+    vibe_trading_val_min_bootstrap_ci: float = Field(
+        alias="VIBE_TRADING_VAL_MIN_BOOTSTRAP_CI", default=0.0
+    )
+    vibe_trading_val_min_wf_consistency: float = Field(
+        alias="VIBE_TRADING_VAL_MIN_WF_CONSISTENCY", default=0.60
+    )
+    vibe_trading_val_require_costs: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_COSTS", default=True
+    )
+    vibe_trading_val_require_monte_carlo: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_MONTE_CARLO", default=True
+    )
+    vibe_trading_val_require_bootstrap: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_BOOTSTRAP", default=True
+    )
+    vibe_trading_val_require_walk_forward: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_WALK_FORWARD", default=True
+    )
+    # Paper book (src.paper_book). Absolute gap between the book's cumulative
+    # return and the bound backtest's cumulative return from the same anchor.
+    # 0.05 means five percentage points. Above this, the book clears tradable
+    # on the monitor board and the strategy store without touching decay status.
+    vibe_trading_paper_book_deviation_threshold: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD", default=0.05
+    )
+    vibe_trading_paper_book_initial_cash: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_INITIAL_CASH", default=1_000_000.0
+    )
+    # Single-name cap as a fraction of marked NAV. 0.20 keeps one board lot
+    # of a mid/small book from becoming the whole account. 1.0 disables it.
+    vibe_trading_paper_book_max_position: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_POSITION", default=0.20
+    )
+    # Peak-to-mark drawdown that blocks new buys. Sells still settle.
+    # 0.15 is fifteen percent under the high-water NAV.
+    vibe_trading_paper_book_max_drawdown: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN", default=0.15
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")
@@ -342,8 +439,13 @@ class AgentTuningConfig(_EnvBase):
     vibe_trading_monitor_refresh_report: EnvBool = Field(
         alias="VIBE_TRADING_MONITOR_REFRESH_REPORT", default=True,
     )
-    vibe_trading_channels_auto_start: EnvBool = Field(
-        alias="VIBE_TRADING_CHANNELS_AUTO_START", default=False,
+    # Tri-state override for IM channel autostart: unset (None) defers to
+    # ``channels.auto_start`` in agent.json (default true); an explicit
+    # true/false forces the process-wide behaviour. Keeping the unset state
+    # distinct is what lets the Web UI own the default instead of an env var
+    # nobody remembers to set.
+    vibe_trading_channels_auto_start: EnvBool | None = Field(
+        alias="VIBE_TRADING_CHANNELS_AUTO_START", default=None,
     )
     vibe_trading_disable_bottleneck: EnvBool = Field(
         alias="VIBE_TRADING_DISABLE_BOTTLENECK", default=False,
@@ -371,6 +473,13 @@ class PathConfig(_EnvBase):
     """
 
     vibe_trading_hypotheses_path: str = Field(alias="VIBE_TRADING_HYPOTHESES_PATH", default="")
+    vibe_trading_decision_journal_path: str = Field(
+        alias="VIBE_TRADING_DECISION_JOURNAL_PATH", default=""
+    )
+    # Days a journal entry stays valid for the tradable pool. 0 disables expiry.
+    vibe_trading_decision_journal_max_age_days: int = Field(
+        alias="VIBE_TRADING_DECISION_JOURNAL_MAX_AGE_DAYS", default=30, ge=0,
+    )
     vibe_trading_goal_db_path: str = Field(alias="VIBE_TRADING_GOAL_DB_PATH", default="")
     vibe_trading_swarm_agent_config: str = Field(
         alias="VIBE_TRADING_SWARM_AGENT_CONFIG", default="",
@@ -380,6 +489,10 @@ class PathConfig(_EnvBase):
     vibe_goal_session_id: str = Field(alias="VIBE_GOAL_SESSION_ID", default="")
     vibe_trading_strategy_store_db_path: str = Field(
         alias="VIBE_TRADING_STRATEGY_STORE_DB_PATH", default="",
+    )
+    # Paper-book state and daily reports. Empty uses ~/.vibe-trading/paper_book.
+    vibe_trading_paper_book_root: str = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_ROOT", default="",
     )
 
 

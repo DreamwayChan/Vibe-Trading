@@ -11,6 +11,8 @@ const apiMock = vi.hoisted(() => ({
   stopChannels: vi.fn(),
   updateLLMSettings: vi.fn(),
   updateDataSourceSettings: vi.fn(),
+  getChannelSettings: vi.fn(),
+  getPendingPairings: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async () => {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
+import { BookOpen, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
 import { DecisionCard } from "@/components/process/DecisionCard";
@@ -14,6 +14,7 @@ import {
   type MonitorDayOps,
   type MonitorHistorySummary,
   type MonitorHolding,
+  type MonitorJournalEntry,
   type MonitorSuggestion,
   type ProcessDecision,
   type RunData,
@@ -323,6 +324,151 @@ function StrategyDetailModal({
   );
 }
 
+/** `as const` so the values stay literal i18n keys — t() only accepts known keys here. */
+const REASON_I18N = {
+  missing_invalidation: "monitor.reasonMissingInvalidation",
+  missing_thesis: "monitor.reasonMissingThesis",
+  missing_position: "monitor.reasonMissingPosition",
+  missing_risk: "monitor.reasonMissingRisk",
+  missing_journal: "monitor.reasonMissingJournal",
+  missing_validation: "monitor.reasonMissingValidation",
+  validation_unreadable: "monitor.reasonValidationUnreadable",
+  config_unreadable: "monitor.reasonConfigUnreadable",
+  costs_not_applied: "monitor.reasonCostsNotApplied",
+  missing_monte_carlo: "monitor.reasonMissingMonteCarlo",
+  missing_bootstrap: "monitor.reasonMissingBootstrap",
+  missing_walk_forward: "monitor.reasonMissingWalkForward",
+  monte_carlo_failed: "monitor.reasonMonteCarloFailed",
+  bootstrap_failed: "monitor.reasonBootstrapFailed",
+  walk_forward_failed: "monitor.reasonWalkForwardFailed",
+  monte_carlo_p_value: "monitor.reasonMonteCarloPValue",
+  bootstrap_ci_lower: "monitor.reasonBootstrapCi",
+  walk_forward_consistency: "monitor.reasonWalkForwardConsistency",
+  hypothesis_not_found: "monitor.reasonHypothesisNotFound",
+  invalid_timestamp: "monitor.reasonInvalidTimestamp",
+  missing_timestamp: "monitor.reasonMissingTimestamp",
+  journal_unreadable: "monitor.reasonJournalUnreadable",
+  stale_journal: "monitor.reasonStaleJournal",
+  admission_error: "monitor.reasonAdmissionError",
+  not_actionable: "monitor.reasonNotActionable",
+  ashare_st: "monitor.reasonAshareSt",
+  ashare_limit_up: "monitor.reasonAshareLimitUp",
+  ashare_one_word: "monitor.reasonAshareOneWord",
+  ashare_extreme_board: "monitor.reasonAshareExtremeBoard",
+} as const;
+
+type ReasonI18nKey = (typeof REASON_I18N)[keyof typeof REASON_I18N];
+
+const RISK_I18N = {
+  st: "monitor.riskSt",
+  limit_up: "monitor.riskLimitUp",
+  one_word: "monitor.riskOneWord",
+  consecutive_board: "monitor.riskConsecutive",
+  extreme_board: "monitor.riskExtreme",
+} as const;
+
+type RiskI18nKey = (typeof RISK_I18N)[keyof typeof RISK_I18N];
+
+/** Backend sends free-form codes; unknown ones fall through as plain text. */
+function riskLabel(flag: string, t: TFunction): string {
+  const key = (RISK_I18N as Record<string, RiskI18nKey | undefined>)[flag];
+  return key ? t(key) : flag;
+}
+
+function reasonLabel(code: string, t: TFunction): string {
+  const key = (REASON_I18N as Record<string, ReasonI18nKey | undefined>)[code];
+  return key ? t(key) : code;
+}
+
+function barsLabel(source: string | null | undefined, t: TFunction): string {
+  if (!source) return "";
+  if (source === "lake") return t("monitor.barsLake");
+  if (source === "lake+network") return t("monitor.barsLakePlus");
+  if (source === "network") return t("monitor.barsNetwork");
+  return source;
+}
+
+type PoolView = {
+  tradable?: boolean;
+  tradable_reasons?: string[];
+  bars_source?: string | null;
+  validation_gate?: Record<string, unknown> | null;
+};
+
+type GateCheckView = {
+  passed?: boolean;
+  observed?: number | null;
+  threshold?: number | null;
+};
+
+/**
+ * Turn the validation gate payload into a sentence a reader can act on.
+ *
+ * The board used to show only reason codes ("monte_carlo_p_value"), which say
+ * which check failed but not by how much. These notes carry the observed value
+ * and the threshold so the gap is visible; codes covered here are dropped from
+ * the code list to avoid saying the same thing twice.
+ */
+function gateFailureNotes(
+  gate: Record<string, unknown> | null | undefined,
+  t: TFunction,
+): { codes: Set<string>; lines: string[] } {
+  const codes = new Set<string>();
+  const lines: string[] = [];
+  const checks = (gate?.checks ?? null) as Record<string, GateCheckView> | null;
+  if (!checks) return { codes, lines };
+
+  const fmt = (value: number) => (Math.abs(value) >= 1 ? value.toFixed(2) : value.toFixed(3));
+  const push = (code: string, text: string) => {
+    codes.add(code);
+    lines.push(text);
+  };
+
+  const bounds = (check: GateCheckView | undefined) =>
+    check && check.passed === false && typeof check.observed === "number" && typeof check.threshold === "number"
+      ? { observed: fmt(check.observed), threshold: fmt(check.threshold) }
+      : null;
+
+  const mc = bounds(checks.monte_carlo);
+  if (mc) push("monte_carlo_p_value", t("monitor.gateDetailMonteCarlo", mc));
+
+  const bs = bounds(checks.bootstrap);
+  if (bs) push("bootstrap_ci_lower", t("monitor.gateDetailBootstrap", bs));
+
+  const wf = bounds(checks.walk_forward);
+  if (wf) push("walk_forward_consistency", t("monitor.gateDetailWalkForward", wf));
+
+  if (checks.costs && checks.costs.passed === false) {
+    // Only meaningful when an artifact existed: a missing validation.json used
+    // to stamp costs as failed, which read as "this backtest ignored fees".
+    const hasArtifact = Boolean(checks.monte_carlo || checks.bootstrap || checks.walk_forward);
+    if (hasArtifact) push("costs_not_applied", t("monitor.gateDetailCosts"));
+  }
+
+  return { codes, lines };
+}
+
+type JournalSampleKind = "stock" | "strategy";
+
+type JournalSample = {
+  hypothesis: string;
+  symbol: string;
+  thesis: string;
+  invalidation: string;
+  position: string;
+  risk: string;
+};
+
+/** One label/value line in the journal sample gallery. */
+function JournalSampleRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="w-24 shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="flex-1">{value}</dd>
+    </div>
+  );
+}
+
 export function Monitor() {
   const { t } = useTranslation();
   const [board, setBoard] = useState<MonitorBoard | null>(null);
@@ -357,6 +503,54 @@ export function Monitor() {
   const [viewDecision, setViewDecision] = useState<ProcessDecision | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [forecastOpen, setForecastOpen] = useState(false);
+  const [poolOverride, setPoolOverride] = useState<PoolView | null>(null);
+  const [journalHypothesis, setJournalHypothesis] = useState("");
+  const [journalThesis, setJournalThesis] = useState("");
+  const [journalInvalidation, setJournalInvalidation] = useState("");
+  const [journalPosition, setJournalPosition] = useState("");
+  const [journalRisk, setJournalRisk] = useState("");
+  const [journalSymbol, setJournalSymbol] = useState("");
+  const [journalSaving, setJournalSaving] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
+  const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
+  const [journalFilter, setJournalFilter] = useState("");
+  const [journalSampleOpen, setJournalSampleOpen] = useState(false);
+  const [journalSampleKind, setJournalSampleKind] = useState<JournalSampleKind>("stock");
+
+  // Filled examples so the form never looks like a blank wall of fields. The
+  // values are illustrative only; the note under them says what to replace.
+  const journalSamples: Record<JournalSampleKind, JournalSample> = useMemo(
+    () => ({
+      stock: {
+        hypothesis: "",
+        symbol: "600519",
+        thesis: t("monitor.journalSampleStockThesis"),
+        invalidation: t("monitor.journalSampleStockInvalidation"),
+        position: t("monitor.journalSampleStockPosition"),
+        risk: t("monitor.journalSampleStockRisk"),
+      },
+      strategy: {
+        hypothesis: "",
+        symbol: "",
+        thesis: t("monitor.journalSampleStrategyThesis"),
+        invalidation: t("monitor.journalSampleStrategyInvalidation"),
+        position: t("monitor.journalSampleStrategyPosition"),
+        risk: t("monitor.journalSampleStrategyRisk"),
+      },
+    }),
+    [t],
+  );
+  const activeJournalSample = journalSamples[journalSampleKind];
+
+  const applyJournalSample = () => {
+    setJournalHypothesis(activeJournalSample.hypothesis);
+    setJournalSymbol(activeJournalSample.symbol);
+    setJournalThesis(activeJournalSample.thesis);
+    setJournalInvalidation(activeJournalSample.invalidation);
+    setJournalPosition(activeJournalSample.position);
+    setJournalRisk(activeJournalSample.risk);
+    setJournalError(null);
+  };
 
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
@@ -367,6 +561,7 @@ export function Monitor() {
     setSchedule(sched || DEFAULT_SCHEDULE);
     // Live board always shows the latest snapshot until the user picks history.
     setHistoryAsOf(null);
+    setPoolOverride(null);
     setViewHoldings(next.holdings || []);
     setViewOps(next.ops || { entered: [], exited: [], held: [] });
     setViewDecision(next.decision || null);
@@ -528,6 +723,7 @@ export function Monitor() {
   const selectHistoryDay = async (asOf: string | null) => {
     if (!asOf) {
       setHistoryAsOf(null);
+      setPoolOverride(null);
       setViewHoldings(board?.holdings || []);
       setViewOps(board?.ops || { entered: [], exited: [], held: [] });
       setViewDecision(board?.decision || null);
@@ -538,6 +734,16 @@ export function Monitor() {
     try {
       const detail = await api.getMonitorHistoryDay(asOf, runId.trim() || undefined);
       setHistoryAsOf(asOf);
+      setPoolOverride(
+        typeof detail.tradable === "boolean"
+          ? {
+              tradable: detail.tradable,
+              tradable_reasons: detail.tradable_reasons,
+              bars_source: detail.bars_source,
+              validation_gate: detail.validation_gate,
+            }
+          : null,
+      );
       setViewHoldings(detail.holdings || []);
       setViewOps(detail.ops || { entered: [], exited: [], held: [] });
       setViewDecision(detail.decision || null);
@@ -545,6 +751,63 @@ export function Monitor() {
       setError(e instanceof Error ? e.message : t("monitor.historyLoadFailed"));
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const pool: PoolView | null =
+    poolOverride ??
+    (board && typeof board.tradable === "boolean"
+      ? {
+          tradable: board.tradable,
+          tradable_reasons: board.tradable_reasons,
+          bars_source: board.bars_source,
+          validation_gate: board.validation_gate,
+        }
+      : null);
+  const gateNotes = pool && !pool.tradable ? gateFailureNotes(pool.validation_gate, t) : null;
+  const remainingPoolReasons = (pool?.tradable_reasons || []).filter(
+    (code) => !gateNotes?.codes.has(code),
+  );
+  const strategyBound = Boolean(runId.trim() || board?.strategy?.shadow_id);
+
+  const strategyKey = `${board?.strategy?.type ?? ""}:${board?.strategy?.run_id ?? ""}:${board?.strategy?.shadow_id ?? ""}`;
+
+  const refreshJournal = async () => {
+    if (!strategyBound) {
+      setJournalRows([]);
+      return;
+    }
+    try {
+      const rows = await api.listMonitorJournal(50, journalFilter.trim().toUpperCase());
+      setJournalRows(Array.isArray(rows) ? rows : []);
+    } catch {
+      setJournalRows([]);
+    }
+  };
+
+  useEffect(() => {
+    void refreshJournal();
+  }, [strategyKey, strategyBound, journalFilter]);
+
+  const saveDecision = async () => {
+    if (journalSaving || !strategyBound) return;
+    setJournalSaving(true);
+    setJournalError(null);
+    try {
+      const next = await api.recordMonitorSignal({
+        hypothesis_id: journalHypothesis.trim() || undefined,
+        thesis: journalThesis.trim() || undefined,
+        invalidation: journalInvalidation.trim() || undefined,
+        planned_position: journalPosition.trim() || undefined,
+        planned_risk: journalRisk.trim() || undefined,
+        symbol: journalSymbol.trim() || undefined,
+      });
+      applyBoard(next);
+      await refreshJournal();
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : t("monitor.journalFailed"));
+    } finally {
+      setJournalSaving(false);
     }
   };
 
@@ -765,6 +1028,216 @@ export function Monitor() {
         </div>
       )}
 
+      <div className="rounded-lg border p-4 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{t("monitor.journalTitle")}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("monitor.journalHint")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setJournalSampleOpen((open) => !open)}
+            aria-expanded={journalSampleOpen}
+            aria-controls="journal-sample"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            {journalSampleOpen ? t("monitor.journalSampleHide") : t("monitor.journalSampleToggle")}
+          </button>
+        </div>
+        {pool && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">{t("monitor.gateTitle")}</span>
+            <span
+              className={cn(
+                "inline-flex rounded px-1.5 py-0.5 text-xs font-medium",
+                pool.tradable
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+              )}
+            >
+              {pool.tradable ? t("monitor.gateIn") : t("monitor.gateOut")}
+            </span>
+            {pool.bars_source && (
+              <span className="text-xs text-muted-foreground">
+                {t("monitor.barsSource", { source: barsLabel(pool.bars_source, t) })}
+              </span>
+            )}
+            {remainingPoolReasons.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {remainingPoolReasons.map((code) => reasonLabel(code, t)).join(" · ")}
+              </span>
+            )}
+            {gateNotes && gateNotes.lines.length > 0 && (
+              <p className="w-full text-xs text-amber-700 dark:text-amber-400">
+                {gateNotes.lines.join(" · ")}
+              </p>
+            )}
+          </div>
+        )}
+        {journalSampleOpen && (
+          <div
+            id="journal-sample"
+            data-testid="journal-sample"
+            className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3"
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(["stock", "strategy"] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => setJournalSampleKind(kind)}
+                  aria-pressed={journalSampleKind === kind}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs",
+                    journalSampleKind === kind
+                      ? "bg-background font-medium"
+                      : "text-muted-foreground hover:bg-background",
+                  )}
+                >
+                  {kind === "stock" ? t("monitor.journalSampleStock") : t("monitor.journalSampleStrategy")}
+                </button>
+              ))}
+            </div>
+            <dl className="flex flex-col gap-1 text-xs">
+              <JournalSampleRow
+                label={t("monitor.journalSymbol")}
+                value={activeJournalSample.symbol || t("monitor.journalSampleSymbolBlank")}
+              />
+              <JournalSampleRow label={t("monitor.journalThesis")} value={activeJournalSample.thesis} />
+              <JournalSampleRow label={t("monitor.journalInvalidation")} value={activeJournalSample.invalidation} />
+              <JournalSampleRow label={t("monitor.journalPosition")} value={activeJournalSample.position} />
+              <JournalSampleRow label={t("monitor.journalRisk")} value={activeJournalSample.risk} />
+            </dl>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t("monitor.journalSampleNote")}</p>
+            <button
+              type="button"
+              onClick={applyJournalSample}
+              className="inline-flex w-fit items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-xs hover:bg-muted"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t("monitor.journalSampleFill")}
+            </button>
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input
+            type="text"
+            value={journalHypothesis}
+            onChange={(e) => setJournalHypothesis(e.target.value)}
+            placeholder={t("monitor.journalHypothesis")}
+            aria-label={t("monitor.journalHypothesis")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+          <input
+            type="text"
+            value={journalSymbol}
+            onChange={(e) => setJournalSymbol(e.target.value)}
+            placeholder={t("monitor.journalSymbol")}
+            aria-label={t("monitor.journalSymbol")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
+          />
+          <input
+            type="text"
+            value={journalThesis}
+            onChange={(e) => setJournalThesis(e.target.value)}
+            placeholder={t("monitor.journalThesis")}
+            aria-label={t("monitor.journalThesis")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalInvalidation}
+            onChange={(e) => setJournalInvalidation(e.target.value)}
+            placeholder={t("monitor.journalInvalidation")}
+            aria-label={t("monitor.journalInvalidation")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalPosition}
+            onChange={(e) => setJournalPosition(e.target.value)}
+            placeholder={t("monitor.journalPosition")}
+            aria-label={t("monitor.journalPosition")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+          <input
+            type="text"
+            value={journalRisk}
+            onChange={(e) => setJournalRisk(e.target.value)}
+            placeholder={t("monitor.journalRisk")}
+            aria-label={t("monitor.journalRisk")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={saveDecision}
+            disabled={journalSaving || saving || scanning || resetting || !strategyBound}
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          >
+            {journalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {journalSaving ? t("monitor.journalSaving") : t("monitor.journalSubmit")}
+          </button>
+          {journalError && <span className="text-sm text-destructive">{journalError}</span>}
+        </div>
+        {strategyBound && (
+          <div className="flex flex-col gap-2 border-t pt-3" data-testid="journal-history">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-medium">{t("monitor.journalHistoryTitle")}</h3>
+              <input
+                type="text"
+                value={journalFilter}
+                onChange={(e) => setJournalFilter(e.target.value)}
+                placeholder={t("monitor.journalHistoryFilter")}
+                aria-label={t("monitor.journalHistoryFilter")}
+                className="w-40 px-2 py-1 rounded-md border bg-background text-xs font-mono"
+              />
+            </div>
+            {journalRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("monitor.journalHistoryEmpty")}</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {journalRows.map((row) => (
+                  <li key={row.signal_id} className="rounded-md border px-3 py-2 text-xs flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-muted-foreground">{row.timestamp}</span>
+                      <span className="font-mono">{row.symbol || t("monitor.journalWholeStrategy")}</span>
+                      <span
+                        title={t("monitor.journalFieldsHint")}
+                        className={cn(
+                          "inline-flex rounded px-1.5 py-0.5 font-medium",
+                          row.tradable
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                            : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                        )}
+                      >
+                        {row.tradable ? t("monitor.journalFieldsComplete") : t("monitor.journalFieldsMissing")}
+                      </span>
+                      {row.stale && (
+                        <span className="inline-flex rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">
+                          {t("monitor.journalStale", { days: row.age_days ?? 0 })}
+                        </span>
+                      )}
+                      {row.block_reasons.length > 0 && (
+                        <span className="text-muted-foreground">
+                          {row.block_reasons.map((code) => reasonLabel(code, t)).join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                    {row.thesis && <div>{row.thesis}</div>}
+                    <div className="text-muted-foreground">
+                      {[row.invalidation, row.planned_position, row.planned_risk].filter(Boolean).join(" · ")}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
       {viewDecision && (
         <div className="rounded-lg border p-4 flex flex-col gap-3">
           <HorizonStrip
@@ -966,13 +1439,39 @@ export function Monitor() {
               <tbody>
                 {suggestions.map((row) => (
                   <tr key={`${row.symbol}-${row.action}-${row.as_of}`} className="border-t">
-                    <td className="px-3 py-2 font-mono">{row.symbol}</td>
+                    <td className="px-3 py-2 font-mono">
+                      <span>{row.symbol}</span>
+                      {(row.risk_flags || []).map((flag) => (
+                        <span
+                          key={flag}
+                          className="ml-1 inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                        >
+                          {riskLabel(flag, t)}
+                        </span>
+                      ))}
+                    </td>
                     <td className="px-3 py-2 font-mono tabular-nums">{formatPrice(row.price)}</td>
                     <td className={cn("px-3 py-2", positionClass(row.position))}>
                       {positionLabel(row.position, t)}
                     </td>
                     <td className={cn("px-3 py-2 uppercase", actionClass(row.action))}>
                       {row.action}
+                      {typeof row.tradable === "boolean" &&
+                        (row.action === "buy" || row.action === "sell") && (
+                          <span
+                            className={cn(
+                              "ml-2 inline-flex rounded px-1 py-0.5 text-[10px] font-medium normal-case",
+                              row.tradable
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                            )}
+                            title={(row.block_reasons || [])
+                              .map((code) => reasonLabel(code, t))
+                              .join(" · ")}
+                          >
+                            {row.tradable ? t("monitor.signalTradable") : t("monitor.signalBlocked")}
+                          </span>
+                        )}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{row.reason}</td>
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">

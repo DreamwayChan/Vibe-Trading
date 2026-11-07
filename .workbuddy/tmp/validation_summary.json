@@ -1,0 +1,196 @@
+[
+  {
+    "run_id": "20260725_184000_05_F0_drug_129",
+    "status": "FAIL",
+    "reasons": [
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.073,
+    "ci_lower": -0.8796,
+    "consistency_rate": 0.6,
+    "profit_windows": "3/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260725_184000_05_F0_robot_124_178",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.041,
+    "ci_lower": 0.4269,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260725_193311_05_F0_aiapp_171",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value",
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.165,
+    "ci_lower": -0.3871,
+    "consistency_rate": 0.6,
+    "profit_windows": "3/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260726_084500_03_F0_machine_171_054",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.001,
+    "ci_lower": 0.7121,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260726_113500_01_ETF_F0",
+    "status": "FAIL",
+    "reasons": [
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.015,
+    "ci_lower": -0.6803,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260726_123500_03_F0_vrar_077",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value"
+    ],
+    "p_value_sharpe": 0.246,
+    "ci_lower": 0.3836,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260726_131500_03_F0_copper_081_160",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.0,
+    "ci_lower": 1.168,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260729_135623_02_F1_broker",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value",
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.843,
+    "ci_lower": -0.9753,
+    "consistency_rate": 0.6,
+    "profit_windows": "3/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260730_162800_03_F0_autoparts_100_081",
+    "status": "FAIL",
+    "reasons": [
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.02,
+    "ci_lower": -0.0859,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260730_162800_03_F0_foodbev_127",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.015,
+    "ci_lower": 0.0431,
+    "consistency_rate": 0.6,
+    "profit_windows": "3/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260730_162800_03_F0_speceq_127_111",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value"
+    ],
+    "p_value_sharpe": 0.124,
+    "ci_lower": 0.4575,
+    "consistency_rate": 1.0,
+    "profit_windows": "5/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260731_tech3_05_F0_compute_178_156",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.077,
+    "ci_lower": 1.7533,
+    "consistency_rate": 1.0,
+    "profit_windows": "5/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260731_tech3_05_F0_memory_185_070",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.023,
+    "ci_lower": 0.8512,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260821_160000_03_F0_cro_171_075",
+    "status": "PASS",
+    "reasons": [],
+    "p_value_sharpe": 0.002,
+    "ci_lower": 0.3403,
+    "consistency_rate": 1.0,
+    "profit_windows": "5/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260821_163600_03_F0_cro0899_171_054",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value",
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.347,
+    "ci_lower": -0.0655,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20260827_090400_05_F0_coking_slowbull_no_timing",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value",
+      "bootstrap_ci_lower"
+    ],
+    "p_value_sharpe": 0.504,
+    "ci_lower": -0.8933,
+    "consistency_rate": 0.6,
+    "profit_windows": "3/5",
+    "cost_aware": true
+  },
+  {
+    "run_id": "20261103_204727_05_F0_trendstock_vsumn60__cord30_ksft",
+    "status": "FAIL",
+    "reasons": [
+      "monte_carlo_p_value"
+    ],
+    "p_value_sharpe": 0.543,
+    "ci_lower": 1.2119,
+    "consistency_rate": 0.8,
+    "profit_windows": "4/5",
+    "cost_aware": true
+  }
+]

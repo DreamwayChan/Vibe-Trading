@@ -569,3 +569,167 @@ def test_forecast_save_rejects_empty_items(
         },
     )
     assert response.status_code == 400
+
+
+def _bind_run(home: Path, monkeypatch: pytest.MonkeyPatch, run_id: str) -> Path:
+    """Point RUNS_DIR at a temp tree and bind the monitor to that run."""
+    from src.config.accessor import reset_env_config
+
+    runs = home / "runs"
+    run_dir = runs / run_id
+    code = run_dir / "code"
+    code.mkdir(parents=True)
+    (code / "signal_engine.py").write_text("class SignalEngine:\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr("src.monitor.scan.RUNS_DIR", runs)
+    monkeypatch.setattr("src.api.helpers.RUNS_DIR", runs)
+    reset_env_config()
+    save_monitor(
+        MonitorConfig(
+            symbols=["600519.SH"],
+            strategy=StrategyRef(type="run_dir", run_id=run_id),
+            suggestions=[
+                MonitorSuggestion(
+                    symbol="600519.SH",
+                    action="buy",
+                    reason="signal crossed into long",
+                    as_of="2024-06-07",
+                )
+            ],
+        )
+    )
+    return run_dir
+
+
+def test_post_signal_downgrades_without_invalidation(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bind_run(home, monkeypatch, "20260101_000000_00_api01")
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tradable"] is False
+    assert "missing_invalidation" in body["tradable_reasons"]
+    assert body["suggestions"][0]["tradable"] is False
+    journal = home / ".vibe-trading" / "decision_journal.json"
+    assert journal.is_file()
+    saved = journal.read_text(encoding="utf-8")
+    assert "missing_invalidation" in saved
+
+
+def test_post_signal_strict_rejects_and_does_not_write(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bind_run(home, monkeypatch, "20260101_000000_00_api02")
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+            "strict": True,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "not tradable: missing_invalidation"
+    assert not (home / ".vibe-trading" / "decision_journal.json").exists()
+
+
+def test_post_signal_admits_when_journal_and_gate_pass(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    run_id = "20260101_000000_00_api03"
+    run_dir = _bind_run(home, monkeypatch, run_id)
+    (run_dir / "config.json").write_text(
+        json.dumps({"source": "local", "interval": "1D", "codes": ["600519.SH"]}),
+        encoding="utf-8",
+    )
+    artifacts = run_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "validation.json").write_text(
+        json.dumps(
+            {
+                "monte_carlo": {"p_value_sharpe": 0.01},
+                "bootstrap": {"ci_lower": 0.3},
+                "walk_forward": {"consistency_rate": 0.8},
+                "cost_aware": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    response = client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "Names revert after a gap.",
+            "invalidation": "Exit on a close above the gap high.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tradable"] is True
+    assert body["suggestions"][0]["tradable"] is True
+    assert body["decision_signal"]["invalidation"] == "Exit on a close above the gap high."
+    assert body["validation_gate"]["passed"] is True
+
+
+def test_get_journal_history_for_bound_strategy(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert client.get("/monitor/journal").json() == []
+    _bind_run(home, monkeypatch, "20260101_000000_00_api09")
+    client.post("/monitor/signal", json={"thesis": "t", "symbol": "aapl"})
+    client.post("/monitor/signal", json={"thesis": "t2"})
+
+    rows = client.get("/monitor/journal").json()
+    assert len(rows) == 2
+    assert rows[0]["thesis"] == "t2"
+    assert "missing_invalidation" in rows[0]["block_reasons"]
+    only = client.get("/monitor/journal", params={"symbol": "AAPL"}).json()
+    assert [row["symbol"] for row in only] == ["AAPL"]
+    assert client.get("/monitor/journal", params={"limit": 0}).status_code == 422
+
+
+def test_journal_history_marks_expired_rows(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """History reports expiry on read; ``tradable`` stays the write-time snapshot."""
+    _bind_run(home, monkeypatch, "20260101_000000_00_api10")
+    client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "old call",
+            "invalidation": "close above high",
+            "planned_position": "2% NAV",
+            "planned_risk": "0.4% NAV",
+            "timestamp": "2020-01-01T00:00:00Z",
+        },
+    )
+    client.post(
+        "/monitor/signal",
+        json={
+            "thesis": "fresh call",
+            "invalidation": "close above high",
+            "planned_position": "2% NAV",
+            "planned_risk": "0.4% NAV",
+        },
+    )
+
+    rows = client.get("/monitor/journal").json()
+    fresh, old = rows[0], rows[1]
+    assert fresh["stale"] is False
+    assert fresh["age_days"] == 0
+    # All hard fields are present, so the stored verdict never changes...
+    assert old["tradable"] is True
+    # ...but the row is past the 30-day window the admission gate enforces.
+    assert old["stale"] is True
+    assert old["age_days"] > 30

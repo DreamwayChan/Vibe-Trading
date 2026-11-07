@@ -4537,7 +4537,14 @@ def _dispatch_connector(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser with subcommands and compatibility flags."""
-    parser = argparse.ArgumentParser(description="Vibe-Trading CLI")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Vibe-Trading CLI. Default A-share path: lake → hypothesis → "
+            "cost backtest → validation gate → tradable → paper-book. "
+            "prop_* prompts and the custom factor zoo are research-only "
+            "(CAPABILITY.md)."
+        )
+    )
     parser.add_argument("--version", action="version", version=f"vibe-trading {_VERSION}")
     parser.add_argument("-p", "--prompt", type=str, help="Prompt text")
     parser.add_argument("-f", "--prompt-file", type=Path, help="Read prompt text from a file")
@@ -4778,6 +4785,25 @@ def _build_parser() -> argparse.ArgumentParser:
     # Hypothesis Registry subcommands
     from src.hypotheses.cli_handlers import add_subparser as _add_hypothesis_subparser
     _add_hypothesis_subparser(subparsers)
+
+    paper = subparsers.add_parser(
+        "paper-book",
+        help="A-share paper book (default closed-loop endpoint)",
+        description=(
+            "Settle one session, or a calendar range of sessions, from tradable "
+            "monitor signals. Default path: lake → hypothesis → cost backtest → "
+            "validation gate → tradable → paper-book."
+        ),
+    )
+    paper.add_argument(
+        "paper_args",
+        nargs=argparse.REMAINDER,
+        help=(
+            "step --date YYYY-MM-DD [--run-id ID] | "
+            "soak --days 20 --end YYYY-MM-DD [--run-id ID] | "
+            "show --book-id ID [--window]"
+        ),
+    )
 
     return parser
 
@@ -5654,6 +5680,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hypothesis":
         from src.hypotheses.cli_handlers import dispatch as _hyp_dispatch
         return _coerce_exit_code(_hyp_dispatch(args))
+    if args.command == "paper-book":
+        from src.paper_book.cli import main as _paper_main
+        return _paper_main(list(getattr(args, "paper_args", None) or []))
     if args.command == "connector":
         return _coerce_exit_code(_dispatch_connector(args))
     if args.command == "memory":

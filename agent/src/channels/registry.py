@@ -19,7 +19,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_INTERNAL = frozenset({"base", "bus", "config", "manager", "pairing", "registry", "runtime", "utils"})
+_INTERNAL = frozenset({
+    "auth", "base", "bus", "config", "logbuffer", "manager", "pairing", "registry",
+    "runtime", "utils",
+})
 _LEGACY_GLOBAL_CONFIG_KEYS = frozenset(
     {"restrictToWorkspace", "restrict_to_workspace", "showReasoning", "show_reasoning"}
 )
@@ -72,6 +75,7 @@ class ChannelAvailability:
     display_name: str
     error: str = ""
     install_hint: str = ""
+    auth_kind: str = "credentials"
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable availability payload."""
@@ -81,6 +85,7 @@ class ChannelAvailability:
             "display_name": self.display_name,
             "error": self.error,
             "install_hint": self.install_hint,
+            "auth_kind": self.auth_kind,
         }
 
 
@@ -140,6 +145,7 @@ def inspect_channel(name: str) -> ChannelAvailability:
         mod = importlib.import_module(f"src.channels.{name}")
         cls = _channel_class_from_module(mod, name)
         display = getattr(cls, "display_name", name)
+        auth_kind = getattr(cls, "auth_kind", "credentials")
         missing = _missing_optional_dependency(name, mod)
         if missing:
             return ChannelAvailability(
@@ -148,8 +154,14 @@ def inspect_channel(name: str) -> ChannelAvailability:
                 display_name=str(display),
                 error=missing,
                 install_hint=_INSTALL_HINTS.get(name, f"pip install 'vibe-trading-ai[{name}]'"),
+                auth_kind=str(auth_kind),
             )
-        return ChannelAvailability(name=name, available=True, display_name=str(display))
+        return ChannelAvailability(
+            name=name,
+            available=True,
+            display_name=str(display),
+            auth_kind=str(auth_kind),
+        )
     except Exception as exc:  # noqa: BLE001 - status API must report every adapter
         return ChannelAvailability(
             name=name,

@@ -35,6 +35,7 @@ def _make_bar(
     pct_chg: float | None = None,
     trade_date: str | None = None,
     open_: float | None = None,
+    **extra,
 ) -> pd.Series:
     """Build a minimal bar Series for testing."""
     d: dict = {"close": close, "open": open_ or close}
@@ -44,6 +45,7 @@ def _make_bar(
         d["pct_chg"] = pct_chg
     if trade_date is not None:
         d["trade_date"] = pd.Timestamp(trade_date)
+    d.update(extra)
     return pd.Series(d)
 
 
@@ -110,6 +112,36 @@ class TestTPlusOne:
         engine = _make_engine()
         bar = _make_bar(trade_date="2025-06-10")
         assert engine.can_execute("000001.SZ", 0, bar) is True
+
+    def test_t_plus_one_can_be_disabled(self) -> None:
+        engine = _make_engine(t_plus_one=False)
+        engine.positions["000001.SZ"] = Position(
+            symbol="000001.SZ",
+            direction=1,
+            entry_price=15.0,
+            entry_time=pd.Timestamp("2025-06-10"),
+            size=100.0,
+        )
+        bar = _make_bar(trade_date="2025-06-10")
+        assert engine.can_execute("000001.SZ", 0, bar) is True
+
+
+class TestSuspension:
+    def test_zero_volume_is_unfillable(self) -> None:
+        engine = _make_engine()
+        bar = _make_bar(volume=0.0)
+        assert engine.can_execute("000001.SZ", 1, bar) is False
+        assert engine.can_execute("000001.SZ", 0, bar) is False
+
+    def test_missing_volume_column_is_not_a_halt(self) -> None:
+        """Price-only bars (unit fixtures, some overlays) stay tradable."""
+        engine = _make_engine()
+        assert engine.can_execute("000001.SZ", 1, _make_bar()) is True
+
+    def test_suspension_block_can_be_disabled(self) -> None:
+        engine = _make_engine(block_suspension=False)
+        bar = _make_bar(volume=0.0, pre_close=15.0, close=15.2)
+        assert engine.can_execute("000001.SZ", 1, bar) is True
 
 
 # ---------------------------------------------------------------------------
