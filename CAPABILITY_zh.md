@@ -14,7 +14,7 @@
 |---|---|---|
 | 数据湖 | 已结算日线。北京时间的「今天」不会被写成一根完成的 K 线。 | `agent/src/data/lake.py` |
 | 假设 | 一条日志：论点（或假设 id）、失效条件、计划仓位、计划风险、时间戳。 | `vibe-trading hypothesis`，`agent/src/hypotheses/journal.py` |
-| 计成本回测 | 成交使用 A 股佣金、印花税、过户费、滑点、T+1、涨跌停与停牌规则。 | `agent/backtest/ashare_costs.py` |
+| 计成本回测 | 成交使用 A 股佣金、印花税、过户费、滑点、T+1、ST 禁买、涨跌停与停牌规则。 | `agent/backtest/ashare_costs.py` |
 | 验证门 | 蒙特卡洛、bootstrap、走步检验都要过线，而且回测必须计成本。 | `agent/backtest/validation.py` |
 | 可交易 | 监控池只在日志和验证门都通过时打开。ST、涨停、一字板、三连板以上的买入仍然排除。 | `agent/src/monitor/admission.py` |
 | 纸面账本 | 单日，或按交易日历连续多日。日报加窗口报表：净值、成交、未成交、换手，以及相对绑定回测的累计偏离。偏离超过阈值仍会取消可交易。单名仓位上限，回撤过大则停止新开仓。 | `vibe-trading paper-book` 或 `python -m src.paper_book` |
@@ -53,6 +53,7 @@ vibe-trading cost-compare <run_dir>
 | `slippage` | 0 | 0.001 |
 | `t_plus_one` | false（允许当日卖出） | true |
 | `block_suspension` | false（停牌和零成交可以成交） | true |
+| `block_st_buy` | false（允许买入 ST/*ST） | true |
 | `enforce_price_limits` | false（涨停可以买、跌停可以卖） | true |
 
 融券卖空仍然禁止。买入仍然向下取整到 100 股。可交易性面板可以仍然挂在两次运行上，两边看到的是同一个对象；`block_suspension` 和 `enforce_price_limits` 为 false 时，无成本路径不使用停牌标记和涨跌停价。`enforce_price_limits` 没有环境变量。不写这个键就保持计成本默认。
@@ -63,7 +64,7 @@ vibe-trading cost-compare <run_dir>
 
 - 持有期：数日到数周，不是秒级。
 - 方向：只做多。卖出只卖掉账本里已经有的股份（T+1）。
-- 规模：中小资金。纸面初始资金默认 `1000000`。单只股票默认不超过盯市净值的 **20%**（`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`）。自高点回撤达到 **15%** 后停止新买入（`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`）。卖出照常结算。
+- 规模：中小资金。纸面初始资金默认 `1000000`。单只股票默认不超过盯市净值的 **20%**（`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`）。自高点回撤达到 **15%** 后停止新买入（`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`）。可选买入流动性上限（`VIBE_TRADING_PAPER_BOOK_MAX_VOLUME_RATIO`）会把单只股票当日买入股数限制在该 K 线成交量的一定比例（0 表示关闭）。卖出照常结算。
 - A 股风险标记（K 线或可交易性面板能支撑时才标）：
   - **涨停** 与 **一字板**（开在涨停价，最低价没有离开涨停价）
   - **ST**（面板 `is_st`、K 线上的标记，或名称以 `ST` / `*ST` 开头）

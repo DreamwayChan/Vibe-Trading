@@ -111,10 +111,12 @@ class TestEnvConfigDefaults:
         assert c.data.vibe_trading_ashare_slippage == pytest.approx(0.001)
         assert c.data.vibe_trading_ashare_tplus1 is True
         assert c.data.vibe_trading_ashare_block_suspension is True
+        assert c.data.vibe_trading_ashare_block_st_buy is True
         assert c.data.vibe_trading_paper_book_deviation_threshold == pytest.approx(0.05)
         assert c.data.vibe_trading_paper_book_initial_cash == pytest.approx(1_000_000.0)
         assert c.data.vibe_trading_paper_book_max_position == pytest.approx(0.20)
         assert c.data.vibe_trading_paper_book_max_drawdown == pytest.approx(0.15)
+        assert c.data.vibe_trading_paper_book_max_volume_ratio == pytest.approx(0.0)
         assert c.data.aliyun_iqs_api_key == ""
         assert c.data.longbridge_app_key == ""
         assert c.data.longbridge_app_secret == ""

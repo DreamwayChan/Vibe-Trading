@@ -63,6 +63,7 @@ def step_day(
     initial_cash: float | None = None,
     max_position: float | None = None,
     max_drawdown: float | None = None,
+    max_volume_ratio: float | None = None,
     engine: ChinaAEngine | None = None,
 ) -> DailyReport:
     """Settle ``as_of`` from tradable signals, lake (or injected) bars, and the saved book.
@@ -127,6 +128,7 @@ def step_day(
 
     max_position = _fraction("max position", _position_cap(max_position))
     max_drawdown = _fraction("max drawdown", _drawdown_cap(max_drawdown))
+    max_volume_ratio = _ratio_or_disabled("max volume ratio", _volume_ratio_cap(max_volume_ratio))
     fills, unfilled, cap_skipped, risk, replay_intents = _apply_intents(
         state,
         day=day,
@@ -135,6 +137,7 @@ def step_day(
         engine=fill_engine,
         max_position=max_position,
         max_drawdown=max_drawdown,
+        max_volume_ratio=max_volume_ratio,
         apply_caps=fresh_session,
         prior_risk=prior_risk,
     )
@@ -284,6 +287,7 @@ def _apply_intents(
     engine: ChinaAEngine,
     max_position: float,
     max_drawdown: float,
+    max_volume_ratio: float,
     apply_caps: bool,
     prior_risk: dict[str, Any] | None = None,
 ) -> tuple[list[Fill], list[Unfilled], list[dict[str, str]], dict[str, Any], list[Intent]]:
@@ -300,6 +304,7 @@ def _apply_intents(
     _mark_positions(state, bars)
     nav, _market = _nav(state)
     cap_skipped: list[dict[str, str]] = []
+    liquidity_clipped: list[str] = []
     if apply_caps:
         buys, cap_skipped, risk = session_caps(
             state,
@@ -308,6 +313,8 @@ def _apply_intents(
             max_drawdown=max_drawdown,
             nav=nav,
         )
+        risk["max_volume_ratio"] = max_volume_ratio
+        risk["liquidity_clipped"] = []
     else:
         # Replay keeps the saved buys. Recompute the mark so the report still
         # shows today's drawdown, and keep the clip list from the first pass.
@@ -322,18 +329,40 @@ def _apply_intents(
         risk = {
             "max_position": max_position,
             "max_drawdown": max_drawdown,
+            "max_volume_ratio": max_volume_ratio,
             "peak_nav": peak,
             "nav_before_buys": nav,
             "drawdown": drawdown,
             "drawdown_blocked": blocked,
             "clipped": clipped,
+            "liquidity_clipped": [str(item) for item in (stored.get("liquidity_clipped") or [])],
         }
     for intent in buys:
-        fill, row = _buy_intent(state, day=day, intent=intent, bars=bars, engine=engine, nav=nav)
+        fill, row = _buy_intent(
+            state,
+            day=day,
+            intent=intent,
+            bars=bars,
+            engine=engine,
+            nav=nav,
+            max_volume_ratio=max_volume_ratio,
+            liquidity_clipped=liquidity_clipped,
+        )
         if fill is not None:
             fills.append(fill)
         if row is not None:
             unfilled.append(row)
+    if liquidity_clipped:
+        seen: set[str] = set()
+        merged: list[str] = []
+        for symbol in [*risk.get("liquidity_clipped", []), *liquidity_clipped]:
+            text = str(symbol or "").strip().upper()
+            if text and text not in seen:
+                seen.add(text)
+                merged.append(text)
+        risk["liquidity_clipped"] = merged
+    elif "liquidity_clipped" not in risk:
+        risk["liquidity_clipped"] = []
     return fills, unfilled, cap_skipped, risk, sells + buys
 
 
@@ -379,6 +408,8 @@ def _buy_intent(
     bars: Mapping[str, pd.Series],
     engine: ChinaAEngine,
     nav: float,
+    max_volume_ratio: float,
+    liquidity_clipped: list[str] | None = None,
 ) -> tuple[Fill | None, Unfilled | None]:
     if intent.target_weight <= 0:
         return None, None
@@ -392,8 +423,16 @@ def _buy_intent(
     slipped = float(engine.apply_slippage(ref, 1))
     target_value = intent.target_weight * nav
     target_shares = int(engine.round_size(target_value / slipped, slipped)) if slipped > 0 else 0
+    desired_target = target_shares
     held = state.positions.get(intent.symbol)
     held_shares = held.shares if held is not None else 0
+    volume_cap = _volume_limit_shares(bar, max_volume_ratio)
+    if volume_cap is not None and target_shares > volume_cap:
+        target_shares = volume_cap
+        if liquidity_clipped is not None:
+            liquidity_clipped.append(intent.symbol)
+    if desired_target > held_shares and target_shares <= held_shares:
+        return None, Unfilled(intent.symbol, "buy", max(desired_target - held_shares, 0), "liquidity_cap")
     fill, row, cash_after = try_buy(
         engine,
         symbol=intent.symbol,
@@ -536,9 +575,25 @@ def _drawdown_cap(explicit: float | None) -> float:
     return float(get_env_config().data.vibe_trading_paper_book_max_drawdown)
 
 
+def _volume_ratio_cap(explicit: float | None) -> float:
+    if explicit is not None:
+        return float(explicit)
+    from src.config.accessor import get_env_config
+
+    return float(get_env_config().data.vibe_trading_paper_book_max_volume_ratio)
+
+
 def _fraction(label: str, value: float) -> float:
     if value <= 0 or value > 1 or value != value:
         raise PaperBookError(f"{label} must be in (0, 1], got {value}")
+    return value
+
+
+def _ratio_or_disabled(label: str, value: float) -> float:
+    if value == 0:
+        return 0.0
+    if value < 0 or value > 1 or value != value:
+        raise PaperBookError(f"{label} must be in [0, 1], got {value}")
     return value
 
 
@@ -611,3 +666,21 @@ def _bar_on(frame: pd.DataFrame, as_of: str) -> pd.Series | None:
         if not earlier.empty and "close" in earlier.columns:
             data["pre_close"] = float(earlier["close"].iloc[-1])
     return pd.Series(data)
+
+
+def _volume_limit_shares(bar: pd.Series, max_volume_ratio: float) -> int | None:
+    """Board-lot-rounded buy cap from bar volume; ``None`` means disabled/unavailable."""
+    if max_volume_ratio <= 0:
+        return None
+    if "volume" not in getattr(bar, "index", []):
+        return None
+    volume = bar.get("volume")
+    try:
+        if volume is None or pd.isna(volume):
+            return None
+        cap = int(float(volume) * max_volume_ratio)
+    except (TypeError, ValueError):
+        return None
+    if cap <= 0:
+        return 0
+    return max((cap // 100) * 100, 0)

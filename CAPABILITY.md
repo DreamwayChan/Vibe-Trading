@@ -14,7 +14,7 @@ lake → hypothesis → cost-aware backtest → validation gate → tradable →
 |---|---|---|
 | Lake | Settled daily bars. Beijing "today" is not rewritten as a finished bar. | `agent/src/data/lake.py` |
 | Hypothesis | A journal row with a thesis (or hypothesis id), invalidation, planned position, planned risk, and a timestamp. | `vibe-trading hypothesis`, `agent/src/hypotheses/journal.py` |
-| Cost-aware backtest | Fills use A-share commission, stamp, transfer, slippage, T+1, and limit/halt rules. | `agent/backtest/ashare_costs.py` |
+| Cost-aware backtest | Fills use A-share commission, stamp, transfer, slippage, T+1, ST buy blocks, and limit/halt rules. | `agent/backtest/ashare_costs.py` |
 | Validation gate | Monte Carlo, bootstrap, and walk-forward must clear their thresholds on that cost-aware run. | `agent/backtest/validation.py` |
 | Tradable | The monitor pool opens only when the journal and the gate both pass. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. | `agent/src/monitor/admission.py` |
 | Paper book | One session, or a calendar range of consecutive sessions. Daily report plus a window report: NAV, fills, unfilled, turnover, and cumulative deviation versus the bound backtest. A deviation past the threshold still clears `tradable`. Single-name cap and a drawdown cap on new buys. | `vibe-trading paper-book` or `python -m src.paper_book` |
@@ -53,6 +53,7 @@ Frictionless knobs are fixed by `FRICTIONLESS_PROFILE` in `agent/backtest/ashare
 | `slippage` | 0 | 0.001 |
 | `t_plus_one` | false (same-day sells allowed) | true |
 | `block_suspension` | false (halts and zero-volume bars may fill) | true |
+| `block_st_buy` | false (ST/*ST names may be bought) | true |
 | `enforce_price_limits` | false (limit-up buys and limit-down sells may fill) | true |
 
 Short sales stay blocked. Buys still round down to 100-share lots. The tradability panel may still be attached so both legs share it; with `block_suspension` and `enforce_price_limits` false, frictionless does not apply halt flags or price bands. There is no environment switch for `enforce_price_limits`. Omitting it keeps the cost-aware default.
@@ -63,7 +64,7 @@ Sessions come from the A-share calendar (`agent/src/data/calendar.py`). Weekends
 
 - Holding period: days to a few weeks, not seconds.
 - Direction: long only. Exits are sells of shares the book already holds (T+1).
-- Size: mid and small capital. Default paper cash is `1_000_000`. One name defaults to **20%** of marked NAV (`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`). New buys stop after a **15%** peak-to-mark drawdown (`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`). Sells still settle.
+- Size: mid and small capital. Default paper cash is `1_000_000`. One name defaults to **20%** of marked NAV (`VIBE_TRADING_PAPER_BOOK_MAX_POSITION`). New buys stop after a **15%** peak-to-mark drawdown (`VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN`). An optional buy-side participation cap (`VIBE_TRADING_PAPER_BOOK_MAX_VOLUME_RATIO`) limits one symbol's daily buy shares to a ratio of that bar's volume (0 disables). Sells still settle.
 - A-share markers, when the bar or the tradability panel can support them:
   - **limit-up** and **one-word board** (open at the ceiling, low never left it)
   - **ST** (panel `is_st`, a bar flag, or a name starting with `ST` / `*ST`)

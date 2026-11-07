@@ -231,6 +231,9 @@ class DataConfig(_EnvBase):
     vibe_trading_ashare_block_suspension: EnvBool = Field(
         alias="VIBE_TRADING_ASHARE_BLOCK_SUSPENSION", default=True
     )
+    vibe_trading_ashare_block_st_buy: EnvBool = Field(
+        alias="VIBE_TRADING_ASHARE_BLOCK_ST_BUY", default=True
+    )
     # Monitor tradable-pool gate (backtest.validation.evaluate_validation_gate).
     # A strategy stays out of the pool until Monte Carlo, bootstrap, and
     # walk-forward clear these thresholds on a cost-aware artifact.
@@ -279,6 +282,11 @@ class DataConfig(_EnvBase):
     # 0.15 is fifteen percent under the high-water NAV.
     vibe_trading_paper_book_max_drawdown: float = Field(
         alias="VIBE_TRADING_PAPER_BOOK_MAX_DRAWDOWN", default=0.15
+    )
+    # Optional per-session buy-volume cap. 0 disables. Positive values cap one
+    # symbol's buys at ``ratio * bar.volume`` shares before board-lot rounding.
+    vibe_trading_paper_book_max_volume_ratio: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_VOLUME_RATIO", default=0.0
     )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")

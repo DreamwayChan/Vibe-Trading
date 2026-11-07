@@ -16,13 +16,15 @@ Retail cash defaults:
 * T+1 (``t_plus_one``)
 * 涨停不买、跌停不卖 (engine heuristic, or the tradability panel when present)
 * 停牌 / 零成交不成交 (``block_suspension``)
+* ST/*ST 禁买 (``block_st_buy``)
 
 Explicit keys already on the backtest config win. Environment variables win
 over these defaults when the config omits the key. See ``DataConfig`` in
 ``src.config.env_schema`` for the variable names
 (``VIBE_TRADING_ASHARE_COMMISSION_RATE``, ``VIBE_TRADING_ASHARE_STAMP_TAX``,
 ``VIBE_TRADING_ASHARE_SLIPPAGE``, ``VIBE_TRADING_ASHARE_TPLUS1``,
-``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION``, ``VIBE_TRADING_TRADABILITY_PANEL``).
+``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION``, ``VIBE_TRADING_ASHARE_BLOCK_ST_BUY``,
+``VIBE_TRADING_TRADABILITY_PANEL``).
 
 The production default is this cost-aware schedule. A side-by-side view of the
 same strategy with no fees and no limit/halt blocks uses the named
@@ -44,6 +46,7 @@ COST_KEYS = (
     "slippage",
     "t_plus_one",
     "block_suspension",
+    "block_st_buy",
 )
 
 _FALLBACK = {
@@ -54,6 +57,7 @@ _FALLBACK = {
     "slippage": 0.001,
     "t_plus_one": True,
     "block_suspension": True,
+    "block_st_buy": True,
 }
 
 _ENV_FIELDS = {
@@ -64,6 +68,7 @@ _ENV_FIELDS = {
     "slippage": "vibe_trading_ashare_slippage",
     "t_plus_one": "vibe_trading_ashare_tplus1",
     "block_suspension": "vibe_trading_ashare_block_suspension",
+    "block_st_buy": "vibe_trading_ashare_block_st_buy",
 }
 
 
@@ -75,6 +80,7 @@ _ENV_FIELDS = {
 #   commission_rate, commission_min, stamp_tax, transfer_fee, slippage
 #   t_plus_one — same-day sells are allowed (the cost-aware default keeps T+1)
 #   block_suspension — halted names and zero-volume bars may fill
+#   block_st_buy — ST/*ST names may be bought
 #   enforce_price_limits — limit-up buys and limit-down sells may fill.
 #     Both the tradability-panel band and the close-to-close heuristic are
 #     skipped. A panel may still be attached; it is not consulted for bands
@@ -91,6 +97,7 @@ FRICTIONLESS_PROFILE: dict[str, Any] = {
     "slippage": 0.0,
     "t_plus_one": False,
     "block_suspension": False,
+    "block_st_buy": False,
     "enforce_price_limits": False,
 }
 

@@ -24,6 +24,7 @@ and ``VIBE_TRADING_ASHARE_*``):
   ``transfer_fee=0``, ``slippage=0``
 * ``t_plus_one=false`` — same-day sells are allowed
 * ``block_suspension=false`` — halts and zero-volume bars may fill
+* ``block_st_buy=false`` — ST/*ST names may be bought
 * ``enforce_price_limits=false`` — limit-up buys and limit-down sells may
   fill; the tradability-panel band and the close-to-close heuristic are
   both skipped
@@ -64,7 +65,8 @@ _FRICTIONLESS_NOTES = (
     "Named profile frictionless. These keys replace config.json and "
     "VIBE_TRADING_ASHARE_*. commission/stamp/transfer/slippage are zero. "
     "t_plus_one is false (same-day sells allowed). block_suspension is false "
-    "(halted and zero-volume bars may fill). enforce_price_limits is false "
+    "(halted and zero-volume bars may fill). block_st_buy is false "
+    "(ST/*ST names may be bought). enforce_price_limits is false "
     "(limit-up buys and limit-down sells may fill; panel bands and the "
     "close-to-close heuristic are both skipped). Short sales stay blocked. "
     "Buys still round down to 100-share lots. tradability_panel records "
@@ -144,6 +146,7 @@ def _knobs(engine: ChinaAEngine) -> dict[str, Any]:
         "slippage": engine.slippage_rate,
         "t_plus_one": bool(engine.t_plus_one),
         "block_suspension": bool(engine.block_suspension),
+        "block_st_buy": bool(engine.block_st_buy),
         "enforce_price_limits": bool(engine.enforce_price_limits),
         "tradability_panel": engine.tradability_index is not None,
     }

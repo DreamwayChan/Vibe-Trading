@@ -31,6 +31,10 @@ class ChinaAEngine(BaseEngine):
         to allow same-day sells.
       - block_suspension: default True. Zero volume, or a panel halt, does not
         fill. ``VIBE_TRADING_ASHARE_BLOCK_SUSPENSION=0`` turns that off.
+      - block_st_buy: default True. ST/*ST names are buy-blocked from the
+        panel ``is_st`` flag (preferred), then bar ``is_st``, then bar ``name``.
+        Sells are still allowed. ``VIBE_TRADING_ASHARE_BLOCK_ST_BUY=0`` turns
+        this off.
       - enforce_price_limits: default True. Limit-up buys and limit-down
         sells do not fill (panel band, or the close-to-close heuristic when
         the panel cannot answer). The named frictionless profile sets this
@@ -57,6 +61,7 @@ class ChinaAEngine(BaseEngine):
         self.slippage_rate: float = float(config.get("slippage", 0.001))
         self.t_plus_one: bool = bool(config.get("t_plus_one", True))
         self.block_suspension: bool = bool(config.get("block_suspension", True))
+        self.block_st_buy: bool = bool(config.get("block_st_buy", True))
         # Default True so a config that never mentions the key stays cost-aware.
         # ``bool(False)`` is False; an explicit 0 opts out for one run.
         self.enforce_price_limits: bool = bool(config.get("enforce_price_limits", True))
@@ -87,20 +92,25 @@ class ChinaAEngine(BaseEngine):
                 if bar_date is not None and entry_date is not None and bar_date == entry_date:
                     return False
 
-        # 3. Tradability panel (halt + exact price bands), when available.
+        panel_row = self._tradability_row(symbol, bar)
+
+        # 3. ST buy block. Keep sells available so exits can still happen.
+        if direction == 1 and self.block_st_buy and _is_st_row(bar, panel_row):
+            return False
+
+        # 4. Tradability panel (halt + exact price bands), when available.
         #    Authoritative: a halted name is untradable regardless of price, and
         #    the band comes from the exchange's own limit prices rather than a
         #    close-to-close approximation.
-        panel_row = self._tradability_row(symbol, bar)
         if panel_row is not None:
             return self._panel_allows(direction, bar, panel_row)
 
-        # 4. No panel: a zero-volume (or missing-volume) bar is a halt. The
+        # 5. No panel: a zero-volume (or missing-volume) bar is a halt. The
         #    exchange published no trade, so the order cannot fill.
         if self.block_suspension and _bar_suspended(bar):
             return False
 
-        # 5. Fallback heuristic: price limits from the bar's own move
+        # 6. Fallback heuristic: price limits from the bar's own move
         return self._heuristic_allows(symbol=symbol, direction=direction, bar=bar)
 
     def _tradability_row(self, symbol: str, bar: pd.Series):
@@ -261,6 +271,19 @@ def _row_suspended(row: dict) -> bool:
     return bool(value)
 
 
+def _row_is_st(row: dict) -> bool:
+    """True when the panel marks the symbol as ST on this session."""
+    value = row.get("is_st")
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    try:
+        if value is None or pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        return bool(value)
+    return bool(value)
+
+
 def _bar_suspended(bar: pd.Series) -> bool:
     """True when the bar itself shows no trade (halt / 停牌).
 
@@ -277,6 +300,35 @@ def _bar_suspended(bar: pd.Series) -> bool:
         return float(volume) <= 0
     except (TypeError, ValueError):
         return True
+
+
+def _bar_is_st(bar: pd.Series) -> bool:
+    """Best-effort ST marker from bar fields."""
+    if "is_st" in getattr(bar, "index", []):
+        value = bar.get("is_st")
+        if isinstance(value, str):
+            if value.strip().lower() in {"1", "true", "yes", "y"}:
+                return True
+        else:
+            try:
+                if value is not None and not pd.isna(value) and bool(value):
+                    return True
+            except (TypeError, ValueError):
+                if bool(value):
+                    return True
+
+    name = bar.get("name") if hasattr(bar, "get") else None
+    text = str(name or "").strip().upper().replace(" ", "")
+    if not text:
+        return False
+    return text.startswith("*ST") or text.startswith("ST") or text.startswith("S*ST")
+
+
+def _is_st_row(bar: pd.Series, panel_row: dict | None) -> bool:
+    """Resolve ST status with the same source priority as tradability rules."""
+    if panel_row is not None and _row_is_st(panel_row):
+        return True
+    return _bar_is_st(bar)
 
 
 def _panel_value(row: dict, key: str):

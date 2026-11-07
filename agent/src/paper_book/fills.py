@@ -10,6 +10,7 @@ from __future__ import annotations
 from backtest.engines.china_a import (
     ChinaAEngine,
     _bar_date,
+    _is_st_row,
     _bar_suspended,
     _calc_pct_change,
     _panel_value,
@@ -62,6 +63,8 @@ def explain_block(
             return "t_plus_one"
 
     panel = engine._tradability_row(symbol, bar)
+    if direction == 1 and engine.block_st_buy and _is_st_row(bar, panel):
+        return "st"
     if panel is not None and engine.block_suspension and _row_suspended(panel):
         return "suspended"
     if panel is None and engine.block_suspension and _bar_suspended(bar):

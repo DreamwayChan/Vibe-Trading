@@ -145,6 +145,57 @@ class TestSuspension:
 
 
 # ---------------------------------------------------------------------------
+# can_execute: ST buy block
+# ---------------------------------------------------------------------------
+
+
+class _Panel:
+    def __init__(self, row: dict) -> None:
+        self._row = dict(row)
+
+    def get(self, symbol, day):  # noqa: ANN001
+        return dict(self._row)
+
+
+class TestStBuyBlock:
+    def test_st_buy_blocked_from_bar_flag(self) -> None:
+        engine = _make_engine()
+        bar = _make_bar(is_st=True, close=10.2, pre_close=10.0)
+        assert engine.can_execute("600001.SH", 1, bar) is False
+
+    def test_st_buy_blocked_from_name(self) -> None:
+        engine = _make_engine()
+        bar = _make_bar(name="*ST示例", close=10.2, pre_close=10.0)
+        assert engine.can_execute("600001.SH", 1, bar) is False
+
+    def test_st_buy_blocked_from_panel_flag(self) -> None:
+        panel = _Panel({
+            "symbol": "600001.SH",
+            "is_st": True,
+            "is_suspended": False,
+            "limit_up": 11.0,
+            "limit_down": 9.0,
+            "band_mismatch": False,
+        })
+        engine = _make_engine(tradability_index=panel)
+        bar = _make_bar(close=10.2, pre_close=10.0, trade_date="2025-06-10")
+        assert engine.can_execute("600001.SH", 1, bar) is False
+
+    def test_st_buy_block_can_be_disabled(self) -> None:
+        engine = _make_engine(block_st_buy=False)
+        bar = _make_bar(is_st=True, close=10.2, pre_close=10.0)
+        assert engine.can_execute("600001.SH", 1, bar) is True
+
+    def test_st_sell_still_allowed(self) -> None:
+        engine = _make_engine()
+        engine.positions["600001.SH"] = Position(
+            "600001.SH", 1, 10.0, pd.Timestamp("2025-06-09"), 100.0,
+        )
+        bar = _make_bar(is_st=True, close=10.0, pre_close=10.0, trade_date="2025-06-10")
+        assert engine.can_execute("600001.SH", 0, bar) is True
+
+
+# ---------------------------------------------------------------------------
 # can_execute: price limits (涨跌停)
 # ---------------------------------------------------------------------------
 
