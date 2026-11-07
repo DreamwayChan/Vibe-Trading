@@ -23,6 +23,7 @@ import {
 } from "@/lib/trendAction";
 import { cn } from "@/lib/utils";
 import { SectorPickHistoryChart } from "@/components/charts/SectorPickHistoryChart";
+import { SectorWindPanel } from "@/components/SectorWindPanel";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
 import { TermHint } from "@/components/process/TermHint";
@@ -611,6 +612,8 @@ export function SectorPick() {
           </table>
         </div>
       </div>
+
+      <SectorWindPanel keys={[...enabled]} />
 
       <p className="text-xs text-muted-foreground">{t("sectorPick.disclaimer")}</p>
     </div>

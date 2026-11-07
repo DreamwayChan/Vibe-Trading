@@ -297,6 +297,27 @@ def register_sector_pick_routes(
         save_state(state)
         return _to_response(state)
 
+    @app.post(
+        "/sector-pick/wind-cards",
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_sector_pick_wind_cards(
+        keys: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Research-only: wind-gated, T+1 long-only factor cards per sector."""
+        from src.sector_pick.wind_scan import run_wind_cards
+
+        if keys:
+            try:
+                keys = validate_enabled_keys(keys)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return {"sectors": run_wind_cards(keys)}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("wind-cards failed")
+            raise HTTPException(status_code=500, detail=f"wind-cards failed: {exc}") from exc
+
     @app.get(
         "/sector-pick/history",
         response_model=List[HistorySummaryResponse],

@@ -1074,6 +1074,32 @@
     "historyLoadFailed": "Failed to load history",
     "disclaimer": "This screen does not run SignalEngine. Recommendation skips boards below MA20 or with an empty bound book. Tracking a researched board opens Sector Pick; boards without a recipe stay on this tape and never enter Monitor."
   },
+  "sectorWind": {
+    "title": "Sector wind & factor cards",
+    "hint": "Detects which enabled boards have a validated tailwind (T+1, long-only), then screens library factors inside those boards out of sample.",
+    "run": "Run wind scan",
+    "running": "Scanning…",
+    "empty": "No sectors returned.",
+    "score": "Wind score",
+    "windIc": "Wind IC",
+    "validated": "validated",
+    "notValidated": "not validated",
+    "noCards": "No factor cards: wind not actionable or no factor passed the out-of-sample gate.",
+    "factor": "Factor",
+    "shrunkIc": "Shrunk IC",
+    "icOut": "OOS IC",
+    "tOut": "OOS t",
+    "retire": "Retire when",
+    "retireRule": "{{window}}-day rolling IC < 0, or wind in {{states}}",
+    "disclaimer": "Research only. Entry is next-day open (T+1), long-only; not investment advice and not validated on live data.",
+    "state": {
+      "dormant": "Dormant",
+      "launch": "Launch",
+      "main": "Main",
+      "divergence": "Divergence",
+      "fade": "Fade"
+    }
+  },
   "sectorPick": {
     "title": "Sector Pick",
     "subtitle": "Among researched optimal backtests, rank which board the current tape favors (the map). The execution theme stays locked while its book is healthy; it does not rotate just because another board is rank 1. Switch only on a leftover book, or after a challenger leads for consecutive days with a real score gap. Boards with a leftover strategy book (fewer than 3 names, or one name above 50%) cannot become the lock.",
