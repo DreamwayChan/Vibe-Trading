@@ -31,6 +31,7 @@ from backtest.engines.china_a import ChinaAEngine
 
 from src.monitor.models import HoldingRow, MonitorConfig, MonitorDaySnapshot, MonitorSuggestion
 from src.paper_book.book import _default_book_id, step_day
+from src.paper_book.decay import edge_decay
 from src.paper_book.models import PAPER_BOOK_DEVIATION, WindowReport
 from src.paper_book.store import (
     PaperBookError,
@@ -151,7 +152,7 @@ def step_range(
     )
     save_window(store_root, window)
     logger.info(
-        "paper book %s window %s..%s sessions=%d nav=%.2f deviation=%s downgraded=%s",
+        "paper book %s window %s..%s sessions=%d nav=%.2f deviation=%s downgraded=%s decayed=%s",
         resolved_id,
         window.start,
         window.end,
@@ -159,6 +160,7 @@ def step_range(
         window.nav,
         window.return_deviation,
         window.downgraded,
+        window.decay.get("decayed"),
     )
     return window
 
@@ -483,6 +485,7 @@ def _window_from_reports(
         downgrade_reason=PAPER_BOOK_DEVIATION if downgraded else None,
         downgraded_on=downgraded_on,
         days=days,
+        decay=edge_decay(days),
     )
 
 

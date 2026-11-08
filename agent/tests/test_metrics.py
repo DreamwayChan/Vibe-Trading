@@ -435,3 +435,21 @@ class TestTurnoverMetrics:
         m = calc_metrics(pd.Series(dtype=float), [], 1_000_000, 252)
         assert m["avg_turnover"] == 0.0
         assert m["total_turnover"] == 0.0
+
+
+def test_calc_alpha_beta_recovers_known_exposure() -> None:
+    import numpy as np
+    import pandas as pd
+
+    from backtest.metrics import calc_alpha_beta
+
+    idx = pd.bdate_range("2023-01-02", periods=250)
+    rng = np.random.default_rng(0)
+    bench = pd.Series(rng.normal(0.0005, 0.01, len(idx)), index=idx)
+    port = 1.2 * bench + 0.0004
+    beta, alpha, r2 = calc_alpha_beta(port, bench, 252)
+    assert abs(beta - 1.2) < 1e-6
+    assert abs(alpha - 0.0004 * 252) < 1e-6
+    assert r2 > 0.999
+
+    assert calc_alpha_beta(port, bench * 0.0, 252) == (0.0, 0.0, 0.0)

@@ -263,6 +263,14 @@ class DataConfig(_EnvBase):
     vibe_trading_val_require_walk_forward: EnvBool = Field(
         alias="VIBE_TRADING_VAL_REQUIRE_WALK_FORWARD", default=True
     )
+    # Isolated out-of-sample tail: opt-in, so existing artifacts keep passing.
+    vibe_trading_val_require_out_of_sample: EnvBool = Field(
+        alias="VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE", default=False
+    )
+    # Max relative Sharpe drop from in-sample to out-of-sample (0.5 = 50%).
+    vibe_trading_val_max_oos_degradation: float = Field(
+        alias="VIBE_TRADING_VAL_MAX_OOS_DEGRADATION", default=0.5
+    )
     # Paper book (src.paper_book). Absolute gap between the book's cumulative
     # return and the bound backtest's cumulative return from the same anchor.
     # 0.05 means five percentage points. Above this, the book clears tradable

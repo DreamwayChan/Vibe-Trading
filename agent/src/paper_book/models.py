@@ -275,6 +275,7 @@ class WindowReport:
     downgrade_reason: str | None = None
     downgraded_on: str | None = None
     days: list[dict[str, Any]] = field(default_factory=list)
+    decay: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -302,6 +303,7 @@ class WindowReport:
             "downgrade_reason": self.downgrade_reason,
             "downgraded_on": self.downgraded_on,
             "days": list(self.days),
+            "decay": dict(self.decay),
         }
 
 

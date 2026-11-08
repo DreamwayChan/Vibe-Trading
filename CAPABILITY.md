@@ -29,6 +29,15 @@ python -m src.paper_book show --book-id <id> --window
 
 `POST /paper-book/step` settles one session. `POST /paper-book/soak` settles the range (`{"end": "YYYY-MM-DD", "days": 20}` or `{"start", "end"}`).
 
+### Out-of-sample check (opt-in)
+
+Add `"out_of_sample": {"oos_fraction": 0.3}` to `config["validation"]` to hold out the last 30% of the equity curve. `validation.json` then records in-sample and out-of-sample Sharpe plus `degradation` (relative Sharpe drop). Set `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1` to make the gate require it: `degradation` must stay at or below `VIBE_TRADING_VAL_MAX_OOS_DEGRADATION` (default 0.5) and the out-of-sample Sharpe must be positive. Default is off, so existing artifacts keep passing.
+
+### Alpha / Beta and edge decay
+
+- Backtest `metrics.csv` and the run card now carry `beta`, annualised `alpha`, and `r_squared`, from an OLS of strategy returns on the benchmark returns (`benchmark` in config, otherwise the equal-weight universe). Read `alpha`, not total return: a high return with `beta` near 1 and `alpha` near 0 is market luck.
+- The paper-book window report (`reports/window.json`) has a `decay` block (`src/paper_book/decay.py`). It compares the last 10 sessions with the earlier ones: `recent_sharpe` vs `earlier_sharpe`, `decay` (relative Sharpe drop), and `recent_gap_mean` (paper minus backtest daily return). `decayed` is true when `decay` exceeds 0.5, or when returns turn from positive to negative. It needs at least 20 sessions. It is a warning only and does not change `tradable`.
+
 ## Cost tax, side by side
 
 The default backtest stays cost-aware. To see the same strategy, bars, and window with no fees and no limit or halt blocks, run the named `frictionless` profile next to `ashare_costs`:
