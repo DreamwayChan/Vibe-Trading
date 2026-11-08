@@ -67,6 +67,9 @@ def test_main_writes_strict_json_for_non_finite_results(tmp_path: Path, monkeypa
         "walk_forward_analysis",
         lambda *_args, **_kwargs: {"windows": [{"sharpe": math.nan}]},
     )
+    monkeypatch.setattr(
+        validation, "out_of_sample_split", lambda *_args, **_kwargs: {"oos_sharpe": 0.0}
+    )
 
     result = validation.main(tmp_path)
 

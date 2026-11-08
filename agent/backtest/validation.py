@@ -253,6 +253,47 @@ def walk_forward_analysis(
     }
 
 
+def out_of_sample_split(
+    equity_curve: pd.Series,
+    oos_fraction: float = 0.3,
+    bars_per_year: int = 252,
+    min_bars: int = 20,
+) -> Dict[str, Any]:
+    """Compare in-sample vs. a held-out tail of the equity curve.
+
+    The last ``oos_fraction`` of bars is the out-of-sample segment. A large
+    Sharpe drop (``degradation``) points to overfitting.
+    """
+    if not isinstance(oos_fraction, Real) or isinstance(oos_fraction, bool) or not 0 < oos_fraction < 1:
+        return {"error": f"oos_fraction must be in (0, 1), got {oos_fraction}"}
+    n = len(equity_curve)
+    split = n - int(round(n * float(oos_fraction)))
+    if split < min_bars or n - split < min_bars:
+        return {"error": f"need at least {min_bars} bars in each segment, got {n} total"}
+
+    def _seg(eq: pd.Series) -> tuple[float, float]:
+        rets = eq.pct_change().dropna().values
+        ret = float(eq.iloc[-1] / eq.iloc[0] - 1) if eq.iloc[0] > 0 else 0.0
+        return _sharpe(rets, bars_per_year), ret
+
+    is_sharpe, is_ret = _seg(equity_curve.iloc[:split])
+    # Start the OOS segment at the last in-sample bar so its first return counts.
+    oos_sharpe, oos_ret = _seg(equity_curve.iloc[split - 1 :])
+    if is_sharpe > 0:
+        degradation = max(0.0, (is_sharpe - oos_sharpe) / is_sharpe)
+    else:
+        degradation = 0.0 if oos_sharpe >= is_sharpe else 1.0
+    return {
+        "oos_fraction": float(oos_fraction),
+        "split": str(equity_curve.index[split]),
+        "is_sharpe": round(is_sharpe, 4),
+        "oos_sharpe": round(oos_sharpe, 4),
+        "is_return": round(is_ret, 6),
+        "oos_return": round(oos_ret, 6),
+        "degradation": round(degradation, 4),
+    }
+
+
 # ─── Runner integration ───
 
 
@@ -269,6 +310,7 @@ def run_validation(
       - monte_carlo: {n_simulations, seed}
       - bootstrap: {n_bootstrap, confidence, seed}
       - walk_forward: {n_windows}
+      - out_of_sample: {oos_fraction}
 
     Args:
         config: Backtest config (must contain "validation" key).
@@ -308,6 +350,14 @@ def run_validation(
             equity_curve,
             trades,
             n_windows=wf_cfg.get("n_windows", 5),
+            bars_per_year=bars_per_year,
+        )
+
+    if "out_of_sample" in v_cfg:
+        oos_cfg = v_cfg["out_of_sample"] if isinstance(v_cfg["out_of_sample"], dict) else {}
+        results["out_of_sample"] = out_of_sample_split(
+            equity_curve,
+            oos_fraction=oos_cfg.get("oos_fraction", 0.3),
             bars_per_year=bars_per_year,
         )
 
@@ -569,6 +619,8 @@ class ValidationThresholds:
         require_monte_carlo: bool = True,
         require_bootstrap: bool = True,
         require_walk_forward: bool = True,
+        require_out_of_sample: bool = False,
+        max_oos_degradation: float = 0.5,
     ) -> None:
         self.enabled = bool(enabled)
         self.max_p_value_sharpe = float(max_p_value_sharpe)
@@ -578,6 +630,8 @@ class ValidationThresholds:
         self.require_monte_carlo = bool(require_monte_carlo)
         self.require_bootstrap = bool(require_bootstrap)
         self.require_walk_forward = bool(require_walk_forward)
+        self.require_out_of_sample = bool(require_out_of_sample)
+        self.max_oos_degradation = float(max_oos_degradation)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -589,6 +643,8 @@ class ValidationThresholds:
             "require_monte_carlo": self.require_monte_carlo,
             "require_bootstrap": self.require_bootstrap,
             "require_walk_forward": self.require_walk_forward,
+            "require_out_of_sample": self.require_out_of_sample,
+            "max_oos_degradation": self.max_oos_degradation,
         }
 
 
@@ -612,6 +668,12 @@ def thresholds_from_env() -> ValidationThresholds:
         require_bootstrap=bool(getattr(data, "vibe_trading_val_require_bootstrap", True)),
         require_walk_forward=bool(
             getattr(data, "vibe_trading_val_require_walk_forward", True)
+        ),
+        require_out_of_sample=bool(
+            getattr(data, "vibe_trading_val_require_out_of_sample", False)
+        ),
+        max_oos_degradation=float(
+            getattr(data, "vibe_trading_val_max_oos_degradation", 0.5)
         ),
     )
 
@@ -792,6 +854,36 @@ def evaluate_validation_gate(
             **({"reason": breach_code} if not ok else {}),
         }
 
+    if rules.require_out_of_sample:
+        oos = results.get("out_of_sample")
+        if not isinstance(oos, Mapping):
+            reasons.append("missing_out_of_sample")
+            checks["out_of_sample"] = {"passed": False, "reason": "missing_out_of_sample"}
+        elif oos.get("error"):
+            reasons.append("out_of_sample_failed")
+            checks["out_of_sample"] = {
+                "passed": False,
+                "reason": "out_of_sample_failed",
+                "detail": str(oos.get("error")),
+            }
+        else:
+            deg = _finite(oos.get("degradation"))
+            oos_sharpe = _finite(oos.get("oos_sharpe"))
+            if deg is None or oos_sharpe is None:
+                reasons.append("out_of_sample_failed")
+                checks["out_of_sample"] = {"passed": False, "reason": "out_of_sample_failed"}
+            else:
+                ok = deg <= rules.max_oos_degradation and oos_sharpe > 0
+                if not ok:
+                    reasons.append("out_of_sample_degraded")
+                checks["out_of_sample"] = {
+                    "passed": ok,
+                    "observed": deg,
+                    "oos_sharpe": oos_sharpe,
+                    "threshold": rules.max_oos_degradation,
+                    **({"reason": "out_of_sample_degraded"} if not ok else {}),
+                }
+
     return ValidationGateResult(
         passed=not reasons,
         reasons=reasons,
@@ -874,6 +966,7 @@ def main(run_dir: Path) -> Dict[str, Any]:
         "monte_carlo": monte_carlo_test(trades, initial_capital),
         "bootstrap": bootstrap_sharpe_ci(equity),
         "walk_forward": walk_forward_analysis(equity, trades),
+        "out_of_sample": out_of_sample_split(equity),
         "cost_aware": config_is_cost_aware(config),
         "costs": cost_snapshot(config),
     }

@@ -336,6 +336,9 @@ def calc_metrics(
     bench_return = 0.0
     excess = 0.0
     ir = 0.0
+    beta = 0.0
+    alpha = 0.0
+    r_squared = 0.0
     if bench_ret is not None and len(bench_ret) > 0:
         bench_return = float((1 + bench_ret).prod() - 1)
         excess = total_ret - bench_return
@@ -350,6 +353,8 @@ def calc_metrics(
         )
         if not np.isfinite(ir):
             ir = 0.0
+        if returns_finite:
+            beta, alpha, r_squared = calc_alpha_beta(port_ret, bench_ret, bpy)
 
     return {
         "final_value": float(equity_curve.iloc[-1]),
@@ -368,9 +373,39 @@ def calc_metrics(
         "benchmark_return": round(bench_return, 6),
         "excess_return": round(excess, 6),
         "information_ratio": round(ir, 4),
+        "beta": round(beta, 4),
+        "alpha": round(alpha, 6),
+        "r_squared": round(r_squared, 4),
         "avg_turnover": round(avg_turnover, 6),
         "total_turnover": round(total_turnover, 6),
     }
+
+
+def calc_alpha_beta(
+    port_ret: pd.Series,
+    bench_ret: pd.Series,
+    bars_per_year: int,
+) -> tuple[float, float, float]:
+    """OLS of strategy returns on benchmark returns.
+
+    Returns ``(beta, annualised alpha, r_squared)``. Total return is roughly
+    ``beta * market + alpha``, so alpha is the part the market does not explain.
+    Degenerate inputs (too few bars, flat benchmark) return zeros.
+    """
+    bench = bench_ret.reindex(port_ret.index).fillna(0.0)
+    x = bench.to_numpy(dtype=float)
+    y = port_ret.to_numpy(dtype=float)
+    if len(x) < 3 or not (np.isfinite(x).all() and np.isfinite(y).all()):
+        return 0.0, 0.0, 0.0
+    var_x = float(np.var(x))
+    if var_x < 1e-14:
+        return 0.0, 0.0, 0.0
+    cov = float(np.mean((x - x.mean()) * (y - y.mean())))
+    beta = cov / var_x
+    alpha = (float(y.mean()) - beta * float(x.mean())) * bars_per_year
+    var_y = float(np.var(y))
+    r2 = (cov * cov) / (var_x * var_y) if var_y > 1e-14 else 0.0
+    return beta, alpha, r2
 
 
 def _empty_metrics(initial_cash: float) -> Dict[str, Any]:
@@ -382,5 +417,6 @@ def _empty_metrics(initial_cash: float) -> Dict[str, Any]:
         "win_rate": 0, "profit_loss_ratio": 0, "profit_factor": 0,
         "max_consecutive_loss": 0, "avg_holding_days": 0, "trade_count": 0,
         "benchmark_return": 0, "excess_return": 0, "information_ratio": 0,
+        "beta": 0.0, "alpha": 0.0, "r_squared": 0.0,
         "avg_turnover": 0.0, "total_turnover": 0.0,
     }

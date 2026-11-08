@@ -263,3 +263,44 @@ def test_sqlite_v1_database_gains_gate_columns(tmp_path: Path) -> None:
     assert loaded.bars_source is None
     version = store._conn.execute("PRAGMA user_version").fetchone()[0]
     assert version == 2
+
+
+def _equity(daily: list[float]) -> pd.Series:
+    idx = pd.bdate_range("2023-01-02", periods=len(daily) + 1)
+    return pd.Series([1_000_000.0, *pd.Series(daily).add(1).cumprod() * 1_000_000.0], index=idx)
+
+
+def test_out_of_sample_split_flags_degradation() -> None:
+    from backtest.validation import out_of_sample_split
+
+    good = [0.002, 0.001, 0.003, -0.001] * 25
+    bad = [-0.002, -0.001, 0.0005, -0.003] * 10
+    res = out_of_sample_split(_equity(good + bad), oos_fraction=0.3)
+    assert res["oos_sharpe"] < res["is_sharpe"]
+    assert res["degradation"] > 0.5
+
+    stable = out_of_sample_split(_equity(good * 2), oos_fraction=0.3)
+    assert stable["degradation"] < 0.5
+
+
+def test_out_of_sample_split_rejects_short_or_bad_fraction() -> None:
+    from backtest.validation import out_of_sample_split
+
+    assert "error" in out_of_sample_split(_equity([0.01] * 10))
+    assert "error" in out_of_sample_split(_equity([0.01] * 100), oos_fraction=1.5)
+
+
+def test_gate_out_of_sample_is_opt_in_and_enforced() -> None:
+    base = _passing()
+    assert evaluate_validation_gate(base, config=_ashare_config()).passed is True
+
+    rules = ValidationThresholds(require_out_of_sample=True)
+    missing = evaluate_validation_gate(base, config=_ashare_config(), thresholds=rules)
+    assert missing.reasons == ["missing_out_of_sample"]
+
+    bad = _passing(out_of_sample={"degradation": 0.9, "oos_sharpe": 0.1})
+    gate = evaluate_validation_gate(bad, config=_ashare_config(), thresholds=rules)
+    assert gate.reasons == ["out_of_sample_degraded"]
+
+    ok = _passing(out_of_sample={"degradation": 0.2, "oos_sharpe": 1.0})
+    assert evaluate_validation_gate(ok, config=_ashare_config(), thresholds=rules).passed is True
