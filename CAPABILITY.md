@@ -29,6 +29,8 @@ python -m src.paper_book show --book-id <id> --window
 
 `POST /paper-book/step` settles one session. `POST /paper-book/soak` settles the range (`{"end": "YYYY-MM-DD", "days": 20}` or `{"start", "end"}`).
 
+Monitor reads the latest window for the bound run with `GET /paper-book/{book_id}?window=true` (the book id is the run id). The panel shows NAV, unrealized mark-minus-lot-cost, cumulative deviation, edge decay, and soak progress against 20 sessions, next to whether the board is in the tradable pool. It does not recompute decay or deviation.
+
 ### Out-of-sample check (opt-in)
 
 Add `"out_of_sample": {"oos_fraction": 0.3}` to `config["validation"]` to hold out the last 30% of the equity curve. `validation.json` then records in-sample and out-of-sample Sharpe plus `degradation` (relative Sharpe drop). Set `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1` to make the gate require it: `degradation` must stay at or below `VIBE_TRADING_VAL_MAX_OOS_DEGRADATION` (default 0.5) and the out-of-sample Sharpe must be positive. Default is off, so existing artifacts keep passing.
@@ -50,6 +52,8 @@ vibe-trading cost-compare <run_dir>
 ```
 
 `POST /runs/{run_id}/cost-compare` returns the same JSON and writes `artifacts/cost_compare.json`. `GET /runs/{run_id}` includes that object as `cost_compare` when the file is present. The comparison does not replace `metrics.csv` or the run card. Monitor re-bench stays on the single cost-aware engine.
+
+Monitor shows that comparison for the bound run: zero-cost, after-cost, and delta, including the line “costs ate X%” when the return delta is negative. `GET /runs/{run_id}/cost-compare` reads the artifact. The Compare button calls the same `POST`. The panel does not recompute the tax.
 
 `metrics.delta` is **ashare_costs − frictionless** (the cost tax). A negative `total_return` or `nav` means fees, slippage, or refused limit/halt/T+1 orders reduced the result. `nav` is ending equity (`final_value`). `fill_count` includes opening fills, signal exits, and the terminal liquidation.
 
@@ -100,6 +104,6 @@ These surfaces still load. They are not the default, and they are not evidence a
 - `agent/prop_*.md` — frozen sector and factor prompts
 - `agent/scripts/run_f0_f1_*.py`, `agent/scripts/run_sectors_optimal_*.py` — the batch jobs that wrote those prompts
 - `agent/src/factors/zoo/custom/` — seven unverified theme factors
-- Sector Pick's 「最优」 catalog (`agent/src/sector_pick/catalog.py`) — recipes that point at those prompts
+- Sector Pick's 「最优」 catalog (`agent/src/sector_pick/catalog.py`) — recipes that point at those prompts. Each row is `research_only`. Sector Pick and Market Pick label those recipes research-only so they do not look like a tradable path.
 
-Market Pick, Sector Pick, and the analog forecast remain available as research boards. A name becomes tradable only through the path above.
+Market Pick, Sector Pick, and the analog forecast remain available as research boards. On Monitor, rows that have not cleared the journal and the gate sit on a dashed research board; tradable signals sit on a separate lane. A name becomes tradable only through the path above.

@@ -1,4 +1,7 @@
 import { authHeaders, withAuthTicket } from "@/lib/apiAuth";
+import type { CostCompareReport, PaperBookSnapshot } from "@/lib/loopStatus";
+
+export type { CostCompareReport, PaperBookSnapshot };
 
 const BASE = "";
 
@@ -358,6 +361,12 @@ export const api = {
     return request<CapitalEtfOiReport>(`/capital/etf-oi?${q.toString()}`);
   },
   getCapitalUniverse: () => request<CapitalUniverse>(`/capital/universe`),
+  getCostCompare: (id: string) =>
+    request<CostCompareReport>(`/runs/${encodeURIComponent(id)}/cost-compare`),
+  postCostCompare: (id: string) =>
+    request<CostCompareReport>(`/runs/${encodeURIComponent(id)}/cost-compare`, { method: "POST" }),
+  getPaperBook: (bookId: string) =>
+    request<PaperBookSnapshot>(`/paper-book/${encodeURIComponent(bookId)}?window=true`),
   getRun: (id: string, params: RunDetailParams = {}) => {
     const q = new URLSearchParams();
     if (params.chart_payload) q.set("chart_payload", params.chart_payload);
@@ -1248,6 +1257,8 @@ export interface SectorPickCatalogItem {
   /** Monitor strategy-source title (req.json rename). Board ``name`` is unchanged. */
   run_title?: string | null;
   run_missing?: boolean;
+  /** 「最优」 recipes are frozen research and stay out of the tradable pool. */
+  research_only?: boolean;
 }
 
 export interface SectorPickScore {

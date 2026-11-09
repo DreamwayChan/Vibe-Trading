@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import { BookOpen, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
+import { LoopStatus } from "@/components/monitor/LoopStatus";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
 import { TermHint } from "@/components/process/TermHint";
@@ -20,6 +21,7 @@ import {
   type RunData,
   type RunListItem,
 } from "@/lib/api";
+import type { CostCompareReport, PaperBookSnapshot } from "@/lib/loopStatus";
 import { formatMetricVal, formatRunListOption } from "@/lib/formatters";
 import { sortByTrendAction, trendActionClass, trendActionHintI18nKey, trendActionI18nKey } from "@/lib/trendAction";
 import { cn } from "@/lib/utils";
@@ -388,6 +390,15 @@ function reasonLabel(code: string, t: TFunction): string {
   return key ? t(key) : code;
 }
 
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: number }).status === 404
+  );
+}
+
 function barsLabel(source: string | null | undefined, t: TFunction): string {
   if (!source) return "";
   if (source === "lake") return t("monitor.barsLake");
@@ -481,6 +492,145 @@ function JournalSampleRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SuggestionTable({
+  rows,
+  lane,
+  t,
+  discussHref,
+}: {
+  rows: MonitorSuggestion[];
+  lane: "research" | "tradable";
+  t: TFunction;
+  discussHref: (row: MonitorSuggestion) => string;
+}) {
+  const research = lane === "research";
+  return (
+    <section
+      data-testid={research ? "research-board" : "tradable-signals"}
+      className={cn(
+        "rounded-lg p-3 flex flex-col gap-2",
+        research
+          ? "border border-dashed border-amber-500/60 bg-amber-500/5"
+          : "border border-emerald-500/40 bg-emerald-500/5",
+      )}
+    >
+      <div>
+        <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+          {research ? t("monitor.researchBoardTitle") : t("monitor.tradableLaneTitle")}
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium",
+              research
+                ? "border border-dashed border-amber-500/70 text-amber-800 dark:text-amber-300"
+                : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+            )}
+          >
+            {research ? t("monitor.researchOnly") : t("monitor.laneTradable")}
+          </span>
+        </h3>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {research ? t("monitor.researchBoardHint") : t("monitor.tradableLaneHint")}
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {research ? t("monitor.suggestionsResearchEmpty") : t("monitor.suggestionsTradableEmpty")}
+        </p>
+      ) : (
+        <div className="border rounded-lg overflow-hidden bg-background">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-muted-foreground text-left">
+              <tr>
+                <th className="px-3 py-2 font-medium">{t("monitor.colSymbol")}</th>
+                <th className="px-3 py-2 font-medium">{t("monitor.colPrice")}</th>
+                <th className="px-3 py-2 font-medium">{t("monitor.colPosition")}</th>
+                <th className="px-3 py-2 font-medium">{t("monitor.colAction")}</th>
+                <th className="px-3 py-2 font-medium">{t("monitor.colReason")}</th>
+                <th className="px-3 py-2 font-medium">{t("monitor.colAsOf")}</th>
+                <th className="px-3 py-2 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={`${row.symbol}-${row.action}-${row.as_of}`}
+                  data-lane={lane}
+                  className={cn(
+                    "border-t",
+                    research ? "bg-amber-500/[0.06]" : "bg-emerald-500/[0.07]",
+                  )}
+                >
+                  <td className="px-3 py-2 font-mono">
+                    <span>{row.symbol}</span>
+                    {(row.risk_flags || []).map((flag) => (
+                      <span
+                        key={flag}
+                        className="ml-1 inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                      >
+                        {riskLabel(flag, t)}
+                      </span>
+                    ))}
+                  </td>
+                  <td className="px-3 py-2 font-mono tabular-nums">{formatPrice(row.price)}</td>
+                  <td className={cn("px-3 py-2", positionClass(row.position))}>
+                    {positionLabel(row.position, t)}
+                  </td>
+                  <td className={cn("px-3 py-2 uppercase", actionClass(row.action))}>
+                    {row.action}
+                    {typeof row.tradable === "boolean" &&
+                      (row.action === "buy" || row.action === "sell") && (
+                        <span
+                          className={cn(
+                            "ml-2 inline-flex rounded px-1 py-0.5 text-[10px] font-medium normal-case",
+                            row.tradable
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                              : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                          )}
+                          title={(row.block_reasons || [])
+                            .map((code) => reasonLabel(code, t))
+                            .join(" · ")}
+                        >
+                          {row.tradable ? t("monitor.signalTradable") : t("monitor.signalBlocked")}
+                        </span>
+                      )}
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{row.reason}</td>
+                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{row.as_of}</span>
+                      {row.provisional && (
+                        <span
+                          className="inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                          title={t("monitor.provisionalHint")}
+                        >
+                          {t("monitor.provisional")}
+                        </span>
+                      )}
+                    </div>
+                    {row.data_as_of && row.data_as_of !== row.as_of && (
+                      <div className="text-[11px] opacity-80">
+                        {t("monitor.dataAsOf", { date: row.data_as_of })}
+                      </div>
+                    )}
+                    {row.provisional && row.data_as_of && row.data_as_of === row.as_of && (
+                      <div className="text-[11px] opacity-80">{t("monitor.provisionalHint")}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Link to={discussHref(row)} className="text-xs text-primary hover:underline">
+                      {t("monitor.discuss")}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Monitor() {
   const { t } = useTranslation();
   const [board, setBoard] = useState<MonitorBoard | null>(null);
@@ -535,6 +685,12 @@ export function Monitor() {
   const [journalFilter, setJournalFilter] = useState("");
   const [journalSampleOpen, setJournalSampleOpen] = useState(false);
   const [journalSampleKind, setJournalSampleKind] = useState<JournalSampleKind>("stock");
+  const [costCompare, setCostCompare] = useState<CostCompareReport | null>(null);
+  const [costError, setCostError] = useState<string | null>(null);
+  const [costLoading, setCostLoading] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [paperBook, setPaperBook] = useState<PaperBookSnapshot | null>(null);
+  const [paperError, setPaperError] = useState<string | null>(null);
 
   // Filled examples so the form never looks like a blank wall of fields. The
   // values are illustrative only; the note under them says what to replace.
@@ -645,6 +801,14 @@ export function Monitor() {
   const suggestions = useMemo(
     () => sortSuggestions(board?.suggestions || []),
     [board?.suggestions],
+  );
+  const tradableSuggestions = useMemo(
+    () => suggestions.filter((row) => row.tradable === true),
+    [suggestions],
+  );
+  const researchSuggestions = useMemo(
+    () => suggestions.filter((row) => row.tradable !== true),
+    [suggestions],
   );
   // Same dual-track order as 优选板块: hold → buy_dip → … → reduce.
   const sortedHoldings = useMemo(
@@ -834,6 +998,65 @@ export function Monitor() {
   useEffect(() => {
     void refreshJournal();
   }, [strategyKey, strategyBound, journalFilter]);
+
+  useEffect(() => {
+    const id = runId.trim();
+    if (!id) {
+      setCostCompare(null);
+      setCostError(null);
+      setPaperBook(null);
+      setPaperError(null);
+      setCostLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCostLoading(true);
+    setCostError(null);
+    setPaperError(null);
+    const read = async <T,>(
+      load: () => Promise<T>,
+      fallback: string,
+    ): Promise<{ value: T | null; error: string | null }> => {
+      try {
+        return { value: await load(), error: null };
+      } catch (error) {
+        if (isNotFound(error)) return { value: null, error: null };
+        return {
+          value: null,
+          error: error instanceof Error ? error.message : fallback,
+        };
+      }
+    };
+    (async () => {
+      const [costResult, paperResult] = await Promise.all([
+        read(() => api.getCostCompare(id), t("monitor.costCompareFailed")),
+        read(() => api.getPaperBook(id), t("monitor.paperBookFailed")),
+      ]);
+      if (cancelled) return;
+      setCostCompare(costResult.value);
+      setCostError(costResult.error);
+      setPaperBook(paperResult.value);
+      setPaperError(paperResult.error);
+      setCostLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, t]);
+
+  const runCostCompare = async () => {
+    const id = runId.trim();
+    if (!id || comparing) return;
+    setComparing(true);
+    setCostError(null);
+    try {
+      setCostCompare(await api.postCostCompare(id));
+    } catch (error) {
+      setCostError(error instanceof Error ? error.message : t("monitor.costCompareFailed"));
+    } finally {
+      setComparing(false);
+    }
+  };
 
   const saveDecision = async () => {
     if (journalSaving || !strategyBound) return;
@@ -1082,6 +1305,20 @@ export function Monitor() {
         </div>
       )}
 
+      <LoopStatus
+        runId={runId}
+        cost={costCompare}
+        costError={costError}
+        costLoading={costLoading}
+        comparing={comparing}
+        onCompare={() => {
+          void runCostCompare();
+        }}
+        paper={paperBook}
+        paperError={paperError}
+        tradable={typeof pool?.tradable === "boolean" ? pool.tradable : null}
+      />
+
       <div className="rounded-lg border p-4 flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1326,8 +1563,27 @@ export function Monitor() {
             ) : (
               <ul className="flex flex-col gap-2">
                 {journalRows.map((row) => (
-                  <li key={row.signal_id} className="rounded-md border px-3 py-2 text-xs flex flex-col gap-1">
+                  <li
+                    key={row.signal_id}
+                    data-lane={row.tradable ? "tradable" : "research"}
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-xs flex flex-col gap-1",
+                      row.tradable
+                        ? "border-emerald-500/50 bg-emerald-500/10"
+                        : "border-dashed border-amber-500/60 bg-muted/60",
+                    )}
+                  >
                     <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex rounded px-1.5 py-0.5 font-medium",
+                          row.tradable
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                            : "border border-dashed border-amber-500/70 text-amber-800 dark:text-amber-300",
+                        )}
+                      >
+                        {row.tradable ? t("monitor.laneTradable") : t("monitor.laneResearch")}
+                      </span>
                       <span className="font-mono text-muted-foreground">{row.timestamp}</span>
                       <span className="font-mono">{row.symbol || t("monitor.journalWholeStrategy")}</span>
                       <span
@@ -1549,9 +1805,36 @@ export function Monitor() {
                 {sortedHoldings.map((row) => {
                   const trendKey = trendActionI18nKey(row.trend?.action);
                   const trendHintKey = trendActionHintI18nKey(row.trend?.action);
+                  const alerted = (board?.journal_alerts || []).includes(row.symbol);
+                  const holdingLane =
+                    pool?.tradable === true && !alerted
+                      ? "tradable"
+                      : pool?.tradable === false || alerted
+                        ? "research"
+                        : "unknown";
                   return (
-                  <tr key={`${row.symbol}-${row.action}-${row.data_as_of || ""}`} className="border-t">
-                    <td className="px-3 py-2 font-mono">{row.symbol}</td>
+                  <tr
+                    key={`${row.symbol}-${row.action}-${row.data_as_of || ""}`}
+                    data-lane={holdingLane}
+                    className={cn(
+                      "border-t",
+                      holdingLane === "tradable" && "bg-emerald-500/[0.07]",
+                      holdingLane === "research" && "bg-amber-500/[0.06]",
+                    )}
+                  >
+                    <td className="px-3 py-2 font-mono">
+                      <span>{row.symbol}</span>
+                      {holdingLane === "research" && (
+                        <span className="ml-1.5 inline-flex rounded border border-dashed border-amber-500/70 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300">
+                          {t("monitor.researchOnly")}
+                        </span>
+                      )}
+                      {holdingLane === "tradable" && (
+                        <span className="ml-1.5 inline-flex rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                          {t("monitor.laneTradable")}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono tabular-nums">{formatWeight(row.weight)}</td>
                     <td className={cn("px-3 py-2", holdingActionClass(row.action))}>
                       {holdingActionLabel(row.action, t)}
@@ -1590,102 +1873,25 @@ export function Monitor() {
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold">{t("monitor.suggestions")}</h2>
-        </div>
-
-        {suggestions.length === 0 ? (
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">{t("monitor.suggestions")}</h2>
+        {suggestions.length === 0 && (
           <p className="text-sm text-muted-foreground border rounded-lg p-4">
             {t("monitor.emptySuggestions")}
           </p>
-        ) : (
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground text-left">
-                <tr>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colSymbol")}</th>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colPrice")}</th>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colPosition")}</th>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colAction")}</th>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colReason")}</th>
-                  <th className="px-3 py-2 font-medium">{t("monitor.colAsOf")}</th>
-                  <th className="px-3 py-2 font-medium" />
-                </tr>
-              </thead>
-              <tbody>
-                {suggestions.map((row) => (
-                  <tr key={`${row.symbol}-${row.action}-${row.as_of}`} className="border-t">
-                    <td className="px-3 py-2 font-mono">
-                      <span>{row.symbol}</span>
-                      {(row.risk_flags || []).map((flag) => (
-                        <span
-                          key={flag}
-                          className="ml-1 inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-rose-500/15 text-rose-700 dark:text-rose-300"
-                        >
-                          {riskLabel(flag, t)}
-                        </span>
-                      ))}
-                    </td>
-                    <td className="px-3 py-2 font-mono tabular-nums">{formatPrice(row.price)}</td>
-                    <td className={cn("px-3 py-2", positionClass(row.position))}>
-                      {positionLabel(row.position, t)}
-                    </td>
-                    <td className={cn("px-3 py-2 uppercase", actionClass(row.action))}>
-                      {row.action}
-                      {typeof row.tradable === "boolean" &&
-                        (row.action === "buy" || row.action === "sell") && (
-                          <span
-                            className={cn(
-                              "ml-2 inline-flex rounded px-1 py-0.5 text-[10px] font-medium normal-case",
-                              row.tradable
-                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-                            )}
-                            title={(row.block_reasons || [])
-                              .map((code) => reasonLabel(code, t))
-                              .join(" · ")}
-                          >
-                            {row.tradable ? t("monitor.signalTradable") : t("monitor.signalBlocked")}
-                          </span>
-                        )}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{row.reason}</td>
-                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span>{row.as_of}</span>
-                        {row.provisional && (
-                          <span
-                            className="inline-flex rounded px-1 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                            title={t("monitor.provisionalHint")}
-                          >
-                            {t("monitor.provisional")}
-                          </span>
-                        )}
-                      </div>
-                      {row.data_as_of && row.data_as_of !== row.as_of && (
-                        <div className="text-[11px] opacity-80">
-                          {t("monitor.dataAsOf", { date: row.data_as_of })}
-                        </div>
-                      )}
-                      {row.provisional && row.data_as_of && row.data_as_of === row.as_of && (
-                        <div className="text-[11px] opacity-80">{t("monitor.provisionalHint")}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <Link
-                        to={discussHref(row)}
-                        className="text-xs text-primary hover:underline"
-                      >
-                        {t("monitor.discuss")}
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         )}
+        <SuggestionTable
+          rows={tradableSuggestions}
+          lane="tradable"
+          t={t}
+          discussHref={discussHref}
+        />
+        <SuggestionTable
+          rows={researchSuggestions}
+          lane="research"
+          t={t}
+          discussHref={discussHref}
+        />
       </div>
 
       {detailOpen && runId.trim() && (

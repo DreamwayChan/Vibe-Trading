@@ -268,6 +268,13 @@ export function SectorPick() {
         <div>
           <h1 className="text-2xl font-bold">{t("sectorPick.title")}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t("sectorPick.subtitle")}</p>
+          <p
+            data-testid="sector-research-only"
+            className="mt-2 inline-flex rounded-md border border-dashed border-amber-500/60 bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300"
+            title={t("sectorPick.researchOnlyHint")}
+          >
+            {t("sectorPick.researchOnly")} · {t("sectorPick.researchOnlyHint")}
+          </p>
           <HorizonStrip regime={result?.market_regime} horizons={result?.horizons} />
         </div>
       </div>
@@ -311,6 +318,12 @@ export function SectorPick() {
             {recommended ? (
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="text-lg font-semibold">{recommended.name}</span>
+                <span
+                  className="text-[10px] rounded border border-dashed border-amber-500/70 px-1 py-0.5 text-amber-800 dark:text-amber-300"
+                  title={t("sectorPick.researchOnlyHint")}
+                >
+                  {t("sectorPick.researchOnly")}
+                </span>
                 <LockBadges
                   t={t}
                   mapLeader={mapLeader}
@@ -438,9 +451,17 @@ export function SectorPick() {
 
       <div className="flex flex-col gap-2">
         <div>
-          <h2 className="text-lg font-semibold">
-            {t("sectorPick.holdings")}
-            {holdingsName ? ` · ${holdingsName}` : ""}
+          <h2 className="text-lg font-semibold inline-flex flex-wrap items-center gap-2">
+            <span>
+              {t("sectorPick.holdings")}
+              {holdingsName ? ` · ${holdingsName}` : ""}
+            </span>
+            <span
+              className="text-[10px] rounded border border-dashed border-amber-500/70 px-1 py-0.5 font-medium text-amber-800 dark:text-amber-300"
+              title={t("sectorPick.researchOnlyHint")}
+            >
+              {t("sectorPick.researchOnly")}
+            </span>
           </h2>
           {holdingsRunTitle ? (
             <p className="text-xs text-muted-foreground mt-0.5" title={holdingsCatalog?.run_id}>
@@ -716,6 +737,14 @@ function SectorRow({
             </span>
           ) : null}
         </div>
+        {catalog.research_only !== false && (
+          <div
+            className="mt-0.5 inline-flex w-fit whitespace-nowrap rounded border border-dashed border-amber-500/70 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300"
+            title={t("sectorPick.researchOnlyHint")}
+          >
+            {t("sectorPick.researchOnly")}
+          </div>
+        )}
         {catalog.run_missing ? (
           <div className="text-xs text-destructive mt-0.5">
             {t("sectorPick.runMissing")}

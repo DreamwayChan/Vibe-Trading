@@ -107,6 +107,7 @@ describe("MarketPick page", () => {
     });
     expect(screen.getByText("杂板")).toBeInTheDocument();
     expect(screen.getByText(/Tape only/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Research only").length).toBeGreaterThan(0);
     expect(api.scanMarketPick).not.toHaveBeenCalled();
   });
 

@@ -30,6 +30,9 @@ vi.mock("@/lib/api", () => ({
     saveMonitorForecast: vi.fn(),
     getRun: vi.fn(),
     getRunCode: vi.fn(),
+    getCostCompare: vi.fn(),
+    postCostCompare: vi.fn(),
+    getPaperBook: vi.fn(),
   },
 }));
 
@@ -154,6 +157,15 @@ describe("Monitor page", () => {
     });
     vi.mocked(api.getRunCode).mockResolvedValue({
       "signal_engine.py": "class SignalEngine:\n    pass\n",
+    });
+    vi.mocked(api.getCostCompare).mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }));
+    vi.mocked(api.getPaperBook).mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }));
+    vi.mocked(api.postCostCompare).mockResolvedValue({
+      metrics: {
+        frictionless: { total_return: 0.1, nav: 110000, max_drawdown: -0.04 },
+        ashare_costs: { total_return: 0.082, nav: 108200, max_drawdown: -0.05 },
+        delta: { total_return: -0.018, nav: -1800, max_drawdown: -0.01 },
+      },
     });
   });
 
@@ -345,6 +357,101 @@ describe("Monitor page", () => {
     // row can still be past its expiry window.
     expect(within(history).getByText("Fields complete")).toBeInTheDocument();
     expect(within(history).getByText("Expired 41d")).toBeInTheDocument();
+    expect(within(history).getByText("Research")).toBeInTheDocument();
+    const researchRow = within(history).getByText("Gap reversal fades").closest("li");
+    const tradableRow = within(history).getByText("Old thesis").closest("li");
+    expect(researchRow).toHaveAttribute("data-lane", "research");
+    expect(tradableRow).toHaveAttribute("data-lane", "tradable");
+    expect(researchRow?.className).toContain("border-dashed");
+    expect(tradableRow?.className).not.toContain("border-dashed");
+  });
+
+  it("wires cost-compare and the paper-book window, and splits research from tradable", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["600519.SH"],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: true,
+      suggestions: [
+        {
+          symbol: "600519.SH",
+          action: "buy",
+          position: "long",
+          reason: "cleared the gate",
+          as_of: "2024-01-02",
+          price: 100,
+          tradable: true,
+        },
+        {
+          symbol: "000001.SZ",
+          action: "buy",
+          position: "flat",
+          reason: "still a hypothesis",
+          as_of: "2024-01-02",
+          price: 10,
+          tradable: false,
+          block_reasons: ["missing_invalidation"],
+        },
+      ],
+      holdings: [
+        { symbol: "600519.SH", weight: 0.1, action: "hold", price: 100 },
+        { symbol: "000001.SZ", weight: 0.05, action: "hold", price: 10 },
+      ],
+      journal_alerts: ["000001.SZ"],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+    vi.mocked(api.getCostCompare).mockResolvedValue({
+      metrics: {
+        frictionless: { total_return: 0.1, nav: 110000, max_drawdown: -0.04 },
+        ashare_costs: { total_return: 0.082, nav: 108200, max_drawdown: -0.05 },
+        delta: { total_return: -0.018, nav: -1800, max_drawdown: -0.01 },
+      },
+    });
+    vi.mocked(api.getPaperBook).mockResolvedValue({
+      state: {
+        cash: 900000,
+        positions: {
+          "600519.SH": { last_price: 110, lots: [{ shares: 100, price: 100 }] },
+        },
+      },
+      window: {
+        nav: 1011000,
+        session_count: 12,
+        return_deviation: 0.032,
+        decay: { available: true, decay: 0.41, decayed: false },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId("cost-compare-glance")).toHaveTextContent("Costs ate 1.80%");
+    expect(api.getCostCompare).toHaveBeenCalledWith("run_1");
+    expect(api.getPaperBook).toHaveBeenCalledWith("run_1");
+    const paper = screen.getByTestId("paper-book-glance");
+    expect(paper).toHaveTextContent("Soak day 12/20");
+    expect(paper).toHaveTextContent("deviation 3.20%");
+    expect(paper).toHaveTextContent("decay 0.41");
+    expect(paper).toHaveTextContent("Tradable");
+    expect(screen.getByTestId("paper-book-panel")).toHaveTextContent(/1[,]?011[,]?000\.00|1011000\.00/);
+    expect(screen.getByTestId("paper-book-panel")).toHaveTextContent("Unrealized");
+
+    const research = screen.getByTestId("research-board");
+    const tradable = screen.getByTestId("tradable-signals");
+    expect(within(research).getByText("000001.SZ")).toBeInTheDocument();
+    expect(within(research).getByText("Research only")).toBeInTheDocument();
+    expect(research.className).toContain("border-dashed");
+    expect(within(tradable).getByText("600519.SH")).toBeInTheDocument();
+    expect(within(tradable).getByText("cleared the gate")).toBeInTheDocument();
+    expect(tradable.className).not.toContain("border-dashed");
+
+    await user.click(screen.getByRole("button", { name: "Compare costs" }));
+    expect(api.postCostCompare).toHaveBeenCalledWith("run_1");
   });
 
   it("fills the journal form from the example gallery", async () => {

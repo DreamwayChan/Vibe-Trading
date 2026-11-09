@@ -45,6 +45,7 @@ export default defineConfig(({ mode }) => {
         // must keep proxying to the backend even when Accept is text/html.
         "^/runs/[^/]+/?$": apiProxyWithHtmlFallback,
         "/runs": apiProxy,
+        "/paper-book": apiProxy,
         // Same SPA/API path twin as /correlation — without this proxy, Vite's
         // history fallback serves index.html for fetch("/monitor") too.
         "/monitor": apiProxyWithHtmlFallback,
