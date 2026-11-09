@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 import re
 import threading
 from collections.abc import Callable
@@ -41,6 +40,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pandas as pd
+
+from src.config.accessor import read_env
 
 if TYPE_CHECKING:
     from src.data.hub import StoredBars
@@ -177,7 +178,7 @@ def _include_forming_daily() -> bool:
     An explicit env value wins over the cached config singleton, matching
     :func:`src.data.hub.strict_mode`.
     """
-    raw = os.environ.get("VIBE_TRADING_DAILY_INCLUDE_FORMING", "").strip().lower()
+    raw = read_env("VIBE_TRADING_DAILY_INCLUDE_FORMING").strip().lower()
     if raw in {"1", "true", "yes", "on"}:
         return True
     if raw in {"0", "false", "no", "off"}:

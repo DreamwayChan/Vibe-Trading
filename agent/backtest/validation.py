@@ -367,6 +367,10 @@ def run_validation(
         # still returns {} — callers that skip validation stay unchanged.
         results["cost_aware"] = config_is_cost_aware(config)
         results["costs"] = cost_snapshot(config)
+        # Stamp the annualisation factor too: a later recompute from the CSV
+        # artifacts cannot infer it (a mixed-market run passes None), and using
+        # a different factor would move every Sharpe without the data changing.
+        results["bars_per_year"] = bars_per_year
 
     return results
 
@@ -387,36 +391,76 @@ def _load_equity(run_dir: Path) -> pd.Series:
 
 
 def _load_trades(run_dir: Path) -> List[TradeRecord]:
-    """Load trades from artifacts/trades.csv and convert to TradeRecord list."""
+    """Load trades from artifacts/trades.csv and convert to TradeRecord list.
+
+    ``trades.csv`` holds one row per fill (a buy row and a sell row per round
+    trip), while validation reasons about *closed* trades. Each sell is paired
+    with the oldest unclosed buy of the same code so the record carries the
+    real entry time: walk-forward attributes a trade to a window by
+    ``entry_time``, and using the exit timestamp instead moves trades across
+    window boundaries — the recompute then disagrees with the engine on trade
+    counts even though both read the same file.
+    """
     path = run_dir / "artifacts" / "trades.csv"
     df = pd.read_csv(path)
     if df.empty:
         return []
 
-    # trades.csv has entry+exit row pairs; extract exit rows (they have pnl != 0)
+    has_side = "side" in df.columns
+    open_lots: Dict[str, List[tuple[pd.Timestamp, float]]] = {}
     trades = []
-    exit_rows = df[df["pnl"] != 0].reset_index(drop=True)
-    for _, row in exit_rows.iterrows():
+
+    for _, row in df.iterrows():
+        code = str(row.get("code", ""))
+        timestamp = pd.Timestamp(row.get("timestamp", "2000-01-01"))
+        side = str(row.get("side", "")).strip().lower()
+        price = _row_float(row.get("price", 0))
+        pnl = _row_float(row.get("pnl", 0))
+
+        if has_side and side == "buy":
+            open_lots.setdefault(code, []).append((timestamp, price))
+            continue
+        # An exit row is a sell. A break-even exit (pnl == 0) is still a closed
+        # trade and the engine counts it, so it must not be filtered out here.
+        if not has_side and pnl == 0:
+            continue
+
+        entry_time = timestamp
+        entry_price = 0.0
+        lots = open_lots.get(code)
+        if lots:
+            entry_time, entry_price = lots.pop(0)
+
         hold = pd.to_numeric(row.get("holding_days", 0), errors="coerce")
         holding_bars = 0 if pd.isna(hold) else int(hold)
         trades.append(
             TradeRecord(
-                symbol=str(row.get("code", "")),
-                direction=1 if row.get("side") == "sell" else -1,
-                entry_price=0.0,
-                exit_price=float(row.get("price", 0)),
-                entry_time=pd.Timestamp(row.get("timestamp", "2000-01-01")),
-                exit_time=pd.Timestamp(row.get("timestamp", "2000-01-01")),
+                symbol=code,
+                direction=1 if side == "sell" else -1,
+                entry_price=entry_price,
+                exit_price=price,
+                entry_time=entry_time,
+                exit_time=timestamp,
                 size=float(row.get("qty", 0)),
                 leverage=1.0,
-                pnl=float(row.get("pnl", 0)),
-                pnl_pct=float(row.get("return_pct", 0)),
+                pnl=pnl,
+                pnl_pct=_row_float(row.get("return_pct", 0)),
                 exit_reason=str(row.get("reason", "signal")),
                 holding_bars=holding_bars,
                 commission=0.0,
             )
         )
     return trades
+
+
+def _row_float(value: Any) -> float:
+    """Coerce a CSV cell to float, treating blanks/None as 0.0."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _parse_run_dir(argv: List[str]) -> Path:
@@ -941,9 +985,20 @@ def evaluate_run_validation(
 
 
 def main(run_dir: Path) -> Dict[str, Any]:
-    """Run all three validations on existing backtest artifacts.
+    """Recompute the three validations from an existing run's artifacts.
 
     Reads equity.csv, trades.csv, and config.json from run_dir.
+
+    This is the reconciliation path (§8.3): it must reproduce the numbers the
+    engine wrote, not merely produce plausible ones. Two things are therefore
+    carried over from the run instead of taken from function defaults:
+
+    * the ``validation`` knobs (simulation counts, seeds, window count) — a run
+      that used ``n_simulations=300`` must be rechecked at 300, otherwise every
+      p-value moves for a reason that has nothing to do with the data;
+    * ``bars_per_year`` — recorded in the previous validation.json, because the
+      annualisation factor comes from the run's source/interval and a mixed
+      market run deliberately uses calendar-day annualisation.
 
     Args:
         run_dir: Directory with artifacts/ subdirectory.
@@ -951,7 +1006,7 @@ def main(run_dir: Path) -> Dict[str, Any]:
     Returns:
         Validation results dict.
     """
-    # Load config for initial_cash
+    # Load config for initial_cash, cost schedule, and validation knobs.
     config_path = run_dir / "config.json"
     if config_path.exists():
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -961,6 +1016,7 @@ def main(run_dir: Path) -> Dict[str, Any]:
 
     equity = _load_equity(run_dir)
     trades = _load_trades(run_dir)
+
 
     results = {
         "monte_carlo": monte_carlo_test(trades, initial_capital),
@@ -972,10 +1028,59 @@ def main(run_dir: Path) -> Dict[str, Any]:
     }
 
     out = run_dir / "artifacts" / "validation.json"
+    bars_per_year = _carried_bars_per_year(out, config)
+    effective = _effective_validation_config(config)
+
+
+
     safe_results = write_validation_json(out, results)
 
     print(json.dumps(safe_results, indent=2, allow_nan=False))
     return safe_results
+
+
+def _effective_validation_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return *config* with the three checks always requested.
+
+    ``run_validation`` returns ``{}`` for a run that never asked for validation.
+    The standalone command is only ever pointed at a finished run, and its
+    contract is "recompute all three", so an absent block means "defaults" —
+    not "nothing to do".
+    """
+    effective = dict(config)
+    declared = effective.get("validation")
+    if not isinstance(declared, Mapping) or not declared:
+        effective["validation"] = {"monte_carlo": {}, "bootstrap": {}, "walk_forward": {}}
+    return effective
+
+
+def _carried_bars_per_year(path: Path, config: Mapping[str, Any]) -> int | None:
+    """Annualisation factor to reuse when rechecking a run.
+
+    Prefers the value the engine stamped into its own validation.json (exact
+    by construction). Falls back to the config's interval/source, and finally
+    to 252 daily bars. ``None`` means calendar-day annualisation, which is what
+    a cross-market run uses.
+    """
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        previous = None
+    if isinstance(previous, Mapping):
+        carried = previous.get("bars_per_year")
+        if isinstance(carried, int) and not isinstance(carried, bool) and carried > 0:
+            return carried
+
+    try:
+        from backtest.metrics import calc_bars_per_year
+    except Exception:  # pragma: no cover - metrics is a hard dependency
+        return 252
+    interval = str(config.get("interval") or "1D")
+    source = str(config.get("source") or "tushare")
+    try:
+        return calc_bars_per_year(interval, source)
+    except Exception:
+        return 252
 
 
 if __name__ == "__main__":

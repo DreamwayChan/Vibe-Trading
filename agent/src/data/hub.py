@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Sequence
 
 import pandas as pd
 
+from src.config.accessor import read_env
 from src.data import catalog
 from src.data.registry import REGISTRY, DatasetSpec, spec as get_spec
 
@@ -87,7 +87,7 @@ def now() -> dt.datetime:
 
 def strict_mode() -> bool:
     """True when reads must never read through to the network."""
-    raw = os.environ.get(_STRICT_ENV, "").strip().lower()
+    raw = read_env(_STRICT_ENV).strip().lower()
     if raw in {"1", "true", "yes", "on"}:
         return True
     if raw in {"0", "false", "no", "off"}:

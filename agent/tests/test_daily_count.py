@@ -26,6 +26,10 @@ except DailyOrderLockUnavailable:
 """
     env = os.environ.copy()
     env["HOME"] = str(home)
+    # Windows resolves ``Path.home()`` from USERPROFILE, not HOME. Setting only
+    # HOME made the child write its lock under the developer's real runtime
+    # root, so it never contended with the lock this process holds.
+    env["USERPROFILE"] = str(home)
     env["PYTHONPATH"] = str(repo_root / "agent")
     return subprocess.run(
         [sys.executable, "-c", script],

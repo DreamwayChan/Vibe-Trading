@@ -27,6 +27,21 @@ UPLOADS_DIR = _AGENT_DIR / "uploads"
 AGENT_DIR = _AGENT_DIR
 ENV_PATH = Path.home() / ".vibe-trading" / ".env"
 LEGACY_ENV_PATH = AGENT_DIR / ".env"
+
+
+def force_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 so Windows consoles print the banner.
+
+    A cp936 console raises on the glyphs and box-drawing characters the server
+    prints at startup. Kept here rather than inline so ``api_server.py`` stays a
+    thin assembler (there is a line-count guard on it).
+    """
+    import sys
+
+    for name in ("stdout", "stderr"):
+        reconfigure = getattr(getattr(sys, name, None), "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
 ENV_EXAMPLE_PATH = AGENT_DIR / ".env.example"
 
 

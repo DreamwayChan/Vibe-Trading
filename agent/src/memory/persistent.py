@@ -40,14 +40,52 @@ def content_hash(name: str, description: str, content: str = "") -> str:
 
 @contextmanager
 def memory_lock(memory_dir: Path) -> Generator[bool, None, None]:
-    """Acquire exclusive file lock; yields True if acquired, False on timeout."""
-    if sys.platform == "win32":
-        yield True
-        return
-    import fcntl
+    """Acquire exclusive file lock; yields True if acquired, False on timeout.
 
+    Windows used to yield True without taking any lock, so two processes writing
+    memory at the same time could interleave — the "single-writer model" held
+    only on POSIX. It now takes a real byte-range lock via ``msvcrt`` (the same
+    backend ``live.daily_count`` uses).
+    """
+    memory_dir.mkdir(parents=True, exist_ok=True)
     lock_path = memory_dir / ".lock"
     lock_path.touch(exist_ok=True)
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        handle = open(lock_path, "a+b")  # noqa: SIM115
+        try:
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            deadline = _time.monotonic() + _LOCK_TIMEOUT_S
+            while True:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if _time.monotonic() >= deadline:
+                        logger.warning("memory_lock: timeout after %.1fs", _LOCK_TIMEOUT_S)
+                        yield False
+                        return
+                    _time.sleep(0.1)
+            try:
+                yield True
+            finally:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+        finally:
+            handle.close()
+        return
+
+    import fcntl
+
     fd = None
     try:
         fd = open(lock_path, "w")  # noqa: SIM115

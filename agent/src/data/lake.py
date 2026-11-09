@@ -33,6 +33,8 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
+from src.config.accessor import read_env
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -68,7 +70,7 @@ def lake_root() -> Path:
     except Exception:  # noqa: BLE001 — config import is best-effort
         configured = ""
     if not configured:
-        configured = os.environ.get(LAKE_ROOT_ENV, "")
+        configured = read_env(LAKE_ROOT_ENV)
     if configured.strip():
         return Path(configured).expanduser()
     return Path.home() / ".vibe-trading" / "lake"

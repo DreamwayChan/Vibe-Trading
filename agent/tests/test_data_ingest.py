@@ -260,12 +260,26 @@ def test_tradability_builds_from_stored_daily_bars(lake, sessions, monkeypatch):
 def test_single_flight_rejects_a_second_job(lake, sessions, monkeypatch):
     import time
 
+    import pandas as pd
+
     def _slow(*args, **kwargs):
         time.sleep(0.4)
         return []
 
+    def _no_sina(*args, **kwargs):
+        return pd.DataFrame()
+
+    # An empty tencent answer sends the chain to sina *and then Eastmoney*, both
+    # real HTTP. Left unstubbed the job outlived the 5s wait below and the
+    # assertion depended on whatever the network did that day — the single-flight
+    # rule was never the thing under test. Stub every fallback so the job ends on
+    # its own schedule.
     monkeypatch.setattr("src.data.ingest.bars._tushare_available", lambda: False)
     monkeypatch.setattr("src.data.ingest.bars._fetch_tencent_raw_daily", _slow)
+    monkeypatch.setattr("src.data.ingest.bars._fetch_sina_frame", _no_sina)
+    monkeypatch.setattr(
+        "src.data.ingest.bars._ingest_daily_eastmoney", lambda *args, **kwargs: ""
+    )
 
     queued = ingest.submit("bars_daily", start="2026-09-01", end="2026-09-02", symbols=["600519.SH"])
     try:

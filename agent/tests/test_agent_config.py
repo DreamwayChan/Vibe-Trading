@@ -606,3 +606,137 @@ def test_runtime_load_preserves_mcp_servers_when_opted_in_with_unknown_keys(
     assert set(merged.mcp_servers.keys()) == {"base", "session"}
     assert merged.mcp_servers["session"].command == "uvx"
     assert merged.mcp_servers["session"].args == ["session-mcp"]
+
+
+# --------------------------------------------------------------------------
+# read_env: the escape hatch for module-local, non-schema knobs
+# --------------------------------------------------------------------------
+
+
+def test_read_env_returns_the_value_and_falls_back_on_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "  spaced  ")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "  spaced  "
+
+    monkeypatch.delenv("VIBE_TRADING_TEST_READ_ENV", raising=False)
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == ""
+    assert read_env("VIBE_TRADING_TEST_READ_ENV", "fallback") == "fallback"
+
+
+def test_read_env_treats_an_empty_value_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``os.getenv`` returning ``""`` must not defeat the default.
+
+    Callers do ``read_env(X) or default``; if this returned ``""`` for a *set*
+    empty variable the distinction would be invisible to them anyway, but a
+    caller that only checks ``is None`` would break. Pin the behaviour.
+    """
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV", "fallback") == "fallback"
+
+
+def test_read_env_is_lazy_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The whole reason these knobs are not on the cached singleton.
+
+    A tool interval changed at runtime has to take effect on the next call —
+    ``get_env_config()`` would keep serving the value read at first use.
+    """
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "first")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "first"
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "second")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "second"
+
+
+def test_calendar_offline_flag_follows_the_environment_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leaf module, not the accessor: proves the wiring, not just the helper.
+
+    ``_offline()`` gates whether the calendar may hit the network, so a stale
+    read would be a correctness bug (tests would silently go online) rather
+    than a cosmetic one.
+    """
+    from src.data import calendar
+
+    monkeypatch.delenv("VIBE_TRADING_CALENDAR_OFFLINE", raising=False)
+    assert calendar._offline() is False
+
+    monkeypatch.setenv("VIBE_TRADING_CALENDAR_OFFLINE", "1")
+    assert calendar._offline() is True
+
+    monkeypatch.setenv("VIBE_TRADING_CALENDAR_OFFLINE", "off")
+    assert calendar._offline() is False
+
+
+# --------------------------------------------------------------------------
+# read_env: the escape hatch for module-local, non-schema knobs
+# --------------------------------------------------------------------------
+
+
+def test_read_env_returns_the_value_and_falls_back_on_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "  spaced  ")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "  spaced  "
+
+    monkeypatch.delenv("VIBE_TRADING_TEST_READ_ENV", raising=False)
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == ""
+    assert read_env("VIBE_TRADING_TEST_READ_ENV", "fallback") == "fallback"
+
+
+def test_read_env_treats_an_empty_value_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``os.getenv`` returning ``""`` must not defeat the default.
+
+    Callers do ``read_env(X) or default``; if this returned ``""`` for a *set*
+    empty variable the distinction would be invisible to them anyway, but a
+    caller that only checks ``is None`` would break. Pin the behaviour.
+    """
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV", "fallback") == "fallback"
+
+
+def test_read_env_is_lazy_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The whole reason these knobs are not on the cached singleton.
+
+    A tool interval changed at runtime has to take effect on the next call —
+    ``get_env_config()`` would keep serving the value read at first use.
+    """
+    from src.config.accessor import read_env
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "first")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "first"
+
+    monkeypatch.setenv("VIBE_TRADING_TEST_READ_ENV", "second")
+    assert read_env("VIBE_TRADING_TEST_READ_ENV") == "second"
+
+
+def test_calendar_offline_flag_follows_the_environment_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leaf module, not the accessor: proves the wiring, not just the helper.
+
+    ``_offline()`` gates whether the calendar may hit the network, so a stale
+    read would be a correctness bug (tests would silently go online) rather
+    than a cosmetic one.
+    """
+    from src.data import calendar
+
+    monkeypatch.delenv("VIBE_TRADING_CALENDAR_OFFLINE", raising=False)
+    assert calendar._offline() is False
+
+    monkeypatch.setenv("VIBE_TRADING_CALENDAR_OFFLINE", "1")
+    assert calendar._offline() is True
+
+    monkeypatch.setenv("VIBE_TRADING_CALENDAR_OFFLINE", "off")
+    assert calendar._offline() is False

@@ -42,7 +42,13 @@ jobs:
         # test_e2e_harness_v2.py is gated by VIBE_TRADING_RUN_LIVE_E2E
         # (real-LLM only); list --ignore here so CI's intent is explicit and
         # the suite never silently switches state on env presence.
-        run: pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --cov=agent --cov-report=term-missing --cov-report=xml --tb=short -q
+        #
+        # --disable-socket makes "this test needs the network" a hard failure
+        # instead of a slow, flaky pass that only shows up when a data vendor
+        # rate-limits the runner. Loopback stays open for uvicorn/urllib probes
+        # that bind or dial 127.0.0.1. Measured cost: the suite is 100% offline
+        # (7348 passed, 0 failed), see docs/testing/r3-nonfunctional-report.md.
+        run: pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --disable-socket --allow-hosts=localhost,127.0.0.1,::1 --cov=agent --cov-report=term-missing --cov-report=xml --tb=short -q
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

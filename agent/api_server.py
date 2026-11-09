@@ -18,14 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from rich.console import Console
 
 from cli._version import __version__ as APP_VERSION
+from src.api.helpers import force_utf8_stdio
 from src.ui_services import build_run_analysis, load_run_context  # noqa: F401
 
-# UTF-8 on Windows
-import sys as _sys
-for _s in ("stdout", "stderr"):
-    _r = getattr(getattr(_sys, _s, None), "reconfigure", None)
-    if callable(_r):
-        _r(encoding="utf-8", errors="replace")
+# UTF-8 on Windows — the banner and box drawing would raise on a cp936 console.
+force_utf8_stdio()
 
 # ---------------------------------------------------------------------------
 # Extracted infrastructure — re-exported for route-module and test access

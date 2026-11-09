@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 import types
 
 
@@ -64,16 +65,46 @@ def _alarm_handler(signum, frame) -> None:  # noqa: ANN001
     raise _Hang()
 
 
+def _run_with_timeout(call, seconds: float = 2.0):
+    """Run *call*, raising ``_Hang`` if it exceeds *seconds*.
+
+    POSIX uses ``SIGALRM``. Windows has no ``SIGALRM``, and skipping there would
+    leave the platform most likely to hang unguarded; the regression is a
+    Python-level loop, so a watchdog thread is enough to catch it.
+    """
+    if hasattr(signal, "SIGALRM"):
+        signal.signal(signal.SIGALRM, _alarm_handler)
+        signal.alarm(int(seconds))
+        try:
+            return call()
+        finally:
+            signal.alarm(0)
+
+    box: dict[str, object] = {}
+
+    def _target() -> None:
+        try:
+            box["value"] = call()
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the test thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=_target, name="split-fence-watchdog", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise _Hang(f"splitter still running after {seconds}s")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["value"]
+
+
 def test_split_telegram_markdown_long_fence_body_no_hang() -> None:
     """Long fenced line with no breaks must finish under the production limit."""
     body = "a" * 5000
     content = f"```\n{body}"
-    signal.signal(signal.SIGALRM, _alarm_handler)
-    signal.alarm(2)
-    try:
-        chunks = _split_telegram_markdown(content, TELEGRAM_MAX_MESSAGE_LEN)
-    finally:
-        signal.alarm(0)
+    chunks = _run_with_timeout(
+        lambda: _split_telegram_markdown(content, TELEGRAM_MAX_MESSAGE_LEN)
+    )
 
     assert chunks
     assert all(isinstance(c, str) and c for c in chunks)
@@ -84,12 +115,9 @@ def test_split_telegram_markdown_long_fence_body_no_hang() -> None:
 
 def test_split_telegram_markdown_closed_long_fence_no_hang() -> None:
     content = "```\n" + "x" * 5000 + "\n```"
-    signal.signal(signal.SIGALRM, _alarm_handler)
-    signal.alarm(2)
-    try:
-        chunks = _split_telegram_markdown(content, TELEGRAM_MAX_MESSAGE_LEN)
-    finally:
-        signal.alarm(0)
+    chunks = _run_with_timeout(
+        lambda: _split_telegram_markdown(content, TELEGRAM_MAX_MESSAGE_LEN)
+    )
     assert len(chunks) >= 2
     assert sum(c.count("x") for c in chunks) >= 5000
 
@@ -103,11 +131,6 @@ def test_split_telegram_markdown_nonpositive_max_len_returns_unsplit() -> None:
 def test_split_telegram_markdown_short_fence_mid_limit_no_hang() -> None:
     """Fence at index 0 with mid-size max_len must not rebuild the same chunk."""
     content = '```\n om/yyyyyyyyyyyyyyyyyyyy)\n\na"'
-    signal.signal(signal.SIGALRM, _alarm_handler)
-    signal.alarm(2)
-    try:
-        chunks = _split_telegram_markdown(content, 32)
-    finally:
-        signal.alarm(0)
+    chunks = _run_with_timeout(lambda: _split_telegram_markdown(content, 32))
     assert chunks
     assert "".join(chunks).replace("```", "").count("y") >= content.count("y")

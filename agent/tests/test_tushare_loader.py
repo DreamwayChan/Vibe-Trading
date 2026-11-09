@@ -446,10 +446,20 @@ class TestMergeBasicFieldsGuard:
 
 
 _token = os.getenv("TUSHARE_TOKEN", "")
-_skip_e2e = _token in ("", "your-tushare-token")
+# Live calls are opt-in, matching the ``VIBE_TRADING_RUN_LIVE_E2E`` convention
+# used by the other end-to-end harness. Without the second switch a developer
+# who happens to have a token exports it in one terminal and the suite starts
+# depending on network, quota and account state — and on collection order,
+# because an earlier module can leave TUSHARE_TOKEN behind in os.environ.
+_skip_e2e = _token in ("", "your-tushare-token") or not os.getenv(
+    "VIBE_TRADING_RUN_LIVE_E2E", ""
+)
 
 
-@pytest.mark.skipif(_skip_e2e, reason="TUSHARE_TOKEN not set")
+@pytest.mark.skipif(
+    _skip_e2e,
+    reason="live Tushare calls: set TUSHARE_TOKEN and VIBE_TRADING_RUN_LIVE_E2E=1",
+)
 class TestTushareE2E:
     """Real API calls — requires TUSHARE_TOKEN env var."""
 

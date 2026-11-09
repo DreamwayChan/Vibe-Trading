@@ -88,7 +88,13 @@ def mini_zoo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # monkey-patching sys.path to include tmp_path, then creating an `src`
     # alias that points to `factors/`-as-`src.factors`.
     src_alias = tmp_path / "src"
-    src_alias.symlink_to(tmp_path)
+    try:
+        src_alias.symlink_to(tmp_path)
+    except (OSError, NotImplementedError):
+        # Windows without Developer Mode cannot create directory symlinks
+        # (WinError 1314). The alias is the fixture's whole point, so there is
+        # nothing meaningful to assert without it.
+        pytest.skip("directory symlinks unavailable on this machine")
     monkeypatch.syspath_prepend(str(tmp_path))
     # Reset any cached modules from previous test
     for mod_name in list(sys.modules):

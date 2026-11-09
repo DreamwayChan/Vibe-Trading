@@ -143,6 +143,32 @@ else
     echo "${GREEN}ok${NC}"
 fi
 
+# -------------------------------------------------------------- gate (f)
+# `print(f"[WARN] ...")` is a diagnostic wearing a logger's clothes. stdout is
+# also where the CLI and the MCP tools put their machine-readable payload, so a
+# stray warning lands *inside* the JSON a caller is parsing and turns a clean
+# result into a parse error. Library code therefore has to use `logging`;
+# CLI entry points (whose stdout contract *is* the program's output) and the
+# bundled example/ scripts under skills/ are out of scope.
+#
+# Added in R3 after three such prints were found emitting warnings into stdout
+# (docs/testing/r3-nonfunctional-report.md §6).
+echo "[gate f] no logger-style print() in library code ..."
+F_HITS=$(grep -rn --include='*.py' \
+    --exclude-dir=__pycache__ --exclude-dir=skills \
+    -E "print\([^)]*\[(WARN|WARNING|ERROR|DEBUG|INFO)\]" \
+    agent/src agent/backtest 2>/dev/null \
+    | grep -vE '(^|/)(cli|cli_handlers|_legacy)\.py:' \
+    | grep -vE '(^|/)example[^/]*\.py:' \
+    || true)
+if [ -n "$F_HITS" ]; then
+    echo "${RED}FAIL${NC}: diagnostic print() in library code (use logging):"
+    echo "$F_HITS"
+    FAILED=1
+else
+    echo "${GREEN}ok${NC}"
+fi
+
 # --------------------------------------------------------------- result
 if [ "$FAILED" -ne 0 ]; then
     echo

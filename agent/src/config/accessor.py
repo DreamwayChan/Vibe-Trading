@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.config.env_schema import EnvConfig
 
-__all__ = ["get_env_config", "reset_env_config", "_parse_bool", "get_env_or"]
+__all__ = ["get_env_config", "reset_env_config", "_parse_bool", "get_env_or", "read_env"]
 
 # ---------------------------------------------------------------------------
 # Module-level singleton state
@@ -130,3 +130,28 @@ def get_env_or(primary: str, fallback: str, default: str = "") -> str:
     if value:
         return value
     return default
+
+
+def read_env(name: str, default: str = "") -> str:
+    """Read a single environment variable by name, lazily.
+
+    This is the escape hatch for module-local knobs that are deliberately *not*
+    part of the pydantic :class:`EnvConfig` schema — a tool's own interval, a
+    cache directory override, a feature flag. Such values must stay lazy (a
+    value changed after import has to take effect on the next call), which
+    rules out putting them on the cached singleton.
+
+    It exists so leaf modules never touch ``os.environ`` directly: CI's
+    ``ci_grep_gates.sh`` gate (e) forbids raw reads outside ``src/config/``,
+    because a scattered ``os.getenv`` is invisible to the schema and drifts
+    from the documented names. Reading through here keeps the access in one
+    auditable place while preserving the lazy semantics callers need.
+
+    Args:
+        name: Environment variable name.
+        default: Value returned when the variable is unset or empty.
+
+    Returns:
+        The raw string value, or *default*.
+    """
+    return os.getenv(name) or default

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -60,7 +61,10 @@ def test_config_read_write_masks_key_and_uses_0600(qveris_config_path: Path):
     assert saved.enabled is True
     assert qt.load_qveris_config().api_key == "sk-test-8TI"
     assert qt.mask_api_key("sk-test-8TI") == "sk-t…8TI"
-    assert stat.S_IMODE(qveris_config_path.stat().st_mode) == 0o600
+    if sys.platform != "win32":
+        # Windows has no POSIX mode bits: os.chmod only toggles read-only,
+        # so 0600 cannot be asserted there. The write itself is still tested.
+        assert stat.S_IMODE(qveris_config_path.stat().st_mode) == 0o600
 
 
 def test_env_overrides_file_config(monkeypatch: pytest.MonkeyPatch):

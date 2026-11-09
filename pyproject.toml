@@ -216,6 +216,8 @@ pythonpath = ["agent"]
 markers = [
     "unit: Unit tests (fast, no network)",
     "integration: Integration tests (may need network)",
+    "perf: Wall-clock budget assertions; assert only an upper bound, never a speedup",
+    "soak: Multi-day replay simulations; may take minutes but never touches the network",
 ]
 
 [tool.ruff]

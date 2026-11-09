@@ -1,16 +1,18 @@
 """Environment-variable configuration for the table module.
 
-These are tool-local knobs, so they are read straight from ``os.environ`` rather
-than added to the pydantic :class:`EnvConfig` schema — the same pattern the
-existing tools use for their own intervals (e.g.
-``research_reports_tool._THS_MIN_INTERVAL_ENV``). Reading is lazy: a value
-changed after import still takes effect on the next call.
+These are tool-local knobs, so they stay out of the pydantic
+:class:`EnvConfig` schema — the same pattern the existing tools use for their
+own intervals (e.g. ``research_reports_tool._THS_MIN_INTERVAL_ENV``). Reading is
+lazy: a value changed after import still takes effect on the next call, which is
+why they go through :func:`src.config.accessor.read_env` rather than the cached
+config singleton.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from src.config.accessor import read_env
 
 DEFAULT_MAX_PAGES = 15
 DEFAULT_TIMEOUT_S = 120.0
@@ -28,12 +30,12 @@ _VALID_ENGINES = ("auto", "docling", "heuristic", "off")
 
 
 def _env_str(name: str, default: str) -> str:
-    value = os.environ.get(name)
+    value = read_env(name)
     return value.strip() if value and value.strip() else default
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
+    raw = read_env(name)
     if not raw:
         return default
     try:
@@ -43,7 +45,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
+    raw = read_env(name)
     if not raw:
         return default
     try:
@@ -53,7 +55,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
+    raw = read_env(name)
     if raw is None or not raw.strip():
         return default
     return raw.strip().lower() not in ("0", "false", "no", "off")
@@ -83,7 +85,7 @@ def cache_enabled() -> bool:
 
 def cache_dir() -> Path:
     """On-disk cache root, next to the other ``~/.vibe-trading`` state."""
-    raw = os.environ.get(_CACHE_DIR_ENV)
+    raw = read_env(_CACHE_DIR_ENV)
     if raw and raw.strip():
         return Path(raw.strip()).expanduser()
     return Path.home() / ".vibe-trading" / "cache" / "tables"

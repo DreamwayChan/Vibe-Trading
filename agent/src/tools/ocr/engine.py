@@ -79,8 +79,15 @@ def _discover_plugins() -> dict[str, type]:
 
 
 def _reset_plugin_cache() -> None:
-    """Reset the plugin discovery cache. For test isolation only."""
-    _discover_plugins.cache_clear()
+    """Reset the plugin discovery cache. For test isolation only.
+
+    Tolerates ``_discover_plugins`` having been monkeypatched to a plain
+    function: a stub has no cache to clear, and raising here would fail the
+    test that installed the stub during fixture teardown.
+    """
+    cache_clear = getattr(_discover_plugins, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()
 
 
 def _all_engines() -> dict[str, type]:

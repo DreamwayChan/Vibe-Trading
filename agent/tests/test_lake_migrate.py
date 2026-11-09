@@ -119,7 +119,11 @@ def test_migration_backfills_provenance(root):
     assert set(stored["source"]) == {"unknown"}
     assert stored["vintage"].notna().all()
     manifest = catalog.rebuild("bars_intraday")
-    assert manifest["schema_drift"]["missing"] == []
+    # Migration backfills provenance, not measurements. The pre-migration writer
+    # never recorded `amount`, so it stays in the drift report (honest gap that
+    # points at a re-ingest) instead of being invented as a null column.
+    missing = manifest["schema_drift"]["missing"]
+    assert missing == ["amount"], missing
 
 
 def test_rewrite_forces_normalisation_when_layout_already_matches(root):

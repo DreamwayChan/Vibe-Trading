@@ -9,11 +9,32 @@ import pytest
 from backtest.loaders.akshare_loader import DataLoader, _INTERVAL_MAP_DAILY
 
 
-def test_akshare_a_share_rejects_minute_interval() -> None:
+def test_akshare_a_share_routes_minute_interval_to_intraday_path() -> None:
+    """A minute interval must reach the intraday path, never silently daily.
+
+    ``1m`` used to be rejected outright; the loader now serves it through
+    Eastmoney/Sina (``_fetch_a_share_minute``). What must not change is that it
+    never falls through to the daily endpoint with a remapped period.
+    """
+    ak = MagicMock()
+    loader = DataLoader()
+    seen: dict[str, str] = {}
+
+    def _minute(_ak, code, start, end, interval, **_kwargs):
+        seen.update(code=code, interval=interval)
+        return None
+
+    loader._fetch_a_share_minute = _minute  # type: ignore[method-assign]
+    loader._fetch_a_share(ak, "600519.SH", "2026-01-01", "2026-01-31", "1m")
+    assert seen == {"code": "600519.SH", "interval": "1m"}
+    ak.stock_zh_a_hist.assert_not_called()
+
+
+def test_akshare_a_share_rejects_unknown_interval() -> None:
     ak = MagicMock()
     loader = DataLoader()
     with pytest.raises(ValueError, match="Unsupported interval"):
-        loader._fetch_a_share(ak, "600519.SH", "2026-01-01", "2026-01-31", "1m")
+        loader._fetch_a_share(ak, "600519.SH", "2026-01-01", "2026-01-31", "7x")
     ak.stock_zh_a_hist.assert_not_called()
 
 

@@ -110,7 +110,26 @@ def test_sandbox_credentials_absent_in_this_environment() -> None:
     assert _resolve_sandbox_credentials() is None
 
 
+def _symlinks_supported(tmp: Path) -> bool:
+    """True when this machine may create directory symlinks.
+
+    Windows refuses ``symlink_to`` without Developer Mode or the
+    SeCreateSymbolicLink privilege (WinError 1314). The sandbox home re-exposes
+    loader paths with symlinks, so the behaviour is unavailable there rather
+    than wrong.
+    """
+    target = tmp / "_symlink_target"
+    target.mkdir()
+    try:
+        (tmp / "_symlink_probe").symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        return False
+    return True
+
+
 def test_prepare_sandbox_home_reexposes_only_loader_paths(tmp_path: Path) -> None:
+    if not _symlinks_supported(tmp_path):
+        pytest.skip("directory symlinks unavailable (Windows without Developer Mode)")
     real_home = tmp_path / "home"
     vt = real_home / ".vibe-trading"
     (vt / "cache").mkdir(parents=True)

@@ -3,6 +3,7 @@ import zhCN from "../locales/zh-CN.json";
 import ja from "../locales/ja.json";
 import ko from "../locales/ko.json";
 import ar from "../locales/ar.json";
+import missingKeys from "./i18n-missing-baseline.json";
 import i18n, { SUPPORTED_LANGUAGES, isRtl } from "../index";
 
 // ── helpers ────────────────────────────────────────────────────
@@ -41,6 +42,9 @@ function hasPath(obj: Record<string, unknown>, path: string): boolean {
 
 const enKeys = collectKeys(en as unknown as Record<string, unknown>);
 
+/** Translation debt: keys en.json has but a locale does not yet. */
+const missingBaseline = missingKeys as unknown as Record<string, string[]>;
+
 const locales: Record<string, Record<string, unknown>> = {
   "zh-CN": zhCN as unknown as Record<string, unknown>,
   ja: ja as unknown as Record<string, unknown>,
@@ -49,9 +53,22 @@ const locales: Record<string, Record<string, unknown>> = {
 };
 
 describe("i18n locale parity", () => {
+  // The baseline is shrink-only. A new English key must be translated in every
+  // locale in the same change; the only keys allowed to be absent are the ones
+  // already listed for that locale. When a listed key gets translated, the
+  // "no stale baseline entries" check below forces it out of the file, so the
+  // list can only get shorter.
   it.each(Object.entries(locales))("%s has every key from en.json", (name, locale) => {
-    const missing = enKeys.filter((key) => !hasPath(locale, key));
+    const allowed = new Set(missingBaseline[name] ?? []);
+    const missing = enKeys.filter((key) => !hasPath(locale, key) && !allowed.has(key));
     expect(missing).toEqual([]);
+  });
+
+  it.each(Object.entries(locales))("%s baseline has no stale entries", (name, locale) => {
+    const stale = (missingBaseline[name] ?? []).filter(
+      (key) => hasPath(locale, key) || !enKeys.includes(key),
+    );
+    expect(stale).toEqual([]);
   });
 
   it.each(Object.entries(locales))("%s has no extra keys beyond en.json", (name, locale) => {

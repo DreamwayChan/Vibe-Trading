@@ -34,6 +34,8 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
+from src.config.accessor import read_env
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -86,7 +88,7 @@ def _cache_path():
 
 def _offline() -> bool:
     """True when network access for the calendar is disabled."""
-    return os.environ.get(_OFFLINE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    return read_env(_OFFLINE_ENV).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def clear_cache() -> None:
