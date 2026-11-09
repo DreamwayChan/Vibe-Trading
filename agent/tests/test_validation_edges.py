@@ -235,6 +235,8 @@ class TestThresholds:
             "require_monte_carlo",
             "require_bootstrap",
             "require_walk_forward",
+            "require_out_of_sample",
+            "max_oos_degradation",
         }
 
 

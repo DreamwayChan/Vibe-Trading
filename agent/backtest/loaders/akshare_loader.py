@@ -65,11 +65,18 @@ def _is_forex(code: str) -> bool:
     # Accept the canonical slash form (EUR/USD) too, so the forex fallback
     # chain (mt5 → akshare) actually engages for project-style codes.
     upper = code.upper().removesuffix(".FX").replace("/", "")
-    try:
-        from akshare.forex.cons import symbol_market_map
-    except Exception:
-        return False
-    return upper in symbol_market_map
+    # akshare 1.18+ moved this table from akshare.forex.cons to akshare.fx.
+    # Try the current module, then the old path. If neither imports, fail
+    # closed (not forex) rather than guessing a pair from the ticker shape.
+    for module_name in ("akshare.fx.cons_forex", "akshare.forex.cons"):
+        try:
+            module = __import__(module_name, fromlist=["symbol_market_map"])
+            mapping = getattr(module, "symbol_market_map", None)
+        except Exception:
+            continue
+        if isinstance(mapping, dict):
+            return upper in mapping
+    return False
 
 
 @register

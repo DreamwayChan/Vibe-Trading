@@ -258,15 +258,12 @@ def test_cache_expiry_surfaces_reauth_no_silent_stale_call() -> None:
     path must NOT be retried either (no duplicate side effect).
     """
     from fastmcp.exceptions import McpError
-    from mcp import types as mcp_types
 
     from src.config.schema import MCPServerConfig
     from src.tools.mcp import MCPServerAdapter
 
     # 401 Unauthorized → an auth failure the provider could not silently refresh.
-    auth_error = McpError(
-        mcp_types.ErrorData(code=-32001, message="401 Unauthorized: token expired, re-auth required")
-    )
+    auth_error = McpError(-32001, "401 Unauthorized: token expired, re-auth required")
 
     call_count = {"n": 0}
 

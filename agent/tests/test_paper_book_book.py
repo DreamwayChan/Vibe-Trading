@@ -341,6 +341,7 @@ def test_a_zero_weight_buy_is_not_an_unfilled_row() -> None:
         bars={},
         engine=ChinaAEngine({}),
         nav=1_000_000.0,
+        max_volume_ratio=0.0,
     )
     assert (fill, row) == (None, None)
 
@@ -353,6 +354,7 @@ def test_a_buy_without_a_bar_is_reported_as_missing() -> None:
         bars={},
         engine=ChinaAEngine({}),
         nav=1_000_000.0,
+        max_volume_ratio=0.0,
     )
     assert fill is None
     assert row is not None and row.reason == "missing_bar"
@@ -366,6 +368,7 @@ def test_a_buy_without_nav_cannot_size_a_position() -> None:
         bars={SYMBOL: pd.Series({"open": 10.0, "close": 10.0, "volume": 1e3})},
         engine=ChinaAEngine({}),
         nav=0.0,
+        max_volume_ratio=0.0,
     )
     assert fill is None
     assert row is not None and row.reason == "bad_price"

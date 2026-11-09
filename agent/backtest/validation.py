@@ -1017,21 +1017,20 @@ def main(run_dir: Path) -> Dict[str, Any]:
     equity = _load_equity(run_dir)
     trades = _load_trades(run_dir)
 
-
-    results = {
-        "monte_carlo": monte_carlo_test(trades, initial_capital),
-        "bootstrap": bootstrap_sharpe_ci(equity),
-        "walk_forward": walk_forward_analysis(equity, trades),
-        "out_of_sample": out_of_sample_split(equity),
-        "cost_aware": config_is_cost_aware(config),
-        "costs": cost_snapshot(config),
-    }
-
+    # Carry the run's own knobs and annualisation factor. Computing them and
+    # then calling the checks at their function defaults made a 300-simulation
+    # artifact fail a 1000-simulation recheck, and dropped bars_per_year.
     out = run_dir / "artifacts" / "validation.json"
     bars_per_year = _carried_bars_per_year(out, config)
-    effective = _effective_validation_config(config)
-
-
+    if bars_per_year is None:
+        bars_per_year = 252
+    results = run_validation(
+        _effective_validation_config(config),
+        equity,
+        trades,
+        float(initial_capital),
+        bars_per_year=bars_per_year,
+    )
 
     safe_results = write_validation_json(out, results)
 
