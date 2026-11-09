@@ -303,7 +303,7 @@ def test_build_mcp_tool_wrappers_retries_transient_discovery_failure() -> None:
         "call_calls": 0,
         "call_records": [],
         "list_outcomes": [
-            [McpError(mcp_types.ErrorData(code=mcp_types.CONNECTION_CLOSED, message="Connection closed"))][0],
+            McpError(mcp_types.CONNECTION_CLOSED, "Connection closed"),
             [mcp_types.Tool(name="quote", description="Quote", inputSchema={"type": "object"})],
         ],
         "call_outcomes": [],
@@ -323,9 +323,7 @@ def test_build_mcp_tool_wrappers_single_attempt_does_not_retry_discovery() -> No
     authorize path passes max_list_tools_attempts=1 so the first transient
     failure propagates immediately and exactly one client context is opened.
     """
-    transient = McpError(
-        mcp_types.ErrorData(code=mcp_types.CONNECTION_CLOSED, message="Connection closed")
-    )
+    transient = McpError(mcp_types.CONNECTION_CLOSED, "Connection closed")
     state = {
         "list_calls": 0,
         "call_calls": 0,
