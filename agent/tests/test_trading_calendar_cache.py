@@ -151,6 +151,26 @@ def test_stale_seed_is_refreshed_and_replaced(
     assert cal.calendar_source() == "cache"
 
 
+def test_stale_seed_still_refreshes_in_the_first_minutes_after_boot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_last_refresh_attempt == 0`` means never tried, not tried at boot.
+
+    ``time.monotonic()`` is seconds since boot. Treating 0 as a real attempt
+    skipped the refresh whenever the machine had been up for less than the
+    backoff window, so a fresh runner failed the offline suite.
+    """
+    stale = [dt.date(2019, 1, 2), dt.date(2019, 1, 3)]
+    _seed(stale)
+    fresh = _recent_sessions()
+    monkeypatch.setattr(cal, "_fetch_from_akshare", lambda: fresh)
+    monkeypatch.setattr(cal.time, "monotonic", lambda: 30.0)
+    cal._last_refresh_attempt = 0.0
+
+    assert cal.calendar_dates() == fresh
+    assert cal.calendar_source() == "akshare"
+
+
 # ---------------------------------------------------------------------------
 # Corrupt / foreign cache files
 # ---------------------------------------------------------------------------

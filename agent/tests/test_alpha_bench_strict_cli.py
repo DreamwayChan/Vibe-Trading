@@ -74,15 +74,23 @@ def _legacy_result():
 
 
 def _envelope(out: str) -> dict:
-    """Extract the JSON envelope from mixed stdout (banner lines + JSON)."""
-    start = out.find("\n{")
-    if start < 0:
-        start = out.find("{") if out.lstrip().startswith("{") else -1
-        if start < 0:
-            raise AssertionError(f"no JSON envelope in stdout: {out[:200]!r}")
-    else:
-        start += 1
-    return json.loads(out[start:])
+    """Extract the JSON envelope from mixed stdout (banner lines + JSON).
+
+    Rich may glue the opening ``{`` to a cursor-show sequence with no newline
+    in between. Scan for the first object that decodes, instead of requiring
+    the ``{`` to be at the start of a line.
+    """
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(out):
+        if char != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(out[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "status" in payload:
+            return payload
+    raise AssertionError(f"no JSON envelope in stdout: {out[:200]!r}")
 
 
 class _FakeReg:

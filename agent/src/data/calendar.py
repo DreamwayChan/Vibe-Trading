@@ -69,6 +69,7 @@ _lock = threading.RLock()
 _cache: list[dt.date] | None = None
 _cache_source: str = "unknown"
 _warned_fallback = False
+# ``0`` means "never attempted". See the backoff check in ``_ensure_loaded``.
 _last_refresh_attempt: float = 0.0
 # A stale seed should not trigger a network call on every lookup: capital flow
 # loops call trading_days() hundreds of times per scan.
@@ -209,8 +210,17 @@ def _ensure_loaded() -> list[dt.date]:
 
         # Back off after a failed or recent attempt, but only while there is
         # something to serve; a cold start must still try.
+        # ``0`` is the unset sentinel (module init and test resets), not an
+        # attempt at boot. ``time.monotonic()`` is seconds since boot, so
+        # treating 0 as a real timestamp skipped the refresh for the first
+        # ``_REFRESH_BACKOFF_S`` seconds of uptime — a fresh runner then
+        # served a stale seed and the offline suite went red.
         now = time.monotonic()
-        if _cache and (now - _last_refresh_attempt) < _REFRESH_BACKOFF_S:
+        if (
+            _cache
+            and _last_refresh_attempt > 0
+            and (now - _last_refresh_attempt) < _REFRESH_BACKOFF_S
+        ):
             return _cache
 
         _last_refresh_attempt = now

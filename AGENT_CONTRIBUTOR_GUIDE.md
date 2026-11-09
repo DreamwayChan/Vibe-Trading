@@ -30,7 +30,8 @@ git status --short --branch
 git diff --check
 python -m compileall -q agent/cli
 python -m py_compile agent/api_server.py agent/mcp_server.py
-pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --tb=short -q
+pip install -e ".[dev,ashare]"
+pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --disable-socket --allow-hosts=localhost,127.0.0.1,::1 --cov=agent --cov-report=term-missing --tb=short -q
 pytest agent/tests/test_sdk_order_gate.py agent/tests/test_mandate_enforcement.py -q
 cd frontend && npm ci && npm run build
 ```
@@ -59,7 +60,7 @@ of routine PR validation.
 For general Python changes:
 
 ```bash
-pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --tb=short -q
+pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --disable-socket --allow-hosts=localhost,127.0.0.1,::1 --cov=agent --cov-report=term-missing --tb=short -q
 ```
 
 For live/order safety changes:

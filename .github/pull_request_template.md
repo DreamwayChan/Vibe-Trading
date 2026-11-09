@@ -16,7 +16,7 @@
 
 ## Test Plan
 
-- [ ] Existing tests pass (`pytest --ignore=agent/tests/e2e_backtest --tb=short -q`)
+- [ ] Offline CI pytest is green (`pip install -e ".[dev,ashare]"` then `pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py --disable-socket --allow-hosts=localhost,127.0.0.1,::1 --cov=agent --cov-report=term-missing --tb=short -q`)
 - [ ] New tests added (if applicable)
 - [ ] Tested manually (describe below)
 

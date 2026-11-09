@@ -78,6 +78,10 @@ vibe-trading cost-compare <run_dir>
 - 禁止和机构高频、交易所托管的速度赛跑。时钟是日线。
 - 禁止把 LLM 放在自动下单主路径上。模型可以帮忙写假设。它不批准 `tradable`，不决定纸面仓位，也不下单。券商下单仍在这条闭环之外的上游 mandate 层。
 
+## 合入门禁
+
+代码合入的条件是离线 CI pytest 全绿。命令与 `.github/workflows/test.yml` 相同，写在 `CONTRIBUTING.md`。真实端到端测试不在这道门里。
+
 ## 仅研究（冻结）
 
 下面这些还能打开。它们不是默认路径，也不能当成「信号已经可交易」的证据。

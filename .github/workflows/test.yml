@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   test:
@@ -20,7 +20,11 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        # ashare pulls in baostock. The adj-factor repair imports it before
+        # any test stub runs, so a base install turns those tests into
+        # failures. The package is optional for users; CI installs it so the
+        # tests execute. A checkout without the extra skips them instead.
+        run: pip install -e ".[dev,ashare]"
 
       - name: Repository safety gates
         run: bash tools/ci_grep_gates.sh
