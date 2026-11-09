@@ -1,6 +1,7 @@
 import i18n from '@/i18n';
 import { cn } from "@/lib/utils";
 import type { ValidationData } from "@/lib/api";
+import { validationArtifactHasTail } from "@/lib/oosPolicy";
 
 interface Props {
   data: ValidationData;
@@ -102,6 +103,38 @@ function BootstrapSection({ bs }: { bs: NonNullable<ValidationData["bootstrap"]>
   );
 }
 
+function finite(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function OutOfSampleSection({ oos }: { oos: NonNullable<ValidationData["out_of_sample"]> }) {
+  if (oos.error) return <p className="text-sm text-muted-foreground">{oos.error}</p>;
+  return (
+    <div className="space-y-3" data-testid="validation-oos-tail">
+      <h4 className="text-sm font-semibold">{i18n.t("validation.oosTitle")}</h4>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">
+        <Stat label={i18n.t("validation.isSharpe")} value={finite(oos.is_sharpe) ? oos.is_sharpe.toFixed(2) : "—"} />
+        <Stat label={i18n.t("validation.tailSharpe")} value={finite(oos.oos_sharpe) ? oos.oos_sharpe.toFixed(2) : "—"} />
+        <Stat label={i18n.t("validation.sharpeDrop")} value={finite(oos.degradation) ? pctFmt(oos.degradation) : "—"} />
+        <Stat label={i18n.t("validation.tailFraction")} value={finite(oos.oos_fraction) ? pctFmt(oos.oos_fraction) : "—"} />
+      </div>
+    </div>
+  );
+}
+
+function PolicyLines({ tail }: { tail: boolean }) {
+  return (
+    <div className="space-y-1">
+      <p data-testid="validation-gate-line" className="text-sm">
+        {i18n.t("validation.gatePassLine")}
+      </p>
+      <p data-testid="validation-oos-line" className="text-sm text-muted-foreground">
+        {tail ? i18n.t("validation.oosTailLine") : i18n.t("validation.oosNotReviewed")}
+      </p>
+    </div>
+  );
+}
+
 function WalkForwardSection({ wf }: { wf: NonNullable<ValidationData["walk_forward"]> }) {
   if (wf.error) return <p className="text-sm text-muted-foreground">{wf.error}</p>;
   const consistent = wf.consistency_rate >= 0.8;
@@ -169,16 +202,24 @@ export function ValidationPanel({ data }: Props) {
   const hasMC = !!data.monte_carlo;
   const hasBS = !!data.bootstrap;
   const hasWF = !!data.walk_forward;
+  const hasTail = validationArtifactHasTail(data);
 
-  if (!hasMC && !hasBS && !hasWF) {
-    return <p className="p-8 text-sm text-muted-foreground">{i18n.t("validation.noData")}</p>;
+  if (!hasMC && !hasBS && !hasWF && !hasTail) {
+    return (
+      <div className="p-8 space-y-2">
+        <PolicyLines tail={false} />
+        <p className="text-sm text-muted-foreground">{i18n.t("validation.noData")}</p>
+      </div>
+    );
   }
 
   return (
     <div className="p-4 space-y-6">
+      <PolicyLines tail={hasTail} />
       {hasMC && <MonteCarloSection mc={data.monte_carlo!} />}
       {hasBS && <BootstrapSection bs={data.bootstrap!} />}
       {hasWF && <WalkForwardSection wf={data.walk_forward!} />}
+      {hasTail && data.out_of_sample && <OutOfSampleSection oos={data.out_of_sample} />}
     </div>
   );
 }

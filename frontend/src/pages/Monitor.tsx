@@ -22,6 +22,7 @@ import {
   type RunListItem,
 } from "@/lib/api";
 import type { CostCompareReport, PaperBookSnapshot } from "@/lib/loopStatus";
+import { gateStatusFromGate, oosReviewFromGate, type GateStatus } from "@/lib/oosPolicy";
 import { formatMetricVal, formatRunListOption } from "@/lib/formatters";
 import { sortByTrendAction, trendActionClass, trendActionHintI18nKey, trendActionI18nKey } from "@/lib/trendAction";
 import { cn } from "@/lib/utils";
@@ -346,6 +347,9 @@ const REASON_I18N = {
   monte_carlo_p_value: "monitor.reasonMonteCarloPValue",
   bootstrap_ci_lower: "monitor.reasonBootstrapCi",
   walk_forward_consistency: "monitor.reasonWalkForwardConsistency",
+  missing_out_of_sample: "monitor.reasonMissingOutOfSample",
+  out_of_sample_failed: "monitor.reasonOutOfSampleFailed",
+  out_of_sample_degraded: "monitor.reasonOutOfSampleDegraded",
   hypothesis_not_found: "monitor.reasonHypothesisNotFound",
   invalid_timestamp: "monitor.reasonInvalidTimestamp",
   missing_timestamp: "monitor.reasonMissingTimestamp",
@@ -464,8 +468,18 @@ function gateFailureNotes(
     if (hasArtifact) push("costs_not_applied", t("monitor.gateDetailCosts"));
   }
 
+  const oos = bounds(checks.out_of_sample);
+  if (oos) push("out_of_sample_degraded", t("monitor.gateDetailOos", oos));
+
   return { codes, lines };
 }
+
+const GATE_STATUS_KEY = {
+  passed: "monitor.gatePassed",
+  failed: "monitor.gateFailed",
+  off: "monitor.gateOff",
+  unknown: "monitor.gateUnknown",
+} as const satisfies Record<GateStatus, "monitor.gatePassed" | "monitor.gateFailed" | "monitor.gateOff" | "monitor.gateUnknown">;
 
 type JournalSampleKind = "stock" | "strategy";
 
@@ -1364,6 +1378,14 @@ export function Monitor() {
                 {gateNotes.lines.join(" · ")}
               </p>
             )}
+            <p data-testid="gate-pass-line" className="w-full text-xs text-muted-foreground">
+              {t(GATE_STATUS_KEY[gateStatusFromGate(pool.validation_gate)])}
+            </p>
+            <p data-testid="oos-policy-line" className="w-full text-xs text-muted-foreground">
+              {oosReviewFromGate(pool.validation_gate).reviewed
+                ? t("monitor.oosTailReviewed")
+                : t("monitor.oosNotReviewed")}
+            </p>
           </div>
         )}
         {journalSampleOpen && (

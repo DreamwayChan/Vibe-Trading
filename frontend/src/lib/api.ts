@@ -1555,6 +1555,16 @@ export interface ValidationData {
     sharpe_std: number;
     error?: string;
   };
+  out_of_sample?: {
+    oos_fraction?: number;
+    split?: string;
+    is_sharpe?: number;
+    oos_sharpe?: number;
+    is_return?: number;
+    oos_return?: number;
+    degradation?: number;
+    error?: string;
+  };
 }
 
 export interface SymbolPnLRow {

@@ -15,8 +15,8 @@
 | 数据湖 | 已结算日线。北京时间的「今天」不会被写成一根完成的 K 线。 | `agent/src/data/lake.py` |
 | 假设 | 可交易之前要有五栏：客观观察、因果假设（因为 / 因此）、逻辑、验证计划（数据、窗口、指标、成本）、失效条件。计划仓位、计划风险和时间戳仍然必填。缺任何一栏就只留在研究板上。严格模式返回 422。 | `vibe-trading hypothesis`，`agent/src/hypotheses/journal.py` |
 | 计成本回测 | 成交使用 A 股佣金、印花税、过户费、滑点、T+1、ST 禁买、涨跌停与停牌规则。 | `agent/backtest/ashare_costs.py` |
-| 验证门 | 蒙特卡洛、bootstrap、走步检验都要过线，而且回测必须计成本。 | `agent/backtest/validation.py` |
-| 可交易 | 监控池只在五栏假设和验证门都通过时打开。最新收盘价穿过价格失效线时，该标的被清出。ST、涨停、一字板、三连板以上的买入仍然排除。没有可交易日志的持仓会列成提醒。 | `agent/src/monitor/admission.py` |
+| 验证门 | 蒙特卡洛、bootstrap、走步检验都要过线，而且回测必须计成本。这次通过不审阅样本外。 | `agent/backtest/validation.py` |
+| 可交易 | 监控池只在五栏假设和验证门都通过时打开。样本外开关关闭时，验证门通过表示样本外未审阅。最新收盘价穿过价格失效线时，该标的被清出。ST、涨停、一字板、三连板以上的买入仍然排除。没有可交易日志的持仓会列成提醒。 | `agent/src/monitor/admission.py` |
 | 纸面账本 | 单日，或按交易日历连续多日。日报加窗口报表：净值、成交、未成交、换手，以及相对绑定回测的累计偏离。偏离超过阈值、价格失效，或边缘衰减超过阈值，都会取消可交易并降级账本。衰减清除默认打开（`VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE=0` 时衰减只作警告）。单名仓位上限，回撤过大则停止新开仓。已复盘的日志保留实现盈亏和胜率。 | `vibe-trading paper-book` 或 `python -m src.paper_book` |
 
 ```bash
@@ -30,6 +30,14 @@ python -m src.paper_book show --book-id <id> --window
 `POST /paper-book/step` 结算一个交易日。`POST /paper-book/soak` 结算一段区间（`{"end": "YYYY-MM-DD", "days": 20}` 或 `{"start", "end"}`）。
 
 监控看板用 `GET /paper-book/{book_id}?window=true` 读取绑定回测的最新窗口（账本 id 就是 run id）。面板显示净值、浮动盈亏（盯市减去已保存的批次成本）、累计偏离、边缘衰减，以及相对 20 个交易日的浸泡进度，并标出这块板是否还在可交易池里。偏离和衰减不在面板里重算。
+
+### 样本外政策
+
+验证门通过看的是蒙特卡洛、bootstrap、走步检验和成本。这次通过不审阅样本外。
+
+样本外未审阅。只有 `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1` 时才做这项检查。
+
+开关打开后，验证门读取 `validation.json` 的 `out_of_sample`。这一块是同一条权益曲线的尾部切分（配置里写了 `config["validation"]["out_of_sample"]` 时，默认取最后 `oos_fraction` 0.3）。它不是独立的市场留出样本。缺这一块、`degradation` 高于 `VIBE_TRADING_VAL_MAX_OOS_DEGRADATION`（默认 0.5）、或尾部夏普不为正，验证门不通过。开关关闭时，验证门通过仍然表示样本外未审阅。
 
 ## 成本税，并排
 
@@ -62,7 +70,7 @@ vibe-trading cost-compare <run_dir>
 
 融券卖空仍然禁止。买入仍然向下取整到 100 股。可交易性面板可以仍然挂在两次运行上，两边看到的是同一个对象；`block_suspension` 和 `enforce_price_limits` 为 false 时，无成本路径不使用停牌标记和涨跌停价。`enforce_price_limits` 没有环境变量。不写这个键就保持计成本默认。
 
-交易日来自 A 股日历（`agent/src/data/calendar.py`）。周末和交易所休市日不是交易日。没有日历种子时按工作日计算。每个交易日优先用当天的监控快照 `~/.vibe-trading/monitor/history/<run_id>/<date>.json`；没有快照时，如果当前监控板的建议日期就是这一天，就用这块板。两样都没有的日子仍然盯市并写日报。`--signals schedule.json` 用显式日程回放，格式是 `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}`，或带 `as_of` 的列表。文件里省略 `tradable` 时视为可交易。窗口报表（净值、成交、未成交、换手、相对绑定回测 `artifacts/equity.csv` 的累计偏离）写在账本目录的 `reports/window.json`。累计偏离超过 `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` 后，`tradable` 被取消，窗口里之后的交易日不再成交。窗口至少 20 个交易日时，边缘衰减超过 `VIBE_TRADING_PAPER_BOOK_MAX_DECAY`（默认 0.5）也会取消可交易，除非 `VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE` 关掉。日志可以用 `invalidation_kind` 写更紧的偏离或衰减阈值。样本外产品策略没有改，仍然是可选的。这条路径不会向券商发单。
+交易日来自 A 股日历（`agent/src/data/calendar.py`）。周末和交易所休市日不是交易日。没有日历种子时按工作日计算。每个交易日优先用当天的监控快照 `~/.vibe-trading/monitor/history/<run_id>/<date>.json`；没有快照时，如果当前监控板的建议日期就是这一天，就用这块板。两样都没有的日子仍然盯市并写日报。`--signals schedule.json` 用显式日程回放，格式是 `{"YYYY-MM-DD": [{"symbol", "action", "weight"}]}`，或带 `as_of` 的列表。文件里省略 `tradable` 时视为可交易。窗口报表（净值、成交、未成交、换手、相对绑定回测 `artifacts/equity.csv` 的累计偏离）写在账本目录的 `reports/window.json`。累计偏离超过 `VIBE_TRADING_PAPER_BOOK_DEVIATION_THRESHOLD` 后，`tradable` 被取消，窗口里之后的交易日不再成交。窗口至少 20 个交易日时，边缘衰减超过 `VIBE_TRADING_PAPER_BOOK_MAX_DECAY`（默认 0.5）也会取消可交易，除非 `VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE` 关掉。日志可以用 `invalidation_kind` 写更紧的偏离或衰减阈值。这条路径不会向券商发单。
 
 ## 做什么
 
@@ -78,7 +86,7 @@ vibe-trading cost-compare <run_dir>
 
 ## 明确禁止
 
-- 禁止全自动致富叙事。验证门通过只表示可以 **纸面交易**，不是收益承诺。
+- 禁止全自动致富叙事。验证门通过只表示可以 **纸面交易**，不是收益承诺。这次通过不审阅样本外。除非 `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1`，否则样本外未审阅。
 - 禁止和机构高频、交易所托管的速度赛跑。时钟是日线。
 - 禁止把 LLM 放在自动下单主路径上。模型可以帮忙写假设。它不批准 `tradable`，不决定纸面仓位，也不下单。券商下单仍在这条闭环之外的上游 mandate 层。
 

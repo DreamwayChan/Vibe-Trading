@@ -14,6 +14,7 @@ from backtest.validation import (
     config_is_cost_aware,
     evaluate_run_validation,
     evaluate_validation_gate,
+    oos_policy_from_gate,
     run_validation,
     thresholds_from_env,
 )
@@ -292,15 +293,59 @@ def test_out_of_sample_split_rejects_short_or_bad_fraction() -> None:
 
 def test_gate_out_of_sample_is_opt_in_and_enforced() -> None:
     base = _passing()
-    assert evaluate_validation_gate(base, config=_ashare_config()).passed is True
+    plain = evaluate_validation_gate(base, config=_ashare_config())
+    assert plain.passed is True
+    assert plain.to_dict()["oos_policy"] == {"reviewed": False, "kind": "not_reviewed"}
+
+    # Tail numbers in the artifact do not count as a review while the flag is off.
+    with_tail = _passing(out_of_sample={"degradation": 0.1, "oos_sharpe": 1.2})
+    ignored = evaluate_validation_gate(with_tail, config=_ashare_config())
+    assert ignored.passed is True
+    assert ignored.to_dict()["oos_policy"]["reviewed"] is False
+    assert ignored.to_dict()["oos_policy"]["kind"] == "not_reviewed"
 
     rules = ValidationThresholds(require_out_of_sample=True)
     missing = evaluate_validation_gate(base, config=_ashare_config(), thresholds=rules)
     assert missing.reasons == ["missing_out_of_sample"]
+    assert missing.to_dict()["oos_policy"] == {
+        "reviewed": True,
+        "kind": "equity_curve_tail",
+        "passed": False,
+    }
 
     bad = _passing(out_of_sample={"degradation": 0.9, "oos_sharpe": 0.1})
     gate = evaluate_validation_gate(bad, config=_ashare_config(), thresholds=rules)
     assert gate.reasons == ["out_of_sample_degraded"]
+    assert gate.to_dict()["oos_policy"]["kind"] == "equity_curve_tail"
+    assert gate.to_dict()["oos_policy"]["passed"] is False
 
     ok = _passing(out_of_sample={"degradation": 0.2, "oos_sharpe": 1.0})
-    assert evaluate_validation_gate(ok, config=_ashare_config(), thresholds=rules).passed is True
+    passed = evaluate_validation_gate(ok, config=_ashare_config(), thresholds=rules)
+    assert passed.passed is True
+    policy = passed.to_dict()["oos_policy"]
+    assert policy == {"reviewed": True, "kind": "equity_curve_tail", "passed": True}
+    assert "holdout" not in json.dumps(policy)
+
+    # A disabled gate, or a missing artifact, did not review the tail.
+    assert oos_policy_from_gate({"require_out_of_sample": True}, {"enabled": False}) == {
+        "reviewed": False,
+        "kind": "not_reviewed",
+    }
+    assert oos_policy_from_gate({"require_out_of_sample": False}, None)["kind"] != "holdout"
+
+
+def test_capability_states_oos_not_reviewed_separately() -> None:
+    """Policy B: a gate pass and “OOS not reviewed” are two sentences."""
+    root = Path(__file__).resolve().parents[2]
+    en = (root / "CAPABILITY.md").read_text(encoding="utf-8")
+    zh = (root / "CAPABILITY_zh.md").read_text(encoding="utf-8")
+    for text in (en, zh):
+        assert "hold out the last" not in text
+        assert "样本外产品策略没有改" not in text
+        assert "Out-of-sample product policy is unchanged" not in text
+    assert "That pass does not review out-of-sample results." in en
+    assert "OOS not reviewed." in en
+    assert "not an independent market holdout" in en
+    assert "这次通过不审阅样本外。" in zh
+    assert "样本外未审阅。" in zh
+    assert "不是独立的市场留出样本" in zh

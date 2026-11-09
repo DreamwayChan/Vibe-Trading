@@ -15,8 +15,8 @@ lake → hypothesis → cost-aware backtest → validation gate → tradable →
 | Lake | Settled daily bars. Beijing "today" is not rewritten as a finished bar. | `agent/src/data/lake.py` |
 | Hypothesis | Five fields before a name is tradable: an objective observation, a causal hypothesis (because / therefore), the logic, a validation plan (data, window, metrics, costs), and an invalidation. Planned position, planned risk, and a timestamp stay required. A missing field stays on the research board. Strict mode returns 422. | `vibe-trading hypothesis`, `agent/src/hypotheses/journal.py` |
 | Cost-aware backtest | Fills use A-share commission, stamp, transfer, slippage, T+1, ST buy blocks, and limit/halt rules. | `agent/backtest/ashare_costs.py` |
-| Validation gate | Monte Carlo, bootstrap, and walk-forward must clear their thresholds on that cost-aware run. | `agent/backtest/validation.py` |
-| Tradable | The monitor pool opens only when the five hypothesis fields and the gate both pass. A price invalidation that the latest close has crossed clears that name. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. Holdings with no tradable journal entry are listed as alerts. | `agent/src/monitor/admission.py` |
+| Validation gate | Monte Carlo, bootstrap, and walk-forward must clear their thresholds on that cost-aware run. That pass does not review out-of-sample. | `agent/backtest/validation.py` |
+| Tradable | The monitor pool opens only when the five hypothesis fields and the gate both pass. A gate pass with out-of-sample left off means OOS not reviewed. A price invalidation that the latest close has crossed clears that name. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. Holdings with no tradable journal entry are listed as alerts. | `agent/src/monitor/admission.py` |
 | Paper book | One session, or a calendar range of consecutive sessions. Daily report plus a window report: NAV, fills, unfilled, turnover, and cumulative deviation versus the bound backtest. A deviation past the threshold, a price invalidation, or edge decay past the threshold clears `tradable` and downgrades the book. Decay clearing is on by default (`VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE=0` leaves decay as a warning). Single-name cap and a drawdown cap on new buys. Reviewed journal rows keep a realised PnL and a win rate. | `vibe-trading paper-book` or `python -m src.paper_book` |
 
 ```bash
@@ -31,16 +31,18 @@ python -m src.paper_book show --book-id <id> --window
 
 Monitor reads the latest window for the bound run with `GET /paper-book/{book_id}?window=true` (the book id is the run id). The panel shows NAV, unrealized mark-minus-lot-cost, cumulative deviation, edge decay, and soak progress against 20 sessions, next to whether the board is in the tradable pool. It does not recompute decay or deviation.
 
-### Out-of-sample check (opt-in)
+### Out-of-sample policy
 
-Add `"out_of_sample": {"oos_fraction": 0.3}` to `config["validation"]` to hold out the last 30% of the equity curve. `validation.json` then records in-sample and out-of-sample Sharpe plus `degradation` (relative Sharpe drop). Set `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1` to make the gate require it: `degradation` must stay at or below `VIBE_TRADING_VAL_MAX_OOS_DEGRADATION` (default 0.5) and the out-of-sample Sharpe must be positive. Default is off, so existing artifacts keep passing.
+The validation gate passes on Monte Carlo, bootstrap, walk-forward, and costs. That pass does not review out-of-sample results.
+
+OOS not reviewed. The check runs only when `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1`.
+
+With the flag on, the gate reads the `out_of_sample` block in `validation.json`. That block is a tail split of the same equity curve (the last `oos_fraction`, default 0.3, when `config["validation"]["out_of_sample"]` is set). It is not an independent market holdout. The gate fails when the block is missing, when `degradation` is above `VIBE_TRADING_VAL_MAX_OOS_DEGRADATION` (default 0.5), or when the tail Sharpe is not positive. With the flag off, a gate pass still means OOS not reviewed.
 
 ### Alpha / Beta and edge decay
 
 - Backtest `metrics.csv` and the run card now carry `beta`, annualised `alpha`, and `r_squared`, from an OLS of strategy returns on the benchmark returns (`benchmark` in config, otherwise the equal-weight universe). Read `alpha`, not total return: a high return with `beta` near 1 and `alpha` near 0 is market luck.
 - The paper-book window report (`reports/window.json`) has a `decay` block (`src/paper_book/decay.py`). It compares the last 10 sessions with the earlier ones: `recent_sharpe` vs `earlier_sharpe`, `decay` (relative Sharpe drop), and `recent_gap_mean` (paper minus backtest daily return). `decayed` is true when `decay` exceeds `VIBE_TRADING_PAPER_BOOK_MAX_DECAY` (default 0.5), or when returns turn from positive to negative. It needs at least 20 sessions. When `decayed` is true, `tradable` is cleared unless `VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE` is off. A journal row can set a tighter decay or deviation level with `invalidation_kind`.
-
-Out-of-sample product policy is unchanged and stays opt-in.
 
 ## Cost tax, side by side
 
@@ -89,7 +91,7 @@ Extreme sentiment here is the name's own streak. A market-wide emotion index is 
 
 ## Explicit bans
 
-- No full-auto get-rich narrative. A passing gate is permission to **paper-trade**, not a promise of profit.
+- No full-auto get-rich narrative. A passing gate is permission to **paper-trade**, not a promise of profit. That pass does not review out-of-sample results. OOS not reviewed unless `VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE=1`.
 - No race against institutional HFT or exchange-colocation alpha. The clock is the daily bar.
 - No LLM on the auto-order path. The model may help write a hypothesis. It does not approve `tradable`, size the paper book, or place an order. Broker orders stay on the upstream mandate layer, outside this loop.
 
