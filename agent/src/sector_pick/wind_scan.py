@@ -4,6 +4,9 @@ Research-only. For each enabled sector it loads the run universe through the
 same data-centre path as the sector scan, computes the wind score and checks
 whether it predicted T+1-executable excess return over CSI 300. A sector that
 fails validation is reported as such and must not feed factor search.
+
+``actionable`` is a research state (launch or main, and the score validated).
+Every payload still has ``tradable`` false and ``block_reason`` ``uncausal_scan``.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import pandas as pd
 from src.api.helpers import RUNS_DIR
 from src.monitor.trend_regime import CSI300
 from src.monitor.universe import load_run_universe
+from src.monitor.uncausal import stamp_research_only
 from src.sector_pick.catalog import CATALOG
 from src.sector_pick.scan import _fetch_bars, _run_source_interval
 from src.sector_pick.wind import detect_sector_wind, validate_wind_predictiveness
@@ -40,7 +44,10 @@ def evaluate_sector_wind(
     close = _wide(data_map, "close")
     opens = _wide(data_map, "open")
     if close.shape[1] < 3:
-        return {"status": "insufficient_members", "members": int(close.shape[1])}
+        return stamp_research_only({
+            "status": "insufficient_members",
+            "members": int(close.shape[1]),
+        })
     if "amount" in next(iter(data_map.values())).columns:
         amount = _wide(data_map, "amount")
     else:
@@ -58,14 +65,14 @@ def evaluate_sector_wind(
         wind["score"], sector_open, benchmark["open"].reindex(sector_open.index), horizon=horizon
     )
     last = wind.iloc[-1]
-    return {
+    return stamp_research_only({
         "status": "ok",
         "members": int(close.shape[1]),
         "state": str(last["state"]),
         "score": None if pd.isna(last["score"]) else round(float(last["score"]), 3),
         "validation": result,
         "actionable": bool(result["passed"] and last["state"] in ("launch", "main")),
-    }
+    })
 
 
 def run_wind_scan(
@@ -88,19 +95,19 @@ def run_wind_scan(
             run_dir = root / recipe.run_id
             universe = load_run_universe(run_dir)
             if not universe:
-                out[recipe.key] = {"status": "no_universe"}
+                out[recipe.key] = stamp_research_only({"status": "no_universe"})
                 continue
             source, interval = _run_source_interval(run_dir)
             data_map, _errs = _fetch_bars(universe, start=start, end=end, source=source, interval=interval)
             bench_map, _ = _fetch_bars([CSI300], start=start, end=end, source=source, interval=interval)
             bench = bench_map.get(CSI300)
             if not data_map or bench is None or bench.empty:
-                out[recipe.key] = {"status": "no_data"}
+                out[recipe.key] = stamp_research_only({"status": "no_data"})
                 continue
             out[recipe.key] = evaluate_sector_wind(data_map, bench, horizon)
         except Exception as exc:  # noqa: BLE001 — one sector must not stop the scan
             logger.warning("wind scan %s failed: %s", recipe.key, exc)
-            out[recipe.key] = {"status": "error", "error": str(exc)}
+            out[recipe.key] = stamp_research_only({"status": "error", "error": str(exc)})
     return out
 
 
@@ -135,7 +142,11 @@ def run_wind_cards(
             bench_map, _ = _fetch_bars([CSI300], start=start, end=end, source=source, interval=interval)
             bench = bench_map.get(CSI300)
             if not data_map or bench is None or bench.empty:
-                out.append({"sector": recipe.key, "status": "no_data", "cards": []})
+                out.append(stamp_research_only({
+                    "sector": recipe.key,
+                    "status": "no_data",
+                    "cards": [],
+                }))
                 continue
             panel = _factor_panel(data_map)
             ids = list(dict.fromkeys([*recipe.confirm_ids, *registry.list()]))[:max_factors]
@@ -150,5 +161,10 @@ def run_wind_cards(
             out.append(build_sector_cards(recipe.key, data_map, bench, factors, horizon=horizon))
         except Exception as exc:  # noqa: BLE001
             logger.warning("wind cards %s failed: %s", recipe.key, exc)
-            out.append({"sector": recipe.key, "status": "error", "error": str(exc), "cards": []})
+            out.append(stamp_research_only({
+                "sector": recipe.key,
+                "status": "error",
+                "error": str(exc),
+                "cards": [],
+            }))
     return out

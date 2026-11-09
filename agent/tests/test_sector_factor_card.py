@@ -41,3 +41,8 @@ def test_actionable_wind_emits_card(monkeypatch):
     out = fc.build_sector_cards("t", data, pd.DataFrame(), {"good": good})
     assert [c["factor"] for c in out["cards"]] == ["good"]
     assert out["cards"][0]["retire_when"]["rolling_ic_window"] == 20
+    assert out["tradable"] is False
+    assert out["research_only"] is True
+    assert out["cards"][0]["tradable"] is False
+    assert out["cards"][0]["block_reason"] == "uncausal_scan"
+    assert "不可交易" in out["cards"][0]["entry"]

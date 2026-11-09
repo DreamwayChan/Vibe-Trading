@@ -26,7 +26,8 @@ class SectorWindTool(BaseTool):
         "excess return vs CSI 300. action='cards': for sectors whose wind is "
         "actionable and validated, screen library factors in-sector (out-of-sample, "
         "shrunk IC, limit-up-open excluded) and return factor cards with applies/"
-        "retire conditions. Research only, no orders. "
+        "retire conditions. Research only: every row has tradable false "
+        "(uncausal_scan) and cannot enter the tradable pool. No orders. "
         'Example: {"action": "cards", "keys": ["robot"]}.'
     )
     parameters = {

@@ -126,6 +126,50 @@ def test_scan_denies_pool_when_validation_fails(
     assert snap.bars_source == "lake"
 
 
+def test_catalog_run_stays_research_when_journal_and_gate_pass(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A frozen 「最优」 recipe cannot enter the pool on a passing journal."""
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    runs = isolated_home / "runs"
+    run_dir = _write_run(runs, run_id, _passing_validation())
+    DecisionJournal().record(
+        run_id=run_id,
+        thesis="Because the scan ranked first, therefore the board is the one to trade.",
+        invalidation="Exit if the close leaves the board.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    store = InMemoryStrategyStore()
+    artifact_id = store.register_artifact(
+        Artifact(
+            id="",
+            type=ArtifactType.STRATEGY,
+            name="optimal-scan",
+            universe="ashare",
+            run_dir=str(run_dir),
+        )
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+        strategy_store=store,
+    )
+    assert result.suggestions[0].action == "buy"
+    assert result.tradable is False
+    assert "uncausal_scan" in result.tradable_reasons
+    assert result.suggestions[0].tradable is False
+    assert "uncausal_scan" in result.suggestions[0].block_reasons
+    stamped = store.get_artifact(artifact_id)
+    assert stamped is not None
+    assert stamped.tradable is False
+
+
 def test_scan_admits_pool_when_journal_and_gate_pass(
     isolated_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

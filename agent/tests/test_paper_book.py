@@ -111,6 +111,21 @@ def _step(tmp_path: Path, config: MonitorConfig, bars: dict, **kwargs):
     )
 
 
+def test_catalog_run_does_not_fill_even_when_the_signal_says_tradable(tmp_path: Path) -> None:
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    report = _step(
+        tmp_path,
+        _config([_suggestion(tradable=True)], run_id=run_id),
+        {SYMBOL: _bar()},
+        max_position=1.0,
+    )
+    assert report.fills == []
+    assert report.skipped
+    assert {row["reason"] for row in report.skipped} == {"uncausal_scan"}
+
+
 def test_buy_fill_matches_china_a_costs(tmp_path: Path) -> None:
     engine = ChinaAEngine({})
     report = _step(

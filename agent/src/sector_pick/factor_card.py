@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.monitor.uncausal import stamp_research_only
 from src.sector_pick.factor_select import FactorVerdict, daily_rank_ic, forward_returns, screen_factors
 from src.sector_pick.wind_scan import evaluate_sector_wind
 
@@ -24,10 +25,10 @@ def build_factor_card(
     *,
     horizon: int,
 ) -> dict:
-    return {
+    return stamp_research_only({
         "sector": sector,
         "factor": verdict.name,
-        "entry": "T 日收盤出信號，T+1 開盤買入（只做多，開盤漲停不買）",
+        "entry": "研究记录，不可交易：看 T 日收盘，假设成交在 T+1 开盘（只做多，开盘涨停不成交）。",
         "horizon_days": horizon,
         "shrunk_ic": round(verdict.shrunk_ic, 4),
         "ic_in": round(verdict.ic_in, 4),
@@ -39,7 +40,7 @@ def build_factor_card(
             "rolling_ic_below": DECAY_FLOOR,
             "wind_states": ["fade", "dormant"],
         },
-    }
+    })
 
 
 def decay_check(
@@ -70,7 +71,12 @@ def build_sector_cards(
 ) -> dict:
     wind = evaluate_sector_wind(data_map, benchmark, horizon)
     if not wind.get("actionable"):
-        return {"sector": sector, "wind": wind, "cards": [], "reason": "wind not actionable"}
+        return stamp_research_only({
+            "sector": sector,
+            "wind": wind,
+            "cards": [],
+            "reason": "wind not actionable",
+        })
 
     close = pd.DataFrame({c: f["close"] for c, f in data_map.items()}).sort_index()
     opens = pd.DataFrame({c: f["open"] for c, f in data_map.items()}).reindex_like(close)
@@ -84,5 +90,9 @@ def build_sector_cards(
         if card["decay"]["retire"]:
             continue
         cards.append(card)
-    return {"sector": sector, "wind": wind, "cards": cards,
-            "screened": [v.to_dict() for v in verdicts]}
+    return stamp_research_only({
+        "sector": sector,
+        "wind": wind,
+        "cards": cards,
+        "screened": [v.to_dict() for v in verdicts],
+    })

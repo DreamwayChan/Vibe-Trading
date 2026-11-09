@@ -19,6 +19,9 @@ actionable signals.
 A buy is also blocked when its A-share risk flags include ST, limit-up,
 a one-word board, or an extreme consecutive-board streak. Those flags are
 stamped by the scan from bars already in hand. Sells are not blocked.
+
+A run id from the frozen 「最优」 catalog is an uncausal scan. Journal and
+gate can both pass and the pool still stays closed (``uncausal_scan``).
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from backtest.validation import evaluate_run_validation
 from src.hypotheses.journal import DecisionJournal, DecisionSignal, is_stale
 from src.monitor.ashare_risk import buy_block_reasons
 from src.monitor.models import MonitorConfig, MonitorSuggestion
+from src.monitor.uncausal import UNCAUSAL_SCAN, block_actionable, is_uncausal_scan
 from src.strategy_store.models import artifact_matches_run
 
 logger = logging.getLogger(__name__)
@@ -229,6 +233,12 @@ def evaluate_admission(
         )
         for suggestion in suggestions
     ]
+    if is_uncausal_scan(run_key):
+        # A frozen factor scan is not a causal hypothesis. Fields and the
+        # validation gate can both pass; the pool still stays closed.
+        reasons.append(UNCAUSAL_SCAN)
+        pool = False
+        annotated = block_actionable(annotated)
     signal_payload = strategy_entry.to_dict() if strategy_entry is not None else None
     admission = Admission(
         tradable=pool,

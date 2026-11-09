@@ -42,6 +42,8 @@ describe("SectorWindPanel", () => {
     expect(api.getSectorWindCards).toHaveBeenCalledWith(["robot", "copper"]);
     expect(screen.getByText("robot")).toBeInTheDocument();
     expect(screen.getByText("no_data")).toBeInTheDocument();
+    expect(screen.getByText("Research only")).toBeInTheDocument();
+    expect(screen.getByText("Not tradable")).toBeInTheDocument();
   });
 
   it("shows the error when the request fails", async () => {

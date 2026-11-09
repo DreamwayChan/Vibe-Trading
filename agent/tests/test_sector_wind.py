@@ -57,3 +57,6 @@ def test_evaluate_sector_wind_on_loaded_bars():
     res = evaluate_sector_wind(data, bench)
     assert res["status"] == "ok" and res["members"] == 10
     assert "validation" in res and "actionable" in res
+    assert res["tradable"] is False
+    assert res["research_only"] is True
+    assert res["block_reason"] == "uncausal_scan"
