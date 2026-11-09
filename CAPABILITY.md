@@ -87,6 +87,10 @@ Extreme sentiment here is the name's own streak. A market-wide emotion index is 
 - No race against institutional HFT or exchange-colocation alpha. The clock is the daily bar.
 - No LLM on the auto-order path. The model may help write a hypothesis. It does not approve `tradable`, size the paper book, or place an order. Broker orders stay on the upstream mandate layer, outside this loop.
 
+## Merge gate
+
+Code merges only when the offline CI pytest is green. The command is the same one `.github/workflows/test.yml` runs, and it is written out in `CONTRIBUTING.md`. Live end-to-end tests are outside this gate.
+
 ## Research-only (frozen)
 
 These surfaces still load. They are not the default, and they are not evidence a signal is tradable.

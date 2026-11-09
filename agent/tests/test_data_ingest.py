@@ -532,6 +532,16 @@ def _seed_daily(symbols=("600519.SH", "000001.SZ"), days=("2026-09-01", "2026-09
     return bar_store.save_long_bars(pd.DataFrame(rows), "1d", source="sina")
 
 
+def _require_baostock() -> None:
+    """Skip when the optional ``ashare`` extra is not installed.
+
+    ``_repair_adj_factor`` imports baostock before any stub runs, and one
+    minute-bar test drives the real parser. CI installs the extra so these
+    tests execute. A checkout without it must skip, not fail.
+    """
+    pytest.importorskip("baostock")
+
+
 def _stub_baostock(monkeypatch, events_by_symbol, failing=()):
     """Answer baostock's per-symbol query from a literal event table.
 
@@ -577,6 +587,7 @@ def test_factor_steps_apply_from_the_ex_dividend_date():
 
 
 def test_adj_factor_repair_fills_the_column_without_touching_prices(lake, monkeypatch):
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily()
@@ -612,6 +623,7 @@ def test_adj_factor_repair_fills_the_column_without_touching_prices(lake, monkey
 
 
 def test_adj_factor_repair_skips_symbols_already_covered(lake, monkeypatch):
+    _require_baostock()
     events = {"000001.SZ": [("2026-09-01", 3.5)], "600519.SH": [("2026-09-01", 2.0)]}
     _seed_daily()
     _stub_baostock(monkeypatch, events)
@@ -633,6 +645,7 @@ def test_adj_factor_repair_skips_symbols_already_covered(lake, monkeypatch):
 
 def test_adj_factor_repair_revisits_a_symbol_with_one_null_row(lake, monkeypatch):
     """One missing row is enough to redo the symbol — no percentage slack."""
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily()
@@ -665,6 +678,7 @@ def test_adj_factor_repair_revisits_a_symbol_with_one_null_row(lake, monkeypatch
 
 def test_adj_factor_repair_keeps_a_known_factor_when_the_fetch_fails(lake, monkeypatch):
     """A dropped socket must not blank a factor that was already correct."""
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily()
@@ -691,6 +705,7 @@ def test_adj_factor_repair_keeps_a_known_factor_when_the_fetch_fails(lake, monke
 
 def test_adj_factor_repair_leaves_beijing_null_and_says_so(lake, monkeypatch):
     """baostock rejects ``.BJ`` codes; those rows stay null and the report admits it."""
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily(symbols=("600519.SH", "920060.BJ"))
@@ -707,6 +722,7 @@ def test_adj_factor_repair_leaves_beijing_null_and_says_so(lake, monkeypatch):
 
 
 def test_adj_factor_repair_notes_symbols_without_corporate_actions(lake, monkeypatch):
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily()
@@ -721,6 +737,7 @@ def test_adj_factor_repair_notes_symbols_without_corporate_actions(lake, monkeyp
 
 def test_adj_factor_mode_is_not_a_price_ingest(lake, sessions, monkeypatch):
     """Choosing the repair must never reach for a bar source."""
+    _require_baostock()
 
     def _explode(*args: object, **kwargs: object):
         raise AssertionError("adj_factor mode must not fetch prices")
@@ -745,6 +762,7 @@ def test_unknown_bars_mode_is_rejected(lake):
 
 def test_a_factor_that_steps_backwards_is_reported_not_corrected(lake, monkeypatch):
     """baostock has bare declines; the repair flags them and keeps the vendor value."""
+    _require_baostock()
     from src.data import lake as lake_module
 
     _seed_daily(days=("2026-09-01", "2026-09-02", "2026-09-03"))
@@ -1297,6 +1315,7 @@ def test_minute_range_backfill_stops_at_the_deadline_and_resumes(lake, monkeypat
 def test_baostock_minute_query_stamps_the_bar_and_converts_shares(monkeypatch):
     """baostock returns 20260601093500000 and 226869 shares; the lake wants a
     timestamp and 手.  A silent mismatch here poisons every minute-level study."""
+    _require_baostock()
     import baostock as bs
 
     import src.data.ingest.bars as bars_module

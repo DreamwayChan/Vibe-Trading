@@ -10,6 +10,21 @@ For general project setup (`pip install -e ".[dev]"`, dev servers,
 `pytest --ignore=agent/tests/e2e_backtest`), see the README. For bug reports
 and feature requests, use the GitHub issue templates.
 
+## Merge gate
+
+A pull request merges only when the offline CI pytest is green. That command
+is the one in `.github/workflows/test.yml` (live end-to-end stays out). CI
+installs the optional `ashare` extra first, because `baostock` is not part of
+the base install. Without that extra the nine baostock tests skip instead of
+failing; with it they run.
+
+```bash
+pip install -e ".[dev,ashare]"
+pytest --ignore=agent/tests/e2e_backtest --ignore=agent/tests/test_e2e_harness_v2.py \
+  --disable-socket --allow-hosts=localhost,127.0.0.1,::1 \
+  --cov=agent --cov-report=term-missing --tb=short -q
+```
+
 For AI-assisted or automation-assisted contributions, also see
 [`AGENT_CONTRIBUTOR_GUIDE.md`](AGENT_CONTRIBUTOR_GUIDE.md). It summarizes safe
 local checks, higher-risk broker/MCP/credential surfaces, and the expected PR
