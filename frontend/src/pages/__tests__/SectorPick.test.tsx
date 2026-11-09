@@ -162,6 +162,8 @@ describe("SectorPick page", () => {
     expect(screen.getByText("2024-01-02")).toBeInTheDocument();
     expect(screen.getAllByText("F0'最优确认-人形机器人-124+178").length).toBeGreaterThan(0);
     expect(screen.getByText("Rank and momentum")).toBeInTheDocument();
+    expect(screen.getByTestId("sector-research-only")).toHaveTextContent("Research only");
+    expect(screen.getAllByText("Research only").length).toBeGreaterThan(1);
   });
 
   it("keeps the locked theme when map rank-1 is a different board", async () => {

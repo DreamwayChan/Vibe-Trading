@@ -80,6 +80,7 @@ def test_load_run_display_title_matches_monitor_rename(tmp_path: Path) -> None:
     assert annotated["run_title"] == label
     assert annotated["run_missing"] is False
     assert annotated["name"] == "人形机器人"
+    assert annotated["research_only"] is True
 
 
 def test_validate_enabled_keys_rejects_unknown() -> None:

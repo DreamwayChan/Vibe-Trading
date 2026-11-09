@@ -42,6 +42,8 @@ class CatalogItemResponse(BaseModel):
     # Monitor strategy-source title (req.json rename); board ``name`` stays as-is.
     run_title: Optional[str] = None
     run_missing: bool = False
+    # Frozen 「最优」 prompts. Never a tradable-pool admission.
+    research_only: bool = True
 
 
 class SectorScoreResponse(BaseModel):

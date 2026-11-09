@@ -54,6 +54,7 @@ class SectorRecipe:
             "run_id": self.run_id,
             "prop_file": self.prop_file,
             "variant": self.variant,
+            "research_only": True,
         }
 
     def annotated_dict(self, *, runs_root: Path | None = None) -> dict:

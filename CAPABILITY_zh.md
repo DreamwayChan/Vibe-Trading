@@ -29,6 +29,8 @@ python -m src.paper_book show --book-id <id> --window
 
 `POST /paper-book/step` 结算一个交易日。`POST /paper-book/soak` 结算一段区间（`{"end": "YYYY-MM-DD", "days": 20}` 或 `{"start", "end"}`）。
 
+监控看板用 `GET /paper-book/{book_id}?window=true` 读取绑定回测的最新窗口（账本 id 就是 run id）。面板显示净值、浮动盈亏（盯市减去已保存的批次成本）、累计偏离、边缘衰减，以及相对 20 个交易日的浸泡进度，并标出这块板是否还在可交易池里。偏离和衰减不在面板里重算。
+
 ## 成本税，并排
 
 默认回测仍然计成本。同一策略、同一批 K 线、同一窗口，要看「无成本」和「成本+涨跌停」并排结果，用命名的 `frictionless` 配置对照 `ashare_costs`：
@@ -39,6 +41,8 @@ vibe-trading cost-compare <run_dir>
 ```
 
 `POST /runs/{run_id}/cost-compare` 返回同一份 JSON，并写入 `artifacts/cost_compare.json`。文件存在时，`GET /runs/{run_id}` 的 `cost_compare` 字段带上它。这次对照不会替换 `metrics.csv` 或 run card。监控里的重新回测仍然只跑计成本的那一条引擎。
+
+监控看板会给当前绑定的回测显示无成本、计成本和差额。收益差额为负时，一行写明「成本吃掉 X%」。`GET /runs/{run_id}/cost-compare` 读取这份文件。面板上的「计算成本对照」调用同一个 `POST`。面板自己不算成本税。
 
 `metrics.delta` 是 **成本+涨跌停 − 无成本**（成本税）。`total_return` 或 `nav` 为负，表示佣金、滑点，或涨跌停、停牌、T+1 拒单拉低了结果。`nav` 是期末权益（`final_value`）。`fill_count` 含开仓、信号平仓，以及回测结束时的强制平仓。
 
@@ -89,6 +93,6 @@ vibe-trading cost-compare <run_dir>
 - `agent/prop_*.md` — 冻结的板块与因子提示词
 - `agent/scripts/run_f0_f1_*.py`、`agent/scripts/run_sectors_optimal_*.py` — 写出这些提示词的批处理
 - `agent/src/factors/zoo/custom/` — 七个未经本闭环验证的主题因子
-- 优选板块的「最优」目录（`agent/src/sector_pick/catalog.py`）— 指向这些提示词的配方
+- 优选板块的「最优」目录（`agent/src/sector_pick/catalog.py`）— 指向这些提示词的配方。每一行都是 `research_only`。优选板块和市场优选会标「仅研究」，避免看起来像可交易路径。
 
-市场优选、优选板块和相似片段推演仍可作为研究看板。一只股票要变成可交易，只能走上面那条路径。
+市场优选、优选板块和相似片段推演仍可作为研究看板。监控看板上，还没通过日志和验证门的行放在虚线研究板里；可交易信号单独一栏。一只股票要变成可交易，只能走上面那条路径。

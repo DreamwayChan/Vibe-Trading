@@ -483,7 +483,15 @@ export function MarketPick() {
                     <td className="px-3 py-2">{formatPct(row.ret_20d, 1)}</td>
                     <td className="px-3 py-2">
                       {row.catalog_name ? (
-                        <span>{row.catalog_name}</span>
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          <span>{row.catalog_name}</span>
+                          <span
+                            className="whitespace-nowrap text-[10px] rounded border border-dashed border-amber-500/70 px-1 py-0.5 text-amber-800 dark:text-amber-300"
+                            title={t("marketPick.researchOnlyHint")}
+                          >
+                            {t("marketPick.researchOnly")}
+                          </span>
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">{t("marketPick.noRecipe")}</span>
                       )}

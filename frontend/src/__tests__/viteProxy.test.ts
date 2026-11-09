@@ -31,4 +31,8 @@ describe("Vite API proxy config", () => {
   it("proxies market-pick SPA/API twin with HTML Accept bypass", () => {
     expect(config).toContain('"/market-pick"');
   });
+
+  it("proxies the paper-book read the Monitor soak panel uses", () => {
+    expect(config).toContain('"/paper-book"');
+  });
 });
