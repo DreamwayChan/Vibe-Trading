@@ -118,6 +118,17 @@ def _emit_detail(hyp: Hypothesis) -> None:
         "",
         "[bold]Thesis[/bold]",
         hyp.thesis or "-",
+        "",
+        "[bold]Observation[/bold]",
+        hyp.observation or "-",
+        "[bold]Hypothesis[/bold]",
+        hyp.hypothesis or "-",
+        "[bold]Logic[/bold]",
+        hyp.logic or "-",
+        "[bold]Validation plan[/bold]",
+        hyp.validation_plan or "-",
+        "[bold]Invalidation[/bold]",
+        hyp.invalidation or hyp.invalidation_notes or "-",
     ]
     if hyp.signal_definition:
         body_lines.extend(["", "[bold]Signal[/bold]", hyp.signal_definition])

@@ -2,8 +2,9 @@
 
 Factor edges fade as they get crowded or the market regime shifts. This
 compares the book's recent daily returns with its earlier ones, and with the
-bound backtest's expected daily returns. It is informational: it flags the
-window report and never changes ``tradable`` by itself.
+bound backtest's expected daily returns. ``decayed`` is the flag. Clearing
+``tradable`` is a separate step (default on) in
+:func:`src.paper_book.downgrade.clear_for_decay`.
 """
 
 from __future__ import annotations

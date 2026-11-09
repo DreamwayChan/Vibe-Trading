@@ -12,6 +12,7 @@ import pytest
 from src.config.accessor import reset_env_config
 from src.data.lake_fetch import FetchStats
 from src.hypotheses.journal import DecisionJournal
+from tests.journal_fields import FIVE_FIELDS
 from src.monitor.models import MonitorConfig, StrategyRef
 from src.monitor.scan import run_monitor_scan
 from src.monitor.store import load_day_snapshot
@@ -105,6 +106,7 @@ def test_scan_denies_pool_when_validation_fails(
         invalidation="Exit on a close above the gap high.",
         planned_position="2% NAV",
         planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
     )
     _patch_fetch(monkeypatch)
     result = run_monitor_scan(
@@ -136,6 +138,7 @@ def test_scan_admits_pool_when_journal_and_gate_pass(
         invalidation="Exit on a close above the gap high.",
         planned_position="2% NAV",
         planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
     )
     store = InMemoryStrategyStore()
     artifact_id = store.register_artifact(

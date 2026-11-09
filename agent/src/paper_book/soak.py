@@ -30,9 +30,11 @@ import pandas as pd
 from backtest.engines.china_a import ChinaAEngine
 
 from src.monitor.models import HoldingRow, MonitorConfig, MonitorDaySnapshot, MonitorSuggestion
-from src.paper_book.book import _default_book_id, step_day
-from src.paper_book.decay import edge_decay
-from src.paper_book.models import PAPER_BOOK_DEVIATION, WindowReport
+from src.hypotheses.journal import machine_levels
+from src.paper_book.book import _default_book_id, _open_store, step_day
+from src.paper_book.decay import DEFAULT_MAX_DECAY, edge_decay
+from src.paper_book.downgrade import clear_for_decay
+from src.paper_book.models import PAPER_BOOK_BLOCK_REASONS, PAPER_BOOK_DECAY, PAPER_BOOK_DEVIATION, WindowReport
 from src.paper_book.store import (
     PaperBookError,
     load_report,
@@ -105,7 +107,7 @@ def step_range(
     store_root = paper_book_root(root)
     resolved_id = require_book_id(book_id or _default_book_id(config))
     sources: dict[str, str] = {}
-    downgraded = PAPER_BOOK_DEVIATION in (config.tradable_reasons or [])
+    downgraded = _board_blocked(config)
     pending = _pending_sessions(store_root, resolved_id, resolved)
     for day in pending:
         replay = _is_replay(store_root, resolved_id, day)
@@ -117,7 +119,7 @@ def step_range(
             use_snapshots=use_snapshots,
         )
         if downgraded:
-            day_config = _blocked(day_config)
+            day_config = _blocked(day_config, config)
         if replay:
             source = "replay"
         call: dict[str, Any] = {
@@ -139,17 +141,37 @@ def step_range(
         sources[day] = source
         if report.downgraded:
             downgraded = True
-            _stamp_live_board(config)
+            _stamp_live_board(config, report.downgrade_reason or PAPER_BOOK_DEVIATION)
 
+    run_id = (config.strategy.run_id or "").strip()
     window = _window_from_reports(
         store_root,
         book_id=resolved_id,
-        run_id=(config.strategy.run_id or "").strip(),
+        run_id=run_id,
         sessions=resolved,
         calendar=label,
         sources=sources,
-        board_downgraded=PAPER_BOOK_DEVIATION in (config.tradable_reasons or []),
+        board_downgraded=_board_blocked(config),
+        max_decay=_decay_threshold(run_id),
     )
+    store = strategy_store
+    if store is _UNSET:
+        store = _open_store()
+    if clear_for_decay(
+        config,
+        window.decay,
+        run_key=run_id or resolved_id,
+        run_dir=str(run_dir) if run_dir is not None else None,
+        as_of=window.end,
+        strategy_store=store,
+    ):
+        window.downgraded = True
+        if not window.downgrade_reason:
+            window.downgrade_reason = PAPER_BOOK_DECAY
+            window.downgraded_on = window.end
+        window.decay = {**window.decay, "cleared_tradable": True}
+    else:
+        window.decay = {**window.decay, "cleared_tradable": False}
     save_window(store_root, window)
     logger.info(
         "paper book %s window %s..%s sessions=%d nav=%.2f deviation=%s downgraded=%s decayed=%s",
@@ -395,27 +417,51 @@ def _config_from_signals(
     return cfg
 
 
-def _blocked(config: MonitorConfig) -> MonitorConfig:
-    """Copy that will not open or close. The deviation downgrade already stuck."""
+def _board_blocked(config: MonitorConfig) -> bool:
+    return any(reason in PAPER_BOOK_BLOCK_REASONS for reason in (config.tradable_reasons or []))
+
+
+def _active_block_reasons(config: MonitorConfig) -> list[str]:
+    reasons = [reason for reason in (config.tradable_reasons or []) if reason in PAPER_BOOK_BLOCK_REASONS]
+    return reasons or [PAPER_BOOK_DEVIATION]
+
+
+def _blocked(config: MonitorConfig, live: MonitorConfig) -> MonitorConfig:
+    """Copy that will not open or close. The downgrade on ``live`` already stuck."""
     cloned = MonitorConfig.from_dict(config.to_dict())
     cloned.tradable = False
-    if PAPER_BOOK_DEVIATION not in cloned.tradable_reasons:
-        cloned.tradable_reasons.append(PAPER_BOOK_DEVIATION)
-    for suggestion in cloned.suggestions:
-        suggestion.tradable = False
-        if PAPER_BOOK_DEVIATION not in suggestion.block_reasons:
-            suggestion.block_reasons.append(PAPER_BOOK_DEVIATION)
+    for reason in _active_block_reasons(live):
+        if reason not in cloned.tradable_reasons:
+            cloned.tradable_reasons.append(reason)
+        for suggestion in cloned.suggestions:
+            suggestion.tradable = False
+            if reason not in suggestion.block_reasons:
+                suggestion.block_reasons.append(reason)
     return cloned
 
 
-def _stamp_live_board(config: MonitorConfig) -> None:
+def _stamp_live_board(config: MonitorConfig, reason: str) -> None:
     config.tradable = False
-    if PAPER_BOOK_DEVIATION not in config.tradable_reasons:
-        config.tradable_reasons.append(PAPER_BOOK_DEVIATION)
+    if reason not in config.tradable_reasons:
+        config.tradable_reasons.append(reason)
     for suggestion in config.suggestions:
         suggestion.tradable = False
-        if PAPER_BOOK_DEVIATION not in suggestion.block_reasons:
-            suggestion.block_reasons.append(PAPER_BOOK_DEVIATION)
+        if reason not in suggestion.block_reasons:
+            suggestion.block_reasons.append(reason)
+
+
+def _decay_threshold(run_id: str) -> float:
+    from src.config.accessor import get_env_config
+
+    configured = float(get_env_config().data.vibe_trading_paper_book_max_decay)
+    if configured <= 0 or configured != configured:
+        configured = DEFAULT_MAX_DECAY
+    if not run_id:
+        return configured
+    journal_cap = machine_levels(run_id).get("decay")
+    if journal_cap is None:
+        return configured
+    return min(configured, journal_cap)
 
 
 def _window_from_reports(
@@ -427,6 +473,7 @@ def _window_from_reports(
     calendar: str,
     sources: dict[str, str],
     board_downgraded: bool,
+    max_decay: float = DEFAULT_MAX_DECAY,
 ) -> WindowReport:
     days: list[dict[str, Any]] = []
     for day in sessions:
@@ -458,6 +505,10 @@ def _window_from_reports(
         last_dev = None
     downgraded_on = next((str(row["as_of"]) for row in days if row.get("downgraded")), None)
     downgraded = downgraded_on is not None or board_downgraded
+    day_reason = next(
+        (str(row.get("downgrade_reason")) for row in days if row.get("downgraded") and row.get("downgrade_reason")),
+        None,
+    )
     traded = sum(float(row.get("traded_notional") or 0.0) for row in days)
     turnover = sum(float(row.get("turnover") or 0.0) for row in days)
     return WindowReport(
@@ -482,10 +533,10 @@ def _window_from_reports(
         max_return_deviation_on=max_on,
         expectation=expectation,
         downgraded=downgraded,
-        downgrade_reason=PAPER_BOOK_DEVIATION if downgraded else None,
+        downgrade_reason=(day_reason or PAPER_BOOK_DEVIATION) if downgraded else None,
         downgraded_on=downgraded_on,
         days=days,
-        decay=edge_decay(days),
+        decay=edge_decay(days, max_decay=max_decay),
     )
 
 
@@ -518,6 +569,7 @@ def _day_row(report: Mapping[str, Any], source: str) -> dict[str, Any]:
         "expected_cum_return": expectation.get("expected_cum_return"),
         "expected_nav": expectation.get("expected_nav"),
         "downgraded": bool(report.get("downgraded")),
+        "downgrade_reason": report.get("downgrade_reason"),
         "signal_source": source,
         "expectation": dict(expectation),
     }

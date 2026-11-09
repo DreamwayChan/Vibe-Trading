@@ -25,6 +25,10 @@ def _full(**overrides: str) -> dict[str, str]:
     payload = {
         "run_id": "run_demo",
         "thesis": "Gap reversal fades within five sessions.",
+        "observation": "The close finished above the prior 20-day high.",
+        "hypothesis": "Because late buyers chase the gap, therefore the next closes revert.",
+        "logic": "Late buyers crowd a gap and their exits supply the move back.",
+        "validation_plan": "Daily lake bars, 2022-2024, Sharpe and max drawdown, A-share costs on.",
         "invalidation": "Close the book if the 20-day low breaks.",
         "planned_position": "2% NAV",
         "planned_risk": "max loss 0.5% NAV",
@@ -64,6 +68,10 @@ def test_hypothesis_link_supplies_thesis_and_invalidation(journal_path: Path) ->
     hypothesis = registry.create(
         title="A-share reversal",
         thesis="Post-limit-up names revert.",
+        observation="The name closed above the prior session high.",
+        hypothesis="Because the crowd chased the limit-up, therefore the next close fades.",
+        logic="Limit-up buyers are late and their exits supply the fade.",
+        validation_plan="Daily bars, 60 sessions, Sharpe, A-share costs on.",
         invalidation_notes="Exit if the next close makes a higher high.",
     )
     signal = DecisionJournal(registry=registry).record(
@@ -75,6 +83,8 @@ def test_hypothesis_link_supplies_thesis_and_invalidation(journal_path: Path) ->
     assert signal.tradable is True
     assert signal.thesis == "Post-limit-up names revert."
     assert "higher high" in signal.invalidation
+    assert signal.observation.startswith("The name closed")
+    assert "therefore" in signal.hypothesis
     assert signal.hypothesis_id == hypothesis.hypothesis_id
 
 
@@ -129,8 +139,12 @@ def test_assess_lists_every_gap() -> None:
         hypothesis_found=False,
     )
     assert reasons == [
-        "missing_thesis",
+        "missing_observation",
+        "missing_hypothesis",
+        "missing_logic",
+        "missing_validation_plan",
         "missing_invalidation",
+        "missing_thesis",
         "missing_position",
         "missing_risk",
         "missing_timestamp",

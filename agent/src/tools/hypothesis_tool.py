@@ -50,6 +50,44 @@ class CreateHypothesisTool(BaseTool):
                 "description": "Relevant Vibe-Trading skills",
             },
             "invalidation_notes": {"type": "string", "description": "Invalidation notes"},
+            "observation": {
+                "type": "string",
+                "description": "One objective sentence with no conclusion",
+            },
+            "hypothesis": {
+                "type": "string",
+                "description": "Causal sentence (because / therefore), not a correlation",
+            },
+            "logic": {
+                "type": "string",
+                "description": "Behavioral finance, market structure, or human bias",
+            },
+            "validation_plan": {
+                "type": "string",
+                "description": "Data source, window, metrics, and cost assumptions",
+            },
+            "invalidation": {
+                "type": "string",
+                "description": "Condition that kills the idea; prefer a price, deviation, or decay rule",
+            },
+            "invalidation_kind": {
+                "type": "string",
+                "enum": ["price", "deviation", "decay"],
+                "description": "Machine-checkable invalidation kind",
+            },
+            "invalidation_side": {
+                "type": "string",
+                "enum": ["below", "above"],
+                "description": "Price side. Required when kind is price",
+            },
+            "invalidation_price": {
+                "type": "number",
+                "description": "Price level when kind is price",
+            },
+            "invalidation_level": {
+                "type": "number",
+                "description": "Deviation or decay threshold",
+            },
         },
         "required": ["title", "thesis"],
     }
@@ -66,6 +104,15 @@ class CreateHypothesisTool(BaseTool):
                 data_sources=kwargs.get("data_sources"),
                 skills=kwargs.get("skills"),
                 invalidation_notes=str(kwargs.get("invalidation_notes", "")),
+                observation=str(kwargs.get("observation", "")),
+                hypothesis=str(kwargs.get("hypothesis", "")),
+                logic=str(kwargs.get("logic", "")),
+                validation_plan=str(kwargs.get("validation_plan", "")),
+                invalidation=str(kwargs.get("invalidation", "")),
+                invalidation_kind=str(kwargs.get("invalidation_kind", "")),
+                invalidation_side=str(kwargs.get("invalidation_side", "")),
+                invalidation_price=kwargs.get("invalidation_price"),
+                invalidation_level=kwargs.get("invalidation_level"),
             )
             return _ok({"hypothesis": hyp.to_dict()})
         except Exception as exc:
@@ -94,6 +141,15 @@ class UpdateHypothesisTool(BaseTool):
             "data_sources": {"type": "array", "items": {"type": "string"}},
             "skills": {"type": "array", "items": {"type": "string"}},
             "invalidation_notes": {"type": "string"},
+            "observation": {"type": "string"},
+            "hypothesis": {"type": "string"},
+            "logic": {"type": "string"},
+            "validation_plan": {"type": "string"},
+            "invalidation": {"type": "string"},
+            "invalidation_kind": {"type": "string", "enum": ["price", "deviation", "decay"]},
+            "invalidation_side": {"type": "string", "enum": ["below", "above"]},
+            "invalidation_price": {"type": "number"},
+            "invalidation_level": {"type": "number"},
         },
         "required": ["hypothesis_id"],
         "additionalProperties": False,
@@ -113,6 +169,15 @@ class UpdateHypothesisTool(BaseTool):
                 "data_sources",
                 "skills",
                 "invalidation_notes",
+                "observation",
+                "hypothesis",
+                "logic",
+                "validation_plan",
+                "invalidation",
+                "invalidation_kind",
+                "invalidation_side",
+                "invalidation_price",
+                "invalidation_level",
             }
             updates = {
                 key: value

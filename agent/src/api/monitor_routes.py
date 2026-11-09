@@ -266,6 +266,8 @@ class MonitorResponse(BaseModel):
     validation_gate: Optional[Dict[str, Any]] = None
     decision_signal: Optional[Dict[str, Any]] = None
     bars_source: Optional[str] = None
+    # Held symbols with no tradable, fresh, non-invalidated journal entry.
+    journal_alerts: List[str] = Field(default_factory=list)
 
 
 class RecordSignalRequest(BaseModel):
@@ -277,7 +279,15 @@ class RecordSignalRequest(BaseModel):
 
     hypothesis_id: Optional[str] = None
     thesis: Optional[str] = None
+    observation: Optional[str] = None
+    hypothesis: Optional[str] = None
+    logic: Optional[str] = None
+    validation_plan: Optional[str] = None
     invalidation: Optional[str] = None
+    invalidation_kind: Optional[str] = None
+    invalidation_side: Optional[str] = None
+    invalidation_price: Optional[float] = None
+    invalidation_level: Optional[float] = None
     planned_position: Optional[str] = None
     planned_risk: Optional[str] = None
     timestamp: Optional[str] = None
@@ -291,18 +301,41 @@ class JournalEntryResponse(BaseModel):
     run_id: str
     hypothesis_id: str = ""
     thesis: str = ""
+    observation: str = ""
+    hypothesis: str = ""
+    logic: str = ""
+    validation_plan: str = ""
     invalidation: str = ""
+    invalidation_kind: str = ""
+    invalidation_side: str = ""
+    invalidation_level: Optional[float] = None
+    invalidation_price: Optional[float] = None
     planned_position: str = ""
     planned_risk: str = ""
     symbol: str = ""
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
+    outcome: Optional[Dict[str, Any]] = None
     # Recomputed on read, not the value stored at write time: a row keeps its
     # ``tradable`` snapshot forever, but expiry depends on "now". Without these
     # two fields the history list would still say "tradable" for a row the
     # admission gate is already rejecting as ``stale_journal``.
     stale: bool = False
     age_days: Optional[int] = None
+
+
+class OutcomeRequest(BaseModel):
+    """Realised result for one journal row. ``pnl_pct`` is a percent, not a fraction."""
+
+    pnl_pct: float
+    note: str = ""
+
+
+class OutcomeSummaryResponse(BaseModel):
+    reviewed: int = 0
+    wins: int = 0
+    win_rate: Optional[float] = None
+    mean_pnl_pct: Optional[float] = None
 
 
 class HistorySummaryResponse(BaseModel):
@@ -352,6 +385,16 @@ def _display_holdings(holdings, decision):
     return clip_holdings(holdings, decision)
 
 
+def _journal_alerts(config: MonitorConfig) -> List[str]:
+    from src.monitor.admission import holdings_without_journal, journal_key_for
+
+    try:
+        return holdings_without_journal(journal_key_for(config.strategy), list(config.holdings))
+    except Exception:  # noqa: BLE001 — alerts are advisory
+        logger.debug("journal holding alerts failed", exc_info=True)
+        return []
+
+
 def _to_response(config: MonitorConfig) -> MonitorResponse:
     holdings = _display_holdings(config.holdings, config.decision)
     return MonitorResponse(
@@ -374,6 +417,7 @@ def _to_response(config: MonitorConfig) -> MonitorResponse:
         validation_gate=config.validation_gate,
         decision_signal=config.decision_signal,
         bars_source=config.bars_source,
+        journal_alerts=_journal_alerts(config),
     )
 
 
@@ -540,8 +584,9 @@ def register_monitor_routes(
     async def post_monitor_signal(body: RecordSignalRequest) -> MonitorResponse:
         """Record a decision-journal signal for the bound strategy.
 
-        Missing invalidation (or thesis, position, risk) is stored as
-        ``tradable=false``. ``strict=true`` returns 422 and does not write.
+        Missing any of the five hypothesis fields (or thesis, position, risk)
+        is stored as ``tradable=false``. ``strict=true`` returns 422 and does
+        not write.
         The validation gate is re-evaluated against the bound run; a strategy
         still cannot enter the tradable pool without a passing artifact.
         """
@@ -566,7 +611,15 @@ def register_monitor_routes(
                 run_id=run_key,
                 hypothesis_id=body.hypothesis_id or "",
                 thesis=body.thesis or "",
+                observation=body.observation or "",
+                hypothesis=body.hypothesis or "",
+                logic=body.logic or "",
+                validation_plan=body.validation_plan or "",
                 invalidation=body.invalidation or "",
+                invalidation_kind=body.invalidation_kind or "",
+                invalidation_side=body.invalidation_side or "",
+                invalidation_price=body.invalidation_price,
+                invalidation_level=body.invalidation_level,
                 planned_position=body.planned_position or "",
                 planned_risk=body.planned_risk or "",
                 timestamp=body.timestamp or "",
@@ -622,6 +675,47 @@ def register_monitor_routes(
             payload["age_days"] = signal_age_days(row)
             entries.append(JournalEntryResponse(**payload))
         return entries
+
+    @app.get(
+        "/monitor/journal/summary",
+        response_model=OutcomeSummaryResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_monitor_journal_summary() -> OutcomeSummaryResponse:
+        """Reviewed count, win rate, and mean PnL for the bound strategy."""
+        from src.hypotheses.journal import DecisionJournal, outcome_summary
+        from src.monitor.admission import journal_key_for
+
+        run_key = journal_key_for(load_monitor().strategy)
+        if not run_key:
+            return OutcomeSummaryResponse()
+        try:
+            rows = DecisionJournal().history(run_key, limit=500)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return OutcomeSummaryResponse(**outcome_summary(rows))
+
+    @app.post(
+        "/monitor/journal/{signal_id}/outcome",
+        response_model=JournalEntryResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_monitor_journal_outcome(
+        signal_id: str, body: OutcomeRequest
+    ) -> JournalEntryResponse:
+        """Record the realised percent result of one journal entry."""
+        from src.hypotheses.journal import DecisionJournal, is_stale, signal_age_days
+
+        try:
+            row = DecisionJournal().record_outcome(signal_id, pnl_pct=body.pnl_pct, note=body.note)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"journal entry not found: {signal_id}") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        payload = row.to_dict()
+        payload["stale"] = is_stale(row)
+        payload["age_days"] = signal_age_days(row)
+        return JournalEntryResponse(**payload)
 
     @app.post(
         "/monitor/reset",

@@ -296,6 +296,16 @@ class DataConfig(_EnvBase):
     vibe_trading_paper_book_max_volume_ratio: float = Field(
         alias="VIBE_TRADING_PAPER_BOOK_MAX_VOLUME_RATIO", default=0.0
     )
+    # Relative Sharpe drop (1 - recent/earlier) that flags edge decay.
+    # Matches src.paper_book.decay.DEFAULT_MAX_DECAY.
+    vibe_trading_paper_book_max_decay: float = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_MAX_DECAY", default=0.5
+    )
+    # When decay exceeds the threshold, clear tradable and downgrade the book.
+    # Set to 0 to keep the decay block as a warning on the window report.
+    vibe_trading_paper_book_decay_clears_tradable: EnvBool = Field(
+        alias="VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE", default=True
+    )
     aliyun_iqs_api_key: str = Field(alias="ALIYUN_IQS_API_KEY", default="")
     qveris_api_key: str = Field(alias="QVERIS_API_KEY", default="")
     qveris_base_url: str = Field(alias="QVERIS_BASE_URL", default="")

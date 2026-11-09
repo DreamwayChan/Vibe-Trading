@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config.accessor import get_env_config
+from src.hypotheses.fields import parse_machine_invalidation
 
 HYPOTHESIS_STATUSES = (
     "exploring",
@@ -71,6 +72,17 @@ def _new_hypothesis_id(title: str, created_at: str, existing_ids: set[str]) -> s
     return f"{base}_{idx}"
 
 
+def _sync_invalidation(invalidation: str, notes: str) -> tuple[str, str]:
+    """Keep the five-field invalidation and the legacy notes column together."""
+    text = invalidation.strip()
+    legacy = notes.strip()
+    if text and not legacy:
+        legacy = text
+    if legacy and not text:
+        text = legacy
+    return text, legacy
+
+
 def _validate_status(status: str) -> str:
     normalized = str(status).strip().lower()
     if normalized not in _STATUS_SET:
@@ -86,14 +98,23 @@ class Hypothesis:
     Attributes:
         hypothesis_id: Stable registry identifier.
         title: Short human-readable title.
-        thesis: Research thesis or rationale.
+        thesis: Research thesis or rationale. A causal thesis can fill
+            ``hypothesis`` when that field is left blank.
+        observation: Objective sentence with no conclusion.
+        hypothesis: Causal sentence (because / therefore).
+        logic: Behavioral, structural, or bias explanation.
+        validation_plan: Data source, window, metrics, and cost assumptions.
+        invalidation: Condition that kills the idea.
         status: Lifecycle status.
         universe: Target universe, market, or asset set.
         signal_definition: Signal logic in plain text.
         data_sources: Data sources expected or used.
         skills: Relevant Vibe-Trading skills.
         run_cards: Linked backtest/run-card artifacts.
-        invalidation_notes: Notes describing rejection or invalidation logic.
+        invalidation_notes: Legacy alias of ``invalidation``.
+        invalidation_kind: ``price``, ``deviation``, ``decay``, or blank.
+        invalidation_side: ``below`` or ``above`` for a price rule.
+        invalidation_level: Price or threshold for the machine rule.
         created_at: UTC creation timestamp.
         updated_at: UTC last update timestamp.
     """
@@ -101,6 +122,11 @@ class Hypothesis:
     hypothesis_id: str
     title: str
     thesis: str
+    observation: str = ""
+    hypothesis: str = ""
+    logic: str = ""
+    validation_plan: str = ""
+    invalidation: str = ""
     status: str = "exploring"
     universe: str = ""
     signal_definition: str = ""
@@ -108,6 +134,9 @@ class Hypothesis:
     skills: list[str] = field(default_factory=list)
     run_cards: list[dict[str, Any]] = field(default_factory=list)
     invalidation_notes: str = ""
+    invalidation_kind: str = ""
+    invalidation_side: str = ""
+    invalidation_level: float | None = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -126,17 +155,35 @@ class Hypothesis:
             Parsed hypothesis with defaults for missing MVP fields.
         """
         now = _utc_now()
+        invalidation, notes = _sync_invalidation(
+            str(data.get("invalidation", "")),
+            str(data.get("invalidation_notes", "")),
+        )
+        kind, side, level = parse_machine_invalidation(
+            kind=str(data.get("invalidation_kind") or ""),
+            side=str(data.get("invalidation_side") or ""),
+            price=data.get("invalidation_price"),
+            level=data.get("invalidation_level"),
+        )
         return cls(
             hypothesis_id=str(data.get("hypothesis_id", "")),
             title=str(data.get("title", "")),
             thesis=str(data.get("thesis", "")),
+            observation=str(data.get("observation") or ""),
+            hypothesis=str(data.get("hypothesis") or ""),
+            logic=str(data.get("logic") or ""),
+            validation_plan=str(data.get("validation_plan") or ""),
+            invalidation=invalidation,
             status=_validate_status(str(data.get("status", "exploring"))),
             universe=str(data.get("universe", "")),
             signal_definition=str(data.get("signal_definition", "")),
             data_sources=_coerce_str_list(data.get("data_sources")),
             skills=_coerce_str_list(data.get("skills")),
             run_cards=list(data.get("run_cards") or data.get("backtests") or []),
-            invalidation_notes=str(data.get("invalidation_notes", "")),
+            invalidation_notes=notes,
+            invalidation_kind=kind,
+            invalidation_side=side,
+            invalidation_level=level,
             created_at=str(data.get("created_at") or now),
             updated_at=str(data.get("updated_at") or data.get("created_at") or now),
         )
@@ -166,6 +213,15 @@ class HypothesisRegistry:
         data_sources: list[str] | None = None,
         skills: list[str] | None = None,
         invalidation_notes: str = "",
+        observation: str = "",
+        hypothesis: str = "",
+        logic: str = "",
+        validation_plan: str = "",
+        invalidation: str = "",
+        invalidation_kind: str = "",
+        invalidation_side: str = "",
+        invalidation_level: float | None = None,
+        invalidation_price: float | None = None,
     ) -> Hypothesis:
         """Create and persist a new hypothesis.
 
@@ -177,13 +233,22 @@ class HypothesisRegistry:
             signal_definition: Signal logic.
             data_sources: Source names.
             skills: Related Vibe-Trading skills.
-            invalidation_notes: Initial invalidation notes.
+            invalidation_notes: Initial invalidation notes (legacy alias).
+            observation: Objective sentence.
+            hypothesis: Causal sentence.
+            logic: Behavioral or structural explanation.
+            validation_plan: Data, window, metrics, and costs.
+            invalidation: Invalidation sentence. Fills notes when notes are blank.
+            invalidation_kind: Optional machine rule kind.
+            invalidation_side: ``below`` or ``above`` for a price rule.
+            invalidation_level: Threshold for deviation or decay.
+            invalidation_price: Price level for a price rule.
 
         Returns:
             Created hypothesis.
 
         Raises:
-            ValueError: If title/thesis/status are invalid.
+            ValueError: If title/thesis/status are invalid, or the machine rule is partial.
         """
         title = title.strip()
         thesis = thesis.strip()
@@ -191,6 +256,13 @@ class HypothesisRegistry:
             raise ValueError("title is required")
         if not thesis:
             raise ValueError("thesis is required")
+        invalidation_text, notes = _sync_invalidation(invalidation, invalidation_notes)
+        kind, side, level = parse_machine_invalidation(
+            kind=invalidation_kind,
+            side=invalidation_side,
+            price=invalidation_price,
+            level=invalidation_level,
+        )
 
         records = self.list()
         now = _utc_now()
@@ -198,12 +270,20 @@ class HypothesisRegistry:
             hypothesis_id=_new_hypothesis_id(title, now, {h.hypothesis_id for h in records}),
             title=title,
             thesis=thesis,
+            observation=observation.strip(),
+            hypothesis=hypothesis.strip(),
+            logic=logic.strip(),
+            validation_plan=validation_plan.strip(),
+            invalidation=invalidation_text,
             status=_validate_status(status),
             universe=universe.strip(),
             signal_definition=signal_definition.strip(),
             data_sources=_coerce_str_list(data_sources),
             skills=_coerce_str_list(skills),
-            invalidation_notes=invalidation_notes.strip(),
+            invalidation_notes=notes,
+            invalidation_kind=kind,
+            invalidation_side=side,
+            invalidation_level=level,
             created_at=now,
             updated_at=now,
         )
@@ -223,6 +303,15 @@ class HypothesisRegistry:
         data_sources: list[str] | None = None,
         skills: list[str] | None = None,
         invalidation_notes: str | None = None,
+        observation: str | None = None,
+        hypothesis: str | None = None,
+        logic: str | None = None,
+        validation_plan: str | None = None,
+        invalidation: str | None = None,
+        invalidation_kind: str | None = None,
+        invalidation_side: str | None = None,
+        invalidation_level: float | None = None,
+        invalidation_price: float | None = None,
     ) -> Hypothesis:
         """Update an existing hypothesis.
 
@@ -256,6 +345,11 @@ class HypothesisRegistry:
         normalized_data_sources = _coerce_str_list(data_sources) if data_sources is not None else None
         normalized_skills = _coerce_str_list(skills) if skills is not None else None
         normalized_invalidation_notes = invalidation_notes.strip() if invalidation_notes is not None else None
+        normalized_observation = observation.strip() if observation is not None else None
+        normalized_hypothesis = hypothesis.strip() if hypothesis is not None else None
+        normalized_logic = logic.strip() if logic is not None else None
+        normalized_plan = validation_plan.strip() if validation_plan is not None else None
+        normalized_invalidation = invalidation.strip() if invalidation is not None else None
 
         records = self.list()
         hyp = self._find_required(records, hypothesis_id)
@@ -273,8 +367,35 @@ class HypothesisRegistry:
             hyp.data_sources = normalized_data_sources
         if normalized_skills is not None:
             hyp.skills = normalized_skills
-        if normalized_invalidation_notes is not None:
-            hyp.invalidation_notes = normalized_invalidation_notes
+        if normalized_observation is not None:
+            hyp.observation = normalized_observation
+        if normalized_hypothesis is not None:
+            hyp.hypothesis = normalized_hypothesis
+        if normalized_logic is not None:
+            hyp.logic = normalized_logic
+        if normalized_plan is not None:
+            hyp.validation_plan = normalized_plan
+        if normalized_invalidation is not None or normalized_invalidation_notes is not None:
+            hyp.invalidation, hyp.invalidation_notes = _sync_invalidation(
+                normalized_invalidation if normalized_invalidation is not None else hyp.invalidation,
+                normalized_invalidation_notes
+                if normalized_invalidation_notes is not None
+                else hyp.invalidation_notes,
+            )
+        rule_touched = any(
+            value is not None
+            for value in (invalidation_kind, invalidation_side, invalidation_level, invalidation_price)
+        )
+        if rule_touched:
+            kind, side, level = parse_machine_invalidation(
+                kind=invalidation_kind if invalidation_kind is not None else hyp.invalidation_kind,
+                side=invalidation_side if invalidation_side is not None else hyp.invalidation_side,
+                price=invalidation_price,
+                level=invalidation_level if invalidation_level is not None else hyp.invalidation_level,
+            )
+            hyp.invalidation_kind = kind
+            hyp.invalidation_side = side
+            hyp.invalidation_level = level
         hyp.updated_at = _utc_now()
         self._save(records)
         return hyp

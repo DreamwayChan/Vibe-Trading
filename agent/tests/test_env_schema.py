@@ -117,6 +117,8 @@ class TestEnvConfigDefaults:
         assert c.data.vibe_trading_paper_book_max_position == pytest.approx(0.20)
         assert c.data.vibe_trading_paper_book_max_drawdown == pytest.approx(0.15)
         assert c.data.vibe_trading_paper_book_max_volume_ratio == pytest.approx(0.0)
+        assert c.data.vibe_trading_paper_book_max_decay == pytest.approx(0.5)
+        assert c.data.vibe_trading_paper_book_decay_clears_tradable is True
         assert c.data.aliyun_iqs_api_key == ""
         assert c.data.longbridge_app_key == ""
         assert c.data.longbridge_app_secret == ""
