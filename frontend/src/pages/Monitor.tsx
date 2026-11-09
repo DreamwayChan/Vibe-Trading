@@ -364,6 +364,7 @@ const REASON_I18N = {
   missing_validation_plan: "monitor.reasonMissingValidationPlan",
   invalidated: "monitor.reasonInvalidated",
   paper_book_decay: "monitor.reasonPaperBookDecay",
+  uncausal_scan: "monitor.reasonUncausalScan",
   not_actionable: "monitor.reasonNotActionable",
   ashare_st: "monitor.reasonAshareSt",
   ashare_limit_up: "monitor.reasonAshareLimitUp",
@@ -481,7 +482,14 @@ const GATE_STATUS_KEY = {
   unknown: "monitor.gateUnknown",
 } as const satisfies Record<GateStatus, "monitor.gatePassed" | "monitor.gateFailed" | "monitor.gateOff" | "monitor.gateUnknown">;
 
-type JournalSampleKind = "stock" | "strategy";
+type JournalSampleKind = "stock" | "strategy" | "anomaly" | "behavioral";
+
+const JOURNAL_SAMPLE_LABEL = {
+  stock: "monitor.journalSampleStock",
+  strategy: "monitor.journalSampleStrategy",
+  anomaly: "monitor.journalSampleAnomaly",
+  behavioral: "monitor.journalSampleBehavioral",
+} as const;
 
 type JournalSample = {
   hypothesis: string;
@@ -733,6 +741,30 @@ export function Monitor() {
         invalidation: t("monitor.journalSampleStrategyInvalidation"),
         position: t("monitor.journalSampleStrategyPosition"),
         risk: t("monitor.journalSampleStrategyRisk"),
+      },
+      anomaly: {
+        hypothesis: "",
+        symbol: "",
+        thesis: t("monitor.journalSampleAnomalyThesis"),
+        observation: t("monitor.journalSampleAnomalyObservation"),
+        causal: t("monitor.journalSampleAnomalyHypothesis"),
+        logic: t("monitor.journalSampleAnomalyLogic"),
+        validation: t("monitor.journalSampleAnomalyValidation"),
+        invalidation: t("monitor.journalSampleAnomalyInvalidation"),
+        position: t("monitor.journalSampleAnomalyPosition"),
+        risk: t("monitor.journalSampleAnomalyRisk"),
+      },
+      behavioral: {
+        hypothesis: "",
+        symbol: "",
+        thesis: t("monitor.journalSampleBehavioralThesis"),
+        observation: t("monitor.journalSampleBehavioralObservation"),
+        causal: t("monitor.journalSampleBehavioralHypothesis"),
+        logic: t("monitor.journalSampleBehavioralLogic"),
+        validation: t("monitor.journalSampleBehavioralValidation"),
+        invalidation: t("monitor.journalSampleBehavioralInvalidation"),
+        position: t("monitor.journalSampleBehavioralPosition"),
+        risk: t("monitor.journalSampleBehavioralRisk"),
       },
     }),
     [t],
@@ -1395,7 +1427,7 @@ export function Monitor() {
             className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3"
           >
             <div className="flex flex-wrap items-center gap-1.5">
-              {(["stock", "strategy"] as const).map((kind) => (
+              {(Object.keys(JOURNAL_SAMPLE_LABEL) as JournalSampleKind[]).map((kind) => (
                 <button
                   key={kind}
                   type="button"
@@ -1408,7 +1440,7 @@ export function Monitor() {
                       : "text-muted-foreground hover:bg-background",
                   )}
                 >
-                  {kind === "stock" ? t("monitor.journalSampleStock") : t("monitor.journalSampleStrategy")}
+                  {t(JOURNAL_SAMPLE_LABEL[kind])}
                 </button>
               ))}
             </div>
@@ -1427,6 +1459,11 @@ export function Monitor() {
               <JournalSampleRow label={t("monitor.journalRisk")} value={activeJournalSample.risk} />
             </dl>
             <p className="text-xs leading-relaxed text-muted-foreground">{t("monitor.journalSampleNote")}</p>
+            {(journalSampleKind === "anomaly" || journalSampleKind === "behavioral") && (
+              <p data-testid="journal-sample-mechanism" className="text-xs leading-relaxed text-muted-foreground">
+                {t("monitor.journalSampleMechanismNote")}
+              </p>
+            )}
             <button
               type="button"
               onClick={applyJournalSample}

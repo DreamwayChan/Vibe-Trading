@@ -34,7 +34,15 @@ export function SectorWindPanel({ keys }: { keys?: string[] }) {
       <div className="flex items-start gap-3">
         <Wind className="h-5 w-5 text-primary mt-0.5" />
         <div className="flex-1">
-          <h2 className="text-lg font-semibold">{t("sectorWind.title")}</h2>
+          <h2 className="text-lg font-semibold inline-flex flex-wrap items-center gap-2">
+            <span>{t("sectorWind.title")}</span>
+            <span
+              className="text-[10px] rounded border border-dashed border-amber-500/70 px-1 py-0.5 font-medium text-amber-800 dark:text-amber-300"
+              title={t("sectorWind.notTradableHint")}
+            >
+              {t("sectorWind.researchOnly")}
+            </span>
+          </h2>
           <p className="text-xs text-muted-foreground mt-1">{t("sectorWind.hint")}</p>
         </div>
         <button
@@ -103,7 +111,15 @@ export function SectorWindPanel({ keys }: { keys?: string[] }) {
                 <tbody>
                   {row.cards.map((c) => (
                     <tr key={c.factor} className="border-t">
-                      <td className="py-1 pr-2 font-mono">{c.factor}</td>
+                      <td className="py-1 pr-2 font-mono">
+                        <span>{c.factor}</span>
+                        <span
+                          className="ml-1 whitespace-nowrap text-[10px] rounded border border-dashed border-amber-500/70 px-1 py-0.5 text-amber-800 dark:text-amber-300"
+                          title={t("sectorWind.notTradableHint")}
+                        >
+                          {t("sectorWind.notTradable")}
+                        </span>
+                      </td>
                       <td className="py-1 pr-2 font-mono">{fmt(c.shrunk_ic, 4)}</td>
                       <td className="py-1 pr-2 font-mono">{fmt(c.ic_out, 4)}</td>
                       <td className="py-1 pr-2 font-mono">{fmt(c.t_out, 2)}</td>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.monitor.models import WEIGHT_EPSILON, MonitorConfig
+from src.monitor.uncausal import UNCAUSAL_SCAN, is_uncausal_scan
 from src.paper_book.models import Intent
 
 
@@ -20,6 +21,20 @@ def resolve_intents(
     sells: list[str] = []
     buys: list[str] = []
     seen: set[str] = set()
+
+    run_id = str(getattr(getattr(config, "strategy", None), "run_id", "") or "")
+    if is_uncausal_scan(run_id):
+        # A schedule that omits ``tradable`` still defaults it to true.
+        # That default must not fill a frozen 「最优」 recipe.
+        for suggestion in config.suggestions:
+            action = suggestion.action
+            if action not in ("buy", "sell"):
+                continue
+            symbol = (suggestion.symbol or "").strip().upper()
+            if not symbol:
+                continue
+            skipped.append({"symbol": symbol, "action": action, "reason": UNCAUSAL_SCAN})
+        return [], skipped
 
     for suggestion in config.suggestions:
         action = suggestion.action

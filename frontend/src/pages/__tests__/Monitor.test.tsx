@@ -262,6 +262,37 @@ describe("Monitor page", () => {
     expect(screen.getByText("Bars: data center")).toBeInTheDocument();
   });
 
+  it("names an uncausal scan as the reason the pool stays closed", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["600519.SH"],
+      strategy: { type: "run_dir", run_id: "optimal" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: false,
+      tradable_reasons: ["uncausal_scan"],
+      suggestions: [
+        {
+          symbol: "600519.SH",
+          action: "buy",
+          position: "long",
+          reason: "ranked first",
+          as_of: "2024-01-02",
+          price: 10,
+          tradable: false,
+          block_reasons: ["uncausal_scan"],
+        },
+      ],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+    expect(await screen.findAllByText("uncausal scan cannot enter the tradable pool")).not.toHaveLength(0);
+  });
+
   it("explains a closed pool with the observed value and threshold", async () => {
     vi.mocked(api.getMonitor).mockResolvedValue({
       symbols: [],
@@ -562,6 +593,22 @@ describe("Monitor page", () => {
     expect(screen.getByLabelText("Planned position")).toHaveValue(
       "Gross exposure capped at 60%, max 8% per name",
     );
+
+    await user.click(within(gallery).getByRole("button", { name: "Anomaly" }));
+    expect(screen.getByTestId("journal-sample-mechanism")).toHaveTextContent("does not report a return");
+    await user.click(within(gallery).getByRole("button", { name: "Fill the form" }));
+    const observation = screen.getByLabelText("Observation (facts only)") as HTMLInputElement;
+    const causal = screen.getByLabelText("Causal hypothesis (because / therefore)") as HTMLInputElement;
+    expect(observation.value).toContain("limit-up price");
+    expect(causal.value.startsWith("Because ")).toBe(true);
+    expect(observation.value.toLowerCase()).not.toContain("because");
+
+    await user.click(within(gallery).getByRole("button", { name: "Behavioral bias" }));
+    await user.click(within(gallery).getByRole("button", { name: "Fill the form" }));
+    const weekend = screen.getByLabelText("Causal hypothesis (because / therefore)") as HTMLInputElement;
+    const logic = screen.getByLabelText("Logic") as HTMLTextAreaElement | HTMLInputElement;
+    expect(weekend.value).toContain("weekend");
+    expect(logic.value).toContain("loss aversion");
   });
 
   it("shows tape action on holdings and sorts hold ahead of reduce", async () => {

@@ -14,7 +14,8 @@ CLI::
 Each session reads that day's monitor snapshot when one is on disk, then the
 live board when its suggestions are dated that session. ``--signals`` is a
 JSON object keyed by session date (or a list of rows with ``as_of``) and
-replaces both for a replay. A row trades when ``tradable`` is omitted or true.
+replaces both for a replay. A row trades when ``tradable`` is omitted or true,
+except a frozen 「最优」 catalog run, which is refused as ``uncausal_scan``.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import pandas as pd
 from backtest.engines.china_a import ChinaAEngine
 
 from src.monitor.models import HoldingRow, MonitorConfig, MonitorDaySnapshot, MonitorSuggestion
+from src.monitor.uncausal import seal_monitor_config
 from src.hypotheses.journal import machine_levels
 from src.paper_book.book import _default_book_id, _open_store, step_day
 from src.paper_book.decay import DEFAULT_MAX_DECAY, edge_decay
@@ -258,6 +260,7 @@ def load_signal_schedule(path: Path | str) -> dict[str, list[dict[str, Any]]]:
 
     Object form is ``{"YYYY-MM-DD": [ {symbol, action, weight?} ]}``. List form
     is rows with ``as_of`` (or ``date``). ``tradable`` defaults to true.
+    A 「最优」 catalog run id is still refused.
     """
     file = Path(path).expanduser()
     if not file.is_file():
@@ -329,19 +332,28 @@ def _config_for_day(
     use_snapshots: bool,
 ) -> tuple[MonitorConfig, str]:
     if configs_by_day is not None and day in configs_by_day:
-        return configs_by_day[day], "schedule"
-    if signals_by_day is not None and day in signals_by_day:
-        return _config_from_signals(config, day, signals_by_day[day]), "schedule"
-    if use_snapshots:
+        chosen, source = configs_by_day[day], "schedule"
+    elif signals_by_day is not None and day in signals_by_day:
+        chosen, source = _config_from_signals(config, day, signals_by_day[day]), "schedule"
+    elif use_snapshots:
         snapshot = _load_snapshot(config, day)
         if snapshot is not None:
-            return _config_from_snapshot(config, snapshot), "snapshot"
-    if _board_applies(config, day):
-        return config, "board"
-    flat = MonitorConfig.from_dict(config.to_dict())
-    flat.suggestions = []
-    flat.holdings = []
-    return flat, "flat"
+            chosen, source = _config_from_snapshot(config, snapshot), "snapshot"
+        elif _board_applies(config, day):
+            chosen, source = config, "board"
+        else:
+            flat = MonitorConfig.from_dict(config.to_dict())
+            flat.suggestions = []
+            flat.holdings = []
+            chosen, source = flat, "flat"
+    elif _board_applies(config, day):
+        chosen, source = config, "board"
+    else:
+        flat = MonitorConfig.from_dict(config.to_dict())
+        flat.suggestions = []
+        flat.holdings = []
+        chosen, source = flat, "flat"
+    return seal_monitor_config(chosen), source
 
 
 def _board_applies(config: MonitorConfig, day: str) -> bool:

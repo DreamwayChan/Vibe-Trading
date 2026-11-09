@@ -1332,12 +1332,18 @@ export interface SectorWindInfo {
   members?: number;
   actionable?: boolean;
   validation?: SectorWindValidation;
+  research_only?: boolean;
+  tradable?: boolean;
+  block_reason?: string;
 }
 
 export interface SectorFactorCard {
   sector: string;
   factor: string;
   entry: string;
+  research_only?: boolean;
+  tradable?: boolean;
+  block_reason?: string;
   horizon_days: number;
   shrunk_ic: number;
   ic_in: number;
@@ -1356,6 +1362,9 @@ export interface SectorWindSector {
   status?: string;
   error?: string;
   reason?: string;
+  research_only?: boolean;
+  tradable?: boolean;
+  block_reason?: string;
   wind?: SectorWindInfo;
   cards: SectorFactorCard[];
 }

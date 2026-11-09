@@ -132,6 +132,89 @@ def test_sampling_without_a_pid_is_refused(soak, tmp_path: Path) -> None:
         soak.main(["--out", str(tmp_path / "x.csv")])
 
 
+def test_posix_sample_reads_this_process_and_misses_a_dead_pid(soak) -> None:
+    import os
+
+    rss, threads, handles = soak.sample_process(os.getpid())
+    assert rss is not None and rss > 0
+    assert threads is not None and threads >= 1
+    assert handles is not None and handles >= 1
+    assert soak.sample_process(2**30) == (None, None, None)
+
+
+def test_probe_reports_success_and_failure(soak, monkeypatch) -> None:
+    class Response:
+        status = 200
+
+        def read(self, _n):
+            return b"ok"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(soak.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+    elapsed, ok = soak._probe("http://127.0.0.1/health")
+    assert ok is True
+    assert elapsed is not None and elapsed >= 0
+
+    def boom(*args, **kwargs):
+        raise soak.urllib.error.URLError("down")
+
+    monkeypatch.setattr(soak.urllib.request, "urlopen", boom)
+    assert soak._probe("http://127.0.0.1/health") == (None, False)
+
+
+def test_one_sample_writes_a_row_and_stops_on_interrupt(soak, tmp_path, monkeypatch) -> None:
+    import os
+
+    def sleep(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(soak.time, "sleep", sleep)
+    monkeypatch.setattr(soak, "_probe", lambda url, timeout=5.0: (12.0, False))
+    out = tmp_path / "soak.csv"
+    code = soak.main(
+        ["--pid", str(os.getpid()), "--url", "http://127.0.0.1:9", "--hours", "1", "--interval", "1", "--out", str(out)]
+    )
+    assert code == 0
+    rows = list(soak.csv.DictReader(out.open(encoding="utf-8")))
+    assert len(rows) == 1
+    assert rows[0]["ok"] == "0"
+    assert rows[0]["health_ms"] == "-1.0"
+
+    # A second run appends and does not write the header again.
+    monkeypatch.setattr(soak, "_probe", lambda url, timeout=5.0: (4.0, True))
+    assert soak.main(["--pid", str(os.getpid()), "--hours", "1", "--interval", "1", "--out", str(out)]) == 0
+    text = out.read_text(encoding="utf-8")
+    assert text.count("rss_mb") == 1
+    assert len(list(soak.csv.DictReader(out.open(encoding="utf-8")))) == 2
+
+
+def test_thread_growth_and_blank_cells(soak, tmp_path) -> None:
+    path = _write(tmp_path, [{"threads": 1 + index} for index in range(20)])
+    report = soak.analyze(path)
+    assert report["verdict"] == "fail"
+    assert any("thread growth" in finding for finding in report["findings"])
+
+    blank = tmp_path / "blank.csv"
+    blank.write_text(
+        "ts,rss_mb,threads,handles,health_ms,monitor_ms,ok\n"
+        "2026-11-01T00:00:00+00:00,n/a,,,,,\n"
+        "2026-11-01T01:00:00+00:00,,,,,,\n",
+        encoding="utf-8",
+    )
+    quiet = soak.analyze(blank)
+    assert quiet["verdict"] == "pass"
+    assert quiet["rss_growth_pct"] is None
+    assert quiet["handle_delta"] is None
+    assert quiet["thread_delta"] is None
+    assert quiet["health_p95_ms"] is None
+    assert quiet["monitor_p95_ms"] is None
+
+
 def test_the_header_order_is_stable(soak) -> None:
     """The runbook greps these columns by name; reordering breaks it silently."""
     assert soak.HEADER == ["ts", "rss_mb", "threads", "handles", "health_ms", "monitor_ms", "ok"]
