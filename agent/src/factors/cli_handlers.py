@@ -84,6 +84,33 @@ def _print(msg: str) -> None:
         print(msg)
 
 
+def _emit_json_document(payload: dict[str, Any]) -> None:
+    """Write one JSON document that starts at column zero of its own line.
+
+    ``alpha bench`` prints Rich banners and a live progress bar, then a JSON
+    envelope on stdout. On a terminal, Rich's live display finishes by writing
+    a cursor-show sequence (``ESC[?25h``) with no trailing newline. A following
+    ``print("{...}")`` glues the ``{`` to that sequence. Readers that look for
+    a JSON object on its own line — and ``capsys`` tests that do the same —
+    then see only the banner.
+
+    The write also steps through Rich's ``FileProxy``. While a live display is
+    still installed, ``print`` goes into the live region and is discarded when
+    the display stops; ``Console.file`` unwraps the proxy and is why the
+    banners survive. The envelope is the machine contract, so it uses that
+    same underlying stream.
+    """
+    text = json.dumps(payload, indent=2, default=str)
+    stream: Any = sys.stdout
+    while True:
+        inner = getattr(stream, "rich_proxied_file", None)
+        if inner is None:
+            break
+        stream = inner
+    stream.write("\n" + text + "\n")
+    stream.flush()
+
+
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
 
@@ -621,7 +648,7 @@ def cmd_alpha_bench(args: argparse.Namespace) -> int:
                 "universe": args.universe,
                 "period": args.period,
             }
-            print(json.dumps(envelope, indent=2, default=str))
+            _emit_json_document(envelope)
             _err(f"alpha bench failed: {err_msg}")
             if "TUSHARE_TOKEN" in str(err_msg):
                 _err("")
@@ -708,7 +735,7 @@ def cmd_alpha_bench(args: argparse.Namespace) -> int:
                 envelope["oos_split"] = result["oos_split"]
         if report_path is not None:
             envelope["report_path"] = str(report_path)
-        print(json.dumps(envelope, indent=2, default=str))
+        _emit_json_document(envelope)
 
         # Final stderr success line (M4).
         tested = len(rows)
