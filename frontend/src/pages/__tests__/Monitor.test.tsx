@@ -302,6 +302,80 @@ describe("Monitor page", () => {
     // The codes those notes explain are dropped so the strip says it once.
     expect(screen.queryByText("Monte Carlo p-value above threshold")).not.toBeInTheDocument();
     expect(screen.queryByText("backtest is not cost-aware")).not.toBeInTheDocument();
+    const gateLine = screen.getByTestId("gate-pass-line");
+    const oosLine = screen.getByTestId("oos-policy-line");
+    expect(gateLine).toHaveTextContent("Validation gate did not pass.");
+    expect(oosLine).toHaveTextContent("OOS not reviewed.");
+    expect(gateLine.compareDocumentPosition(oosLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps a gate pass and “OOS not reviewed” as two sentences", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: [],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: true,
+      tradable_reasons: [],
+      validation_gate: {
+        passed: true,
+        reasons: [],
+        checks: { enabled: true },
+        thresholds: { require_out_of_sample: false },
+        oos_policy: { reviewed: false, kind: "not_reviewed" },
+      },
+      suggestions: [],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("In the tradable pool")).toBeInTheDocument();
+    expect(screen.getByTestId("gate-pass-line")).toHaveTextContent("Validation gate passed.");
+    expect(screen.getByTestId("oos-policy-line")).toHaveTextContent("OOS not reviewed.");
+    expect(screen.getByText(/A gate pass does not mean out-of-sample was reviewed/)).toBeInTheDocument();
+  });
+
+  it("names a required tail split and does not call it a holdout review", async () => {
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: [],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      tradable: true,
+      tradable_reasons: [],
+      validation_gate: {
+        passed: true,
+        reasons: [],
+        checks: {
+          enabled: true,
+          out_of_sample: { passed: true, observed: 0.2, threshold: 0.5 },
+        },
+        thresholds: { require_out_of_sample: true },
+        oos_policy: { reviewed: true, kind: "equity_curve_tail", passed: true },
+      },
+      suggestions: [],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    const oos = await screen.findByTestId("oos-policy-line");
+    expect(oos).toHaveTextContent(
+      "Out-of-sample review used a tail split of the same equity curve, not an independent market holdout.",
+    );
+    expect(screen.queryByText("OOS not reviewed.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("gate-pass-line")).toHaveTextContent("Validation gate passed.");
   });
 
   it("lists decision-journal history for the bound strategy", async () => {

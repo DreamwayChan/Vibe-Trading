@@ -259,9 +259,10 @@ def out_of_sample_split(
     bars_per_year: int = 252,
     min_bars: int = 20,
 ) -> Dict[str, Any]:
-    """Compare in-sample vs. a held-out tail of the equity curve.
+    """Compare in-sample vs. a tail of the same equity curve.
 
-    The last ``oos_fraction`` of bars is the out-of-sample segment. A large
+    The last ``oos_fraction`` of bars is the tail. This is not an independent
+    market holdout and does not re-run the strategy on unseen bars. A large
     Sharpe drop (``degradation``) points to overfitting.
     """
     if not isinstance(oos_fraction, Real) or isinstance(oos_fraction, bool) or not 0 < oos_fraction < 1:
@@ -650,6 +651,9 @@ class ValidationThresholds:
     * Costs required
     * All three sections required
     * Gate enabled
+    * Out-of-sample off. Turning it on reviews a tail of the same equity curve,
+      not an independent market holdout. A pass with the flag off does not
+      review out-of-sample.
     """
 
     def __init__(
@@ -734,6 +738,28 @@ def _finite(value: Any) -> float | None:
     return number
 
 
+def oos_policy_from_gate(
+    thresholds: Mapping[str, Any] | None,
+    checks: Mapping[str, Any] | None,
+) -> Dict[str, Any]:
+    """Say whether this gate reviewed out-of-sample.
+
+    A passing gate does not review out-of-sample unless
+    ``require_out_of_sample`` is set and the tail check ran. The only
+    implemented check is a tail split of the same equity curve
+    (``equity_curve_tail``). There is no independent market holdout.
+    """
+    required = bool(isinstance(thresholds, Mapping) and thresholds.get("require_out_of_sample"))
+    oos = checks.get("out_of_sample") if isinstance(checks, Mapping) else None
+    if required and isinstance(oos, Mapping) and "passed" in oos:
+        return {
+            "reviewed": True,
+            "kind": "equity_curve_tail",
+            "passed": bool(oos.get("passed")),
+        }
+    return {"reviewed": False, "kind": "not_reviewed"}
+
+
 class ValidationGateResult:
     """Outcome of :func:`evaluate_validation_gate`."""
 
@@ -759,6 +785,7 @@ class ValidationGateResult:
             "cost_aware": self.cost_aware,
             "checks": self.checks,
             "thresholds": self.thresholds,
+            "oos_policy": oos_policy_from_gate(self.thresholds, self.checks),
         }
 
 
@@ -770,6 +797,10 @@ def evaluate_validation_gate(
     load_error: str | None = None,
 ) -> ValidationGateResult:
     """Decide whether a validation artifact may enter the tradable pool.
+
+    A pass here is Monte Carlo, bootstrap, walk-forward, and costs. It does
+    not review out-of-sample unless ``require_out_of_sample`` is on. See
+    :func:`oos_policy_from_gate`.
 
     ``load_error`` is ``validation_unreadable`` or ``config_unreadable`` when
     the run directory could not be parsed. A missing artifact (``results is

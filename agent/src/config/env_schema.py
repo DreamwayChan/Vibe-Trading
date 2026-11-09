@@ -263,7 +263,8 @@ class DataConfig(_EnvBase):
     vibe_trading_val_require_walk_forward: EnvBool = Field(
         alias="VIBE_TRADING_VAL_REQUIRE_WALK_FORWARD", default=True
     )
-    # Isolated out-of-sample tail: opt-in, so existing artifacts keep passing.
+    # Opt-in tail of the same equity curve. Not an independent market holdout.
+    # Off by default: a gate pass does not review out-of-sample.
     vibe_trading_val_require_out_of_sample: EnvBool = Field(
         alias="VIBE_TRADING_VAL_REQUIRE_OUT_OF_SAMPLE", default=False
     )
