@@ -2,10 +2,15 @@
 
 Pool membership needs both:
 
-* a decision-journal signal with hypothesis (or thesis), invalidation,
-  planned position, planned risk, and a timestamp;
+* a decision-journal signal with the five hypothesis fields (observation,
+  causal hypothesis, logic, validation plan, invalidation), a thesis or
+  hypothesis link, planned position, planned risk, and a timestamp;
 * a cost-aware validation artifact that clears the Monte Carlo, bootstrap,
   and walk-forward thresholds.
+
+A per-symbol price invalidation that the latest suggestion price has crossed
+clears that name (reason ``invalidated``). A strategy-wide entry has no single
+price, so it is not price-checked.
 
 Buy/sell suggestions stay visible when the pool is closed. They are marked
 ``tradable=false`` and carry ``block_reasons``. Hold suggestions are not
@@ -66,6 +71,19 @@ def _dedupe(reasons: list[str]) -> list[str]:
     return out
 
 
+def _check_invalidation(
+    entry: DecisionSignal, price: float | None
+) -> DecisionSignal:
+    """Downgrade a symbol entry whose structured price level is broken."""
+    if not entry.breached_by(price):
+        return entry
+    return replace(
+        entry,
+        tradable=False,
+        block_reasons=_dedupe([*entry.block_reasons, "invalidated"]),
+    )
+
+
 def _expire(entry: DecisionSignal) -> DecisionSignal:
     """Downgrade an entry older than the journal expiry window."""
     if not is_stale(entry):
@@ -75,6 +93,43 @@ def _expire(entry: DecisionSignal) -> DecisionSignal:
         tradable=False,
         block_reasons=_dedupe([*entry.block_reasons, "stale_journal"]),
     )
+
+
+def holdings_without_journal(
+    run_key: str,
+    holdings: list[Any],
+    *,
+    journal: DecisionJournal | None = None,
+) -> list[str]:
+    """Symbols currently held with no tradable journal entry behind them.
+
+    A symbol is covered by its own entry, else by the strategy-wide entry. An
+    entry only counts when it is tradable, not stale, and not invalidated.
+    Exits are skipped. An unreadable journal yields no alerts; admission
+    already reports ``journal_unreadable``.
+    """
+    if not run_key or not holdings:
+        return []
+    book = journal if journal is not None else DecisionJournal()
+    try:
+        strategy_entry, symbol_entries = book.latest_for(run_key)
+    except ValueError:
+        return []
+    if strategy_entry is not None:
+        strategy_entry = _expire(strategy_entry)
+    missing: list[str] = []
+    for row in holdings:
+        if getattr(row, "action", "") == "exit":
+            continue
+        symbol = str(getattr(row, "symbol", "") or "")
+        entry = symbol_entries.get(symbol)
+        if entry is not None:
+            entry = _check_invalidation(_expire(entry), getattr(row, "price", None))
+        else:
+            entry = strategy_entry
+        if (entry is None or not entry.tradable) and symbol and symbol not in missing:
+            missing.append(symbol)
+    return missing
 
 
 def _annotate_suggestion(
@@ -121,7 +176,11 @@ def evaluate_admission(
         strategy_entry, symbol_entries = book.latest_for(run_key)
         if strategy_entry is not None:
             strategy_entry = _expire(strategy_entry)
-        symbol_entries = {sym: _expire(entry) for sym, entry in symbol_entries.items()}
+        prices = {item.symbol: item.price for item in suggestions}
+        symbol_entries = {
+            sym: _check_invalidation(_expire(entry), prices.get(sym))
+            for sym, entry in symbol_entries.items()
+        }
     except ValueError:
         journal_error = "journal_unreadable"
 

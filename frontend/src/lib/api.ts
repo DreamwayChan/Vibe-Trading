@@ -262,6 +262,12 @@ export const api = {
     request<MonitorJournalEntry[]>(
       `/monitor/journal?limit=${limit}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
     ),
+  journalSummary: () => request<JournalOutcomeSummary>(`/monitor/journal/summary`),
+  recordJournalOutcome: (signalId: string, body: { pnl_pct: number; note?: string }) =>
+    request<MonitorJournalEntry>(`/monitor/journal/${encodeURIComponent(signalId)}/outcome`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -877,17 +883,40 @@ export interface MonitorBoard {
   validation_gate?: Record<string, unknown> | null;
   decision_signal?: Record<string, unknown> | null;
   bars_source?: string | null;
+  /** Held symbols with no tradable journal entry. */
+  journal_alerts?: string[];
 }
 
 export interface RecordMonitorSignalRequest {
   hypothesis_id?: string;
   thesis?: string;
+  observation?: string;
+  hypothesis?: string;
+  logic?: string;
+  validation_plan?: string;
   invalidation?: string;
+  invalidation_kind?: string;
+  invalidation_side?: string;
+  invalidation_price?: number;
+  invalidation_level?: number;
   planned_position?: string;
   planned_risk?: string;
   timestamp?: string;
   symbol?: string;
   strict?: boolean;
+}
+
+export interface JournalOutcome {
+  pnl_pct: number;
+  note?: string;
+  recorded_at?: string;
+}
+
+export interface JournalOutcomeSummary {
+  reviewed: number;
+  wins: number;
+  win_rate: number | null;
+  mean_pnl_pct: number | null;
 }
 
 export interface MonitorJournalEntry {
@@ -896,12 +925,20 @@ export interface MonitorJournalEntry {
   run_id: string;
   hypothesis_id: string;
   thesis: string;
+  observation?: string;
+  hypothesis?: string;
+  logic?: string;
+  validation_plan?: string;
   invalidation: string;
+  invalidation_kind?: string;
+  invalidation_side?: string;
+  invalidation_price?: number | null;
   planned_position: string;
   planned_risk: string;
   symbol: string;
   tradable: boolean;
   block_reasons: string[];
+  outcome?: JournalOutcome | null;
   stale?: boolean;
   age_days?: number | null;
 }

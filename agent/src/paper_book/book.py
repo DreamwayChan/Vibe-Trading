@@ -10,6 +10,7 @@ import pandas as pd
 
 from backtest.engines.china_a import ChinaAEngine
 
+from src.hypotheses.journal import machine_levels, price_breaches
 from src.monitor.models import MonitorConfig
 from src.paper_book.caps import session_caps
 from src.paper_book.downgrade import downgrade_admission
@@ -22,6 +23,7 @@ from src.paper_book.expectation import (
 from src.paper_book.fills import make_engine, mark_price, ref_price, try_buy, try_sell
 from src.paper_book.models import (
     PAPER_BOOK_DEVIATION,
+    PAPER_BOOK_INVALIDATED,
     BookState,
     DailyReport,
     Fill,
@@ -77,6 +79,10 @@ def step_day(
     store_root = paper_book_root(root)
     run_id = (config.strategy.run_id or "").strip()
     limit = _threshold(threshold)
+    if run_id:
+        journal_deviation = machine_levels(run_id).get("deviation")
+        if journal_deviation is not None:
+            limit = min(limit, journal_deviation)
     cash0 = _initial_cash(initial_cash)
 
     state = load_state(store_root, resolved_id)
@@ -179,24 +185,45 @@ def step_day(
     deviation = expectation.get("return_deviation")
     exceeded = deviation is not None and float(deviation) > limit
     expectation["exceeded"] = exceeded
+    prices = {
+        symbol: marked
+        for symbol, bar in day_bars.items()
+        if (marked := mark_price(bar)) is not None
+    }
+    breached = price_breaches(run_id, prices) if run_id else []
+    expectation["invalidated_symbols"] = breached
 
     state.opening = opening
     state.settled_through = day
 
     downgraded = False
-    if exceeded:
+    if exceeded or breached:
         store = strategy_store
         if store is _AUTO_STORE:
             store = _open_store()
-        downgrade_admission(
-            config,
-            run_key=run_id or resolved_id,
-            run_dir=str(run_dir) if run_dir is not None else None,
-            deviation=float(deviation),
-            threshold=limit,
-            as_of=day,
-            strategy_store=None if store is _AUTO_STORE else store,
-        )
+        resolved_store = None if store is _AUTO_STORE else store
+        if exceeded:
+            downgrade_admission(
+                config,
+                run_key=run_id or resolved_id,
+                run_dir=str(run_dir) if run_dir is not None else None,
+                deviation=float(deviation),
+                threshold=limit,
+                as_of=day,
+                strategy_store=resolved_store,
+            )
+        if breached:
+            downgrade_admission(
+                config,
+                run_key=run_id or resolved_id,
+                run_dir=str(run_dir) if run_dir is not None else None,
+                deviation=float(deviation or 0.0),
+                threshold=limit,
+                as_of=day,
+                strategy_store=resolved_store,
+                reason=PAPER_BOOK_INVALIDATED,
+                extra={"symbols": breached},
+            )
         downgraded = True
 
     report = DailyReport(
@@ -218,7 +245,13 @@ def step_day(
         skipped=skipped,
         expectation=expectation,
         downgraded=downgraded,
-        downgrade_reason=PAPER_BOOK_DEVIATION if downgraded else None,
+        downgrade_reason=(
+            PAPER_BOOK_DEVIATION
+            if exceeded
+            else PAPER_BOOK_INVALIDATED
+            if breached
+            else None
+        ),
         risk=risk,
     )
     save_state(store_root, state)

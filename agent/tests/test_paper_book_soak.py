@@ -18,7 +18,7 @@ from src.monitor.models import MonitorConfig, MonitorDaySnapshot, MonitorSuggest
 from src.monitor.store import save_day_snapshot, save_monitor
 from src.paper_book.book import _sell_intent, step_day
 from src.paper_book.cli import main
-from src.paper_book.models import PAPER_BOOK_DEVIATION, Intent
+from src.paper_book.models import PAPER_BOOK_DECAY, PAPER_BOOK_DEVIATION, Intent
 from src.paper_book.soak import sessions_ending, step_range
 from src.paper_book.store import PaperBookError, load_report, load_state, load_window
 from src.strategy_store.models import Artifact, ArtifactStatus, ArtifactType
@@ -262,7 +262,13 @@ def test_soak_twenty_sessions_carries_positions_and_tplus1(
     assert window.turnover == pytest.approx(sum(float(row["turnover"]) for row in window.days))
     assert window.fill_count == sum(row["fill_count"] for row in window.days)
     assert window.unfilled_count == sum(row["unfilled_count"] for row in window.days)
-    assert window.downgraded is False
+    # Twenty sessions of this path lose their recent Sharpe, so decay (default
+    # on) clears tradable after the window. Fills inside the window already
+    # settled; the flag blocks what comes next.
+    assert window.decay["decayed"] is True
+    assert window.decay["cleared_tradable"] is True
+    assert window.downgraded is True
+    assert window.downgrade_reason == PAPER_BOOK_DECAY
 
     reports = root / RUN / "reports"
     assert (reports / "window.json").is_file()

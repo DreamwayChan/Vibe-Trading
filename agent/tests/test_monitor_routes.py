@@ -623,18 +623,28 @@ def test_post_signal_downgrades_without_invalidation(
     assert "missing_invalidation" in saved
 
 
+def _tradable_signal(**overrides: object) -> dict:
+    from tests.journal_fields import with_five
+
+    payload = with_five(
+        {
+            "thesis": "Names revert after a gap.",
+            "invalidation": "Exit on a close above the gap high.",
+            "planned_position": "2% NAV",
+            "planned_risk": "max loss 0.4% NAV",
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
 def test_post_signal_strict_rejects_and_does_not_write(
     client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _bind_run(home, monkeypatch, "20260101_000000_00_api02")
     response = client.post(
         "/monitor/signal",
-        json={
-            "thesis": "Names revert after a gap.",
-            "planned_position": "2% NAV",
-            "planned_risk": "max loss 0.4% NAV",
-            "strict": True,
-        },
+        json=_tradable_signal(invalidation="", strict=True),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "not tradable: missing_invalidation"
@@ -667,12 +677,7 @@ def test_post_signal_admits_when_journal_and_gate_pass(
     )
     response = client.post(
         "/monitor/signal",
-        json={
-            "thesis": "Names revert after a gap.",
-            "invalidation": "Exit on a close above the gap high.",
-            "planned_position": "2% NAV",
-            "planned_risk": "max loss 0.4% NAV",
-        },
+        json=_tradable_signal(),
     )
     assert response.status_code == 200
     body = response.json()
@@ -706,22 +711,20 @@ def test_journal_history_marks_expired_rows(
     _bind_run(home, monkeypatch, "20260101_000000_00_api10")
     client.post(
         "/monitor/signal",
-        json={
-            "thesis": "old call",
-            "invalidation": "close above high",
-            "planned_position": "2% NAV",
-            "planned_risk": "0.4% NAV",
-            "timestamp": "2020-01-01T00:00:00Z",
-        },
+        json=_tradable_signal(
+            thesis="old call",
+            invalidation="close above high",
+            planned_risk="0.4% NAV",
+            timestamp="2020-01-01T00:00:00Z",
+        ),
     )
     client.post(
         "/monitor/signal",
-        json={
-            "thesis": "fresh call",
-            "invalidation": "close above high",
-            "planned_position": "2% NAV",
-            "planned_risk": "0.4% NAV",
-        },
+        json=_tradable_signal(
+            thesis="fresh call",
+            invalidation="close above high",
+            planned_risk="0.4% NAV",
+        ),
     )
 
     rows = client.get("/monitor/journal").json()

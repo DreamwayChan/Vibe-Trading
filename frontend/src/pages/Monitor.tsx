@@ -350,6 +350,14 @@ const REASON_I18N = {
   journal_unreadable: "monitor.reasonJournalUnreadable",
   stale_journal: "monitor.reasonStaleJournal",
   admission_error: "monitor.reasonAdmissionError",
+  missing_observation: "monitor.reasonMissingObservation",
+  observation_not_objective: "monitor.reasonObservationNotObjective",
+  missing_hypothesis: "monitor.reasonMissingHypothesis",
+  hypothesis_not_causal: "monitor.reasonHypothesisNotCausal",
+  missing_logic: "monitor.reasonMissingLogic",
+  missing_validation_plan: "monitor.reasonMissingValidationPlan",
+  invalidated: "monitor.reasonInvalidated",
+  paper_book_decay: "monitor.reasonPaperBookDecay",
   not_actionable: "monitor.reasonNotActionable",
   ashare_st: "monitor.reasonAshareSt",
   ashare_limit_up: "monitor.reasonAshareLimitUp",
@@ -454,6 +462,10 @@ type JournalSample = {
   hypothesis: string;
   symbol: string;
   thesis: string;
+  observation: string;
+  causal: string;
+  logic: string;
+  validation: string;
   invalidation: string;
   position: string;
   risk: string;
@@ -506,10 +518,17 @@ export function Monitor() {
   const [poolOverride, setPoolOverride] = useState<PoolView | null>(null);
   const [journalHypothesis, setJournalHypothesis] = useState("");
   const [journalThesis, setJournalThesis] = useState("");
+  const [journalObservation, setJournalObservation] = useState("");
+  const [journalCausal, setJournalCausal] = useState("");
+  const [journalLogic, setJournalLogic] = useState("");
+  const [journalValidation, setJournalValidation] = useState("");
   const [journalInvalidation, setJournalInvalidation] = useState("");
+  const [journalSide, setJournalSide] = useState("");
+  const [journalPrice, setJournalPrice] = useState("");
   const [journalPosition, setJournalPosition] = useState("");
   const [journalRisk, setJournalRisk] = useState("");
   const [journalSymbol, setJournalSymbol] = useState("");
+  const [journalSummary, setJournalSummary] = useState<string | null>(null);
   const [journalSaving, setJournalSaving] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
@@ -525,6 +544,10 @@ export function Monitor() {
         hypothesis: "",
         symbol: "600519",
         thesis: t("monitor.journalSampleStockThesis"),
+        observation: t("monitor.journalSampleStockObservation"),
+        causal: t("monitor.journalSampleStockHypothesis"),
+        logic: t("monitor.journalSampleStockLogic"),
+        validation: t("monitor.journalSampleStockValidation"),
         invalidation: t("monitor.journalSampleStockInvalidation"),
         position: t("monitor.journalSampleStockPosition"),
         risk: t("monitor.journalSampleStockRisk"),
@@ -533,6 +556,10 @@ export function Monitor() {
         hypothesis: "",
         symbol: "",
         thesis: t("monitor.journalSampleStrategyThesis"),
+        observation: t("monitor.journalSampleStrategyObservation"),
+        causal: t("monitor.journalSampleStrategyHypothesis"),
+        logic: t("monitor.journalSampleStrategyLogic"),
+        validation: t("monitor.journalSampleStrategyValidation"),
         invalidation: t("monitor.journalSampleStrategyInvalidation"),
         position: t("monitor.journalSampleStrategyPosition"),
         risk: t("monitor.journalSampleStrategyRisk"),
@@ -546,6 +573,10 @@ export function Monitor() {
     setJournalHypothesis(activeJournalSample.hypothesis);
     setJournalSymbol(activeJournalSample.symbol);
     setJournalThesis(activeJournalSample.thesis);
+    setJournalObservation(activeJournalSample.observation);
+    setJournalCausal(activeJournalSample.causal);
+    setJournalLogic(activeJournalSample.logic);
+    setJournalValidation(activeJournalSample.validation);
     setJournalInvalidation(activeJournalSample.invalidation);
     setJournalPosition(activeJournalSample.position);
     setJournalRisk(activeJournalSample.risk);
@@ -780,8 +811,23 @@ export function Monitor() {
     try {
       const rows = await api.listMonitorJournal(50, journalFilter.trim().toUpperCase());
       setJournalRows(Array.isArray(rows) ? rows : []);
+      const summary = await api.journalSummary();
+      if (summary && summary.reviewed > 0) {
+        const rate = summary.win_rate == null ? "—" : `${Math.round(summary.win_rate * 100)}%`;
+        const mean = summary.mean_pnl_pct == null ? "—" : `${summary.mean_pnl_pct.toFixed(2)}%`;
+        setJournalSummary(
+          t("monitor.journalOutcomeSummary", {
+            reviewed: summary.reviewed,
+            winRate: rate,
+            mean,
+          }),
+        );
+      } else {
+        setJournalSummary(null);
+      }
     } catch {
       setJournalRows([]);
+      setJournalSummary(null);
     }
   };
 
@@ -794,10 +840,18 @@ export function Monitor() {
     setJournalSaving(true);
     setJournalError(null);
     try {
+      const price = Number(journalPrice);
       const next = await api.recordMonitorSignal({
         hypothesis_id: journalHypothesis.trim() || undefined,
         thesis: journalThesis.trim() || undefined,
+        observation: journalObservation.trim() || undefined,
+        hypothesis: journalCausal.trim() || undefined,
+        logic: journalLogic.trim() || undefined,
+        validation_plan: journalValidation.trim() || undefined,
         invalidation: journalInvalidation.trim() || undefined,
+        invalidation_kind: journalSide && Number.isFinite(price) && price > 0 ? "price" : undefined,
+        invalidation_side: journalSide || undefined,
+        invalidation_price: journalSide && Number.isFinite(price) && price > 0 ? price : undefined,
         planned_position: journalPosition.trim() || undefined,
         planned_risk: journalRisk.trim() || undefined,
         symbol: journalSymbol.trim() || undefined,
@@ -1104,6 +1158,10 @@ export function Monitor() {
                 label={t("monitor.journalSymbol")}
                 value={activeJournalSample.symbol || t("monitor.journalSampleSymbolBlank")}
               />
+              <JournalSampleRow label={t("monitor.journalObservation")} value={activeJournalSample.observation} />
+              <JournalSampleRow label={t("monitor.journalHypothesisCausal")} value={activeJournalSample.causal} />
+              <JournalSampleRow label={t("monitor.journalLogic")} value={activeJournalSample.logic} />
+              <JournalSampleRow label={t("monitor.journalValidationPlan")} value={activeJournalSample.validation} />
               <JournalSampleRow label={t("monitor.journalThesis")} value={activeJournalSample.thesis} />
               <JournalSampleRow label={t("monitor.journalInvalidation")} value={activeJournalSample.invalidation} />
               <JournalSampleRow label={t("monitor.journalPosition")} value={activeJournalSample.position} />
@@ -1139,6 +1197,38 @@ export function Monitor() {
           />
           <input
             type="text"
+            value={journalObservation}
+            onChange={(e) => setJournalObservation(e.target.value)}
+            placeholder={t("monitor.journalObservation")}
+            aria-label={t("monitor.journalObservation")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalCausal}
+            onChange={(e) => setJournalCausal(e.target.value)}
+            placeholder={t("monitor.journalHypothesisCausal")}
+            aria-label={t("monitor.journalHypothesisCausal")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalLogic}
+            onChange={(e) => setJournalLogic(e.target.value)}
+            placeholder={t("monitor.journalLogic")}
+            aria-label={t("monitor.journalLogic")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            value={journalValidation}
+            onChange={(e) => setJournalValidation(e.target.value)}
+            placeholder={t("monitor.journalValidationPlan")}
+            aria-label={t("monitor.journalValidationPlan")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
             value={journalThesis}
             onChange={(e) => setJournalThesis(e.target.value)}
             placeholder={t("monitor.journalThesis")}
@@ -1152,6 +1242,37 @@ export function Monitor() {
             placeholder={t("monitor.journalInvalidation")}
             aria-label={t("monitor.journalInvalidation")}
             className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+          />
+          <div
+            role="group"
+            aria-label={t("monitor.journalInvalidationSide")}
+            className="flex flex-wrap items-center gap-3 px-1 text-sm"
+          >
+            {(["", "below", "above"] as const).map((side) => (
+              <label key={side || "none"} className="inline-flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="journal-invalidation-side"
+                  value={side}
+                  checked={journalSide === side}
+                  onChange={() => setJournalSide(side)}
+                />
+                {side === "below"
+                  ? t("monitor.journalInvalidationBelow")
+                  : side === "above"
+                    ? t("monitor.journalInvalidationAbove")
+                    : t("monitor.journalInvalidationSide")}
+              </label>
+            ))}
+          </div>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={journalPrice}
+            onChange={(e) => setJournalPrice(e.target.value)}
+            placeholder={t("monitor.journalInvalidationPrice")}
+            aria-label={t("monitor.journalInvalidationPrice")}
+            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
           />
           <input
             type="text"
@@ -1195,6 +1316,11 @@ export function Monitor() {
                 className="w-40 px-2 py-1 rounded-md border bg-background text-xs font-mono"
               />
             </div>
+            {journalSummary && (
+              <p className="text-xs text-muted-foreground" data-testid="journal-summary">
+                {journalSummary}
+              </p>
+            )}
             {journalRows.length === 0 ? (
               <p className="text-xs text-muted-foreground">{t("monitor.journalHistoryEmpty")}</p>
             ) : (
@@ -1227,6 +1353,48 @@ export function Monitor() {
                       )}
                     </div>
                     {row.thesis && <div>{row.thesis}</div>}
+                    {row.hypothesis && <div>{row.hypothesis}</div>}
+                    {row.outcome ? (
+                      <div className="text-muted-foreground">
+                        {row.outcome.pnl_pct}%{row.outcome.note ? ` · ${row.outcome.note}` : ""}
+                      </div>
+                    ) : (
+                      <form
+                        className="flex flex-wrap items-center gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const data = new FormData(event.currentTarget);
+                          const pnl = Number(data.get("pnl"));
+                          if (!Number.isFinite(pnl)) return;
+                          void api
+                            .recordJournalOutcome(row.signal_id, {
+                              pnl_pct: pnl,
+                              note: String(data.get("note") || ""),
+                            })
+                            .then(() => refreshJournal())
+                            .catch((err: unknown) => {
+                              setJournalError(err instanceof Error ? err.message : t("monitor.journalFailed"));
+                            });
+                        }}
+                      >
+                        <input
+                          name="pnl"
+                          inputMode="decimal"
+                          aria-label={t("monitor.journalOutcomePnl")}
+                          placeholder={t("monitor.journalOutcomePnl")}
+                          className="w-28 px-2 py-1 rounded-md border bg-background font-mono"
+                        />
+                        <input
+                          name="note"
+                          aria-label={t("monitor.journalOutcomeNote")}
+                          placeholder={t("monitor.journalOutcomeNote")}
+                          className="w-40 px-2 py-1 rounded-md border bg-background"
+                        />
+                        <button type="submit" className="rounded-md border px-2 py-1 hover:bg-muted">
+                          {t("monitor.journalOutcomeSave")}
+                        </button>
+                      </form>
+                    )}
                     <div className="text-muted-foreground">
                       {[row.invalidation, row.planned_position, row.planned_risk].filter(Boolean).join(" · ")}
                     </div>
@@ -1279,6 +1447,15 @@ export function Monitor() {
             </button>
           </div>
         </div>
+
+        {(board?.journal_alerts?.length ?? 0) > 0 && !historyAsOf && (
+          <div
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300"
+            data-testid="journal-holding-alert"
+          >
+            {t("monitor.journalHoldingAlert", { symbols: (board?.journal_alerts || []).join(", ") })}
+          </div>
+        )}
 
         {history.length > 0 && (
           <div className="flex flex-col gap-1.5">

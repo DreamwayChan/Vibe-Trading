@@ -13,11 +13,11 @@ lake → hypothesis → cost-aware backtest → validation gate → tradable →
 | Step | What it is | Where |
 |---|---|---|
 | Lake | Settled daily bars. Beijing "today" is not rewritten as a finished bar. | `agent/src/data/lake.py` |
-| Hypothesis | A journal row with a thesis (or hypothesis id), invalidation, planned position, planned risk, and a timestamp. | `vibe-trading hypothesis`, `agent/src/hypotheses/journal.py` |
+| Hypothesis | Five fields before a name is tradable: an objective observation, a causal hypothesis (because / therefore), the logic, a validation plan (data, window, metrics, costs), and an invalidation. Planned position, planned risk, and a timestamp stay required. A missing field stays on the research board. Strict mode returns 422. | `vibe-trading hypothesis`, `agent/src/hypotheses/journal.py` |
 | Cost-aware backtest | Fills use A-share commission, stamp, transfer, slippage, T+1, ST buy blocks, and limit/halt rules. | `agent/backtest/ashare_costs.py` |
 | Validation gate | Monte Carlo, bootstrap, and walk-forward must clear their thresholds on that cost-aware run. | `agent/backtest/validation.py` |
-| Tradable | The monitor pool opens only when the journal and the gate both pass. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. | `agent/src/monitor/admission.py` |
-| Paper book | One session, or a calendar range of consecutive sessions. Daily report plus a window report: NAV, fills, unfilled, turnover, and cumulative deviation versus the bound backtest. A deviation past the threshold still clears `tradable`. Single-name cap and a drawdown cap on new buys. | `vibe-trading paper-book` or `python -m src.paper_book` |
+| Tradable | The monitor pool opens only when the five hypothesis fields and the gate both pass. A price invalidation that the latest close has crossed clears that name. Buys on ST, limit-up, one-word boards, or a 3-board streak stay out. Holdings with no tradable journal entry are listed as alerts. | `agent/src/monitor/admission.py` |
+| Paper book | One session, or a calendar range of consecutive sessions. Daily report plus a window report: NAV, fills, unfilled, turnover, and cumulative deviation versus the bound backtest. A deviation past the threshold, a price invalidation, or edge decay past the threshold clears `tradable` and downgrades the book. Decay clearing is on by default (`VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE=0` leaves decay as a warning). Single-name cap and a drawdown cap on new buys. Reviewed journal rows keep a realised PnL and a win rate. | `vibe-trading paper-book` or `python -m src.paper_book` |
 
 ```bash
 vibe-trading hypothesis list
@@ -36,7 +36,9 @@ Add `"out_of_sample": {"oos_fraction": 0.3}` to `config["validation"]` to hold o
 ### Alpha / Beta and edge decay
 
 - Backtest `metrics.csv` and the run card now carry `beta`, annualised `alpha`, and `r_squared`, from an OLS of strategy returns on the benchmark returns (`benchmark` in config, otherwise the equal-weight universe). Read `alpha`, not total return: a high return with `beta` near 1 and `alpha` near 0 is market luck.
-- The paper-book window report (`reports/window.json`) has a `decay` block (`src/paper_book/decay.py`). It compares the last 10 sessions with the earlier ones: `recent_sharpe` vs `earlier_sharpe`, `decay` (relative Sharpe drop), and `recent_gap_mean` (paper minus backtest daily return). `decayed` is true when `decay` exceeds 0.5, or when returns turn from positive to negative. It needs at least 20 sessions. It is a warning only and does not change `tradable`.
+- The paper-book window report (`reports/window.json`) has a `decay` block (`src/paper_book/decay.py`). It compares the last 10 sessions with the earlier ones: `recent_sharpe` vs `earlier_sharpe`, `decay` (relative Sharpe drop), and `recent_gap_mean` (paper minus backtest daily return). `decayed` is true when `decay` exceeds `VIBE_TRADING_PAPER_BOOK_MAX_DECAY` (default 0.5), or when returns turn from positive to negative. It needs at least 20 sessions. When `decayed` is true, `tradable` is cleared unless `VIBE_TRADING_PAPER_BOOK_DECAY_CLEARS_TRADABLE` is off. A journal row can set a tighter decay or deviation level with `invalidation_kind`.
+
+Out-of-sample product policy is unchanged and stays opt-in.
 
 ## Cost tax, side by side
 

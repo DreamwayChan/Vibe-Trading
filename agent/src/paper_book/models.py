@@ -7,6 +7,12 @@ from typing import Any
 
 
 PAPER_BOOK_DEVIATION = "paper_book_deviation"
+PAPER_BOOK_DECAY = "paper_book_decay"
+# Price (or other machine) invalidation. Shared with the monitor admission code.
+PAPER_BOOK_INVALIDATED = "invalidated"
+PAPER_BOOK_BLOCK_REASONS = frozenset(
+    {PAPER_BOOK_DEVIATION, PAPER_BOOK_DECAY, PAPER_BOOK_INVALIDATED}
+)
 
 
 @dataclass

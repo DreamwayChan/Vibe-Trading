@@ -20,6 +20,8 @@ vi.mock("@/lib/api", () => ({
     resetMonitor: vi.fn(),
     recordMonitorSignal: vi.fn(),
     listMonitorJournal: vi.fn(),
+    journalSummary: vi.fn(),
+    recordJournalOutcome: vi.fn(),
     listMonitorHistory: vi.fn(),
     getMonitorHistoryDay: vi.fn(),
     forecastMonitor: vi.fn(),
@@ -364,7 +366,7 @@ describe("Monitor page", () => {
 
     await user.click(await screen.findByRole("button", { name: "Show example" }));
     const gallery = await screen.findByTestId("journal-sample");
-    expect(within(gallery).getByText(/Holiday sell-through/)).toBeInTheDocument();
+    expect(within(gallery).getByText(/beat expectations/)).toBeInTheDocument();
 
     await user.click(within(gallery).getByRole("button", { name: "Fill the form" }));
     expect(screen.getByLabelText("Symbol (optional)")).toHaveValue("600519");

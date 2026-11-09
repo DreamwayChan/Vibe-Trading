@@ -12,6 +12,7 @@ import pytest
 from src.config.accessor import reset_env_config
 from src.data.lake_fetch import FetchStats
 from src.hypotheses.journal import DecisionJournal
+from tests.journal_fields import FIVE_FIELDS
 from src.monitor.admission import evaluate_admission
 from src.monitor.ashare_risk import assess_flags, stamp_suggestions
 from src.monitor.models import MonitorConfig, MonitorSuggestion, StrategyRef
@@ -209,6 +210,7 @@ def test_scan_keeps_the_pool_and_blocks_the_limit_up_buy(
         invalidation="Exit the next day if it opens below the close.",
         planned_position="2% NAV",
         planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
     )
     index = pd.to_datetime(["2024-06-03", "2024-06-04"])
     frame = pd.DataFrame(
