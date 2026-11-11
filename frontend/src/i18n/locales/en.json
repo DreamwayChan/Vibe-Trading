@@ -885,6 +885,7 @@
     "riskExtreme": "extreme sentiment",
     "holdings": "Current strategy holdings",
     "holdingsHint": "Strategy target weights (not broker positions). Full-universe weights; same-day rescans always rebase on the prior holdings day and recalculate live.",
+    "holdingsRegimeTitle": "Design regime of this backtest (click for the evidence)",
     "emptyHoldings": "No holdings yet. After a scan, names with weight > 0 appear here.",
     "todayOps": "Today’s ops",
     "opsEntered": "Entered",

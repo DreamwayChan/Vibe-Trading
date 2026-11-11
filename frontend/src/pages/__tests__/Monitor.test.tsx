@@ -33,6 +33,9 @@ vi.mock("@/lib/api", () => ({
     getCostCompare: vi.fn(),
     postCostCompare: vi.fn(),
     getPaperBook: vi.fn(),
+    getRunRegime: vi.fn(),
+    inferRunRegime: vi.fn(),
+    patchRunRegime: vi.fn(),
   },
 }));
 
@@ -158,6 +161,7 @@ describe("Monitor page", () => {
     vi.mocked(api.getRunCode).mockResolvedValue({
       "signal_engine.py": "class SignalEngine:\n    pass\n",
     });
+    vi.mocked(api.getRunRegime).mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }));
     vi.mocked(api.getCostCompare).mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }));
     vi.mocked(api.getPaperBook).mockRejectedValue(Object.assign(new Error("missing"), { status: 404 }));
     vi.mocked(api.postCostCompare).mockResolvedValue({
@@ -1148,6 +1152,91 @@ describe("Monitor page", () => {
     });
     expect(await screen.findByText(/Viewing a saved result/i)).toBeInTheDocument();
     expect(screen.getByText(/Book tilt: higher odds of a 10-day decline/i)).toBeInTheDocument();
+  });
+
+  it("shows the bound run's design regime above the holdings column and opens the evidence", async () => {
+    vi.mocked(api.getRunRegime).mockResolvedValue({
+      run_id: "run_1",
+      strategy_style: {
+        designed_regime: "slow_bull",
+        designed_regime_label: "慢牛（温和上行）",
+        designed_regime_source: "auto_inferred",
+        designed_regime_confidence: 0.52,
+        designed_regime_note: "机制层 择时=半仓、离场=止盈；板块层 慢牛日占 52%",
+        designed_regime_evidence: {
+          schema_version: 1,
+          method: "mechanics+panel",
+          run_id: "run_1",
+          factors: [
+            {
+              id: "mechanics.timing",
+              label: "板块择时",
+              weight: 0.26,
+              value: "MA20 半仓",
+              note: "半仓择时吃震荡、放弃单边",
+              scores: { bull: 0.26, slow_bull: 0.66, chop: 0.8, bear: 0.4 },
+            },
+          ],
+          scores: { bull: 0.4, slow_bull: 0.62, chop: 0.51, bear: 0.3 },
+          ranking: [
+            { regime: "slow_bull", score: 0.62 },
+            { regime: "chop", score: 0.51 },
+          ],
+          verdict: {
+            designed_regime: "slow_bull",
+            designed_regime_label: "慢牛（温和上行）",
+            confidence: 0.52,
+            margin: 0.11,
+            runner_up: "chop",
+            runner_up_score: 0.51,
+          },
+          checks: {
+            coverage: {
+              regime: "slow_bull",
+              share: 0.52,
+              dominant_regime: "slow_bull",
+              dominant_label: "慢牛（温和上行）",
+              ok: true,
+              note: "申报市况覆盖样本 52%",
+            },
+            empirical: {
+              used_for_decision: false,
+              available: true,
+              metric: "avg_daily_bp",
+              best_regime: "slow_bull",
+              best_label: "慢牛（温和上行）",
+              declared_rank: 1,
+              consistent: true,
+              note: "分段日均收益排名第 1/3",
+            },
+            prior: { available: false, note: "无事前申报" },
+          },
+          panel: {
+            window: ["2024-01-01", "2024-06-01"],
+            panel_symbols: 1,
+            labeled_days: 100,
+            regime_share: { bull: 0.1, slow_bull: 0.52, chop: 0.3, bear: 0.08 },
+          },
+        },
+      },
+    });
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    const block = await screen.findByTestId("holdings-regime");
+    expect(
+      within(block).getByText(/Design regime of this backtest/i),
+    ).toBeInTheDocument();
+    const chip = within(block).getByRole("button", { name: /慢牛/ });
+    expect(api.getRunRegime).toHaveBeenCalledWith("run_1");
+
+    await userEvent.click(chip);
+    const dialog = await screen.findByRole("dialog", { name: "设计市况申报" });
+    expect(within(dialog).getByText("板块择时")).toBeInTheDocument();
+    expect(within(dialog).getByText(/申报市况覆盖样本 52%/)).toBeInTheDocument();
   });
 
   it("keeps forecast compare enabled without holdings so saved results can be opened", async () => {

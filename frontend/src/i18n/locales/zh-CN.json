@@ -880,6 +880,7 @@
     "riskExtreme": "情绪极值",
     "holdings": "当前策略持仓股",
     "holdingsHint": "策略目标权重（非券商实盘）。按完整股票池演算；当日每次扫描均以上一持仓日为基准实时重算，盘中结果不作次日基准。",
+    "holdingsRegimeTitle": "当前回测的设计市况（点击查看判定依据）",
     "emptyHoldings": "暂无持仓。完成一次扫描后，权重 > 0 的标的会出现在这里。",
     "todayOps": "今日操作",
     "opsEntered": "新入",

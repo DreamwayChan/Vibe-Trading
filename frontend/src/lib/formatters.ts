@@ -105,6 +105,8 @@ export function formatRunListOption(run: {
   max_drawdown?: number | null;
   sharpe?: number | null;
   titleMaxLen?: number;
+  /** Declared style label (config.json strategy_style.style_label). */
+  strategy_style?: { style_label?: string; designed_regime_label?: string } | null;
 }): string {
   const titleMax = run.titleMaxLen ?? 36;
   const bits: string[] = [];
@@ -124,8 +126,13 @@ export function formatRunListOption(run: {
   const rawTitle = (run.title || run.prompt || "").replace(/\n/g, " ").trim();
   const title =
     rawTitle.length > titleMax ? `${rawTitle.slice(0, titleMax)}\u2026` : rawTitle;
-  if (metrics && title) return `${metrics} — ${title} (${run.run_id})`;
-  if (metrics) return `${metrics} (${run.run_id})`;
-  if (title) return `${run.run_id} — ${title}`;
+  const styleLabel = run.strategy_style?.style_label?.trim();
+  const regimeLabel = run.strategy_style?.designed_regime_label?.trim();
+  const style = styleLabel
+    ? ` ｜风格 ${styleLabel}${regimeLabel ? ` ｜市况 ${regimeLabel}` : ""}`
+    : "";
+  if (metrics && title) return `${metrics} — ${title}${style} (${run.run_id})`;
+  if (metrics) return `${metrics}${style} (${run.run_id})`;
+  if (title) return `${run.run_id} — ${title}${style}`;
   return run.run_id;
 }

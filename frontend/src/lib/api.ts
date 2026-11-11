@@ -248,6 +248,23 @@ export const api = {
   /** Permanently remove a backtest run directory (+ its monitor board/history). */
   deleteRun: (runId: string) =>
     request<{ status: string; run_id: string }>(`/runs/${encodeURIComponent(runId)}`, { method: "DELETE" }),
+  /** Design-regime declaration and the evidence behind it. */
+  getRunRegime: (runId: string) =>
+    request<{ run_id: string; strategy_style: StrategyStyle }>(
+      `/runs/${encodeURIComponent(runId)}/regime`,
+    ),
+  /** Recompute the declaration from mechanics + panel data. */
+  inferRunRegime: (runId: string) =>
+    request<{ run_id: string; strategy_style: StrategyStyle }>(
+      `/runs/${encodeURIComponent(runId)}/regime/infer`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+  /** Manual override; pass `designed_regime: "auto"` to clear it. */
+  patchRunRegime: (runId: string, designed_regime: string, reason: string) =>
+    request<{ run_id: string; strategy_style: StrategyStyle }>(
+      `/runs/${encodeURIComponent(runId)}/regime`,
+      { method: "PATCH", body: JSON.stringify({ designed_regime, reason }) },
+    ),
   getMonitor: () => request<MonitorBoard>(`/monitor`),
   updateMonitor: (body: UpdateMonitorRequest) =>
     request<MonitorBoard>(`/monitor`, { method: "PUT", body: JSON.stringify(body) }),
@@ -784,6 +801,130 @@ export interface RunListItem {
   end_date?: string;
   /** True when the run has code/signal_engine.py (Monitor can bind it). */
   has_signal_engine?: boolean;
+  /**
+   * Declared strategy style from config.json. Descriptive only — it never
+   * feeds the validation gate or the tradable pool.
+   */
+  strategy_style?: StrategyStyle | null;
+}
+
+/** Regime vocabulary used by the design-regime declaration. */
+export type DesignRegime = "bull" | "slow_bull" | "chop" | "bear";
+
+/** One scored piece of evidence behind the declared regime. */
+export interface RegimeEvidenceFactor {
+  id: string;
+  label: string;
+  weight: number;
+  value: string;
+  scores: Record<string, number>;
+  note: string;
+}
+
+/** Regime composition + trend character of the run's own sector panel. */
+export interface RegimePanelProfile {
+  ok?: boolean;
+  days?: number;
+  labeled_days?: number;
+  index_ma_window?: number;
+  window?: [string | null, string | null];
+  regime_share?: Partial<Record<DesignRegime, number>>;
+  trend_efficiency?: number;
+  trend_r2?: number;
+  trend_slope_ann?: number;
+  annual_vol?: number;
+  annual_return?: number;
+  panel_max_drawdown?: number;
+  below_ma20_ratio?: number;
+  ma20_crosses_per_year?: number;
+  panel_symbols?: number;
+}
+
+/** Cross-checks attached to a regime declaration (also served compact in the run list). */
+export interface RegimeChecks {
+  coverage?: {
+    regime?: string;
+    share?: number;
+    dominant_regime?: string;
+    dominant_label?: string;
+    ok?: boolean;
+    note?: string;
+  };
+  empirical?: {
+    used_for_decision?: boolean;
+    available?: boolean;
+    metric?: string;
+    best_regime?: string;
+    best_label?: string;
+    declared_rank?: number | null;
+    consistent?: boolean;
+    note?: string;
+    by_regime?: Record<
+      string,
+      { days: number; avg_daily_bp: number; cum_return: number; ann_return: number; sharpe: number }
+    >;
+  };
+  prior?: {
+    available?: boolean;
+    value?: string;
+    label?: string;
+    source?: string;
+    agree?: boolean;
+    note?: string;
+  };
+}
+
+export interface RegimeEvidence {
+  schema_version?: number;
+  method?: string;
+  generated_at?: string;
+  inputs?: Record<string, unknown>;
+  panel?: RegimePanelProfile;
+  factors?: RegimeEvidenceFactor[];
+  weights?: Record<string, number>;
+  scores?: Record<string, number>;
+  ranking?: { regime: string; score: number }[];
+  verdict?: {
+    designed_regime?: string;
+    designed_regime_label?: string;
+    confidence?: number;
+    confidence_label?: string;
+    margin?: number;
+    tie?: boolean;
+    tie_candidates?: string[];
+    runner_up?: string;
+    runner_up_score?: number;
+  };
+  effective?: { designed_regime?: string; label?: string; source?: string };
+  checks?: RegimeChecks;
+  confidence_notes?: string[];
+}
+
+/** `config.json#strategy_style` — design declaration for one backtest. */
+export interface StrategyStyle {
+  style_label?: string;
+  designed_regime?: string;
+  timing_of_declaration?: string;
+  designed_regime_source?: string;
+  designed_regime_label?: string;
+  designed_regime_note?: string;
+  designed_regime_confidence?: number | null;
+  designed_regime_auto?: string;
+  designed_regime_auto_confidence?: number | null;
+  designed_regime_original?: string;
+  designed_regime_original_source?: string;
+  designed_regime_evidence?: RegimeEvidence;
+  /** Compact cross-checks served by the run list (full evidence omitted there). */
+  designed_regime_checks?: RegimeChecks;
+  /** Compact panel summary served by the run list. */
+  designed_regime_panel?: Partial<RegimePanelProfile>;
+  designed_regime_override?: {
+    by?: string;
+    at?: string;
+    reason?: string;
+    auto?: string;
+  } | null;
+  [key: string]: unknown;
 }
 
 /** Strategy pointer for the signal monitor board. */

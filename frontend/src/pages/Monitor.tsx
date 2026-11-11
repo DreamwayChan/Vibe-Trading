@@ -6,6 +6,7 @@ import { BookOpen, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Pl
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
 import { LoopStatus } from "@/components/monitor/LoopStatus";
+import { RegimeChip, RegimePanelModal } from "@/components/monitor/RegimeDeclaration";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
 import { TermHint } from "@/components/process/TermHint";
@@ -20,6 +21,7 @@ import {
   type ProcessDecision,
   type RunData,
   type RunListItem,
+  type StrategyStyle,
 } from "@/lib/api";
 import type { CostCompareReport, PaperBookSnapshot } from "@/lib/loopStatus";
 import { gateStatusFromGate, oosReviewFromGate, type GateStatus } from "@/lib/oosPolicy";
@@ -713,6 +715,9 @@ export function Monitor() {
   const [comparing, setComparing] = useState(false);
   const [paperBook, setPaperBook] = useState<PaperBookSnapshot | null>(null);
   const [paperError, setPaperError] = useState<string | null>(null);
+  // 持仓股一栏上方的设计市况徽章 + 其证据弹窗（与维护来源列表里的是同一套组件）。
+  const [regimeRunId, setRegimeRunId] = useState<string | null>(null);
+  const [regimeStyleCache, setRegimeStyleCache] = useState<Record<string, StrategyStyle>>({});
 
   // Filled examples so the form never looks like a blank wall of fields. The
   // values are illustrative only; the note under them says what to replace.
@@ -1089,6 +1094,34 @@ export function Monitor() {
       cancelled = true;
     };
   }, [runId, t]);
+
+  // 持仓股一栏上方的设计市况：跟当前绑定的回测走。名单里的紧凑申报先顶上，
+  // 再拉一次完整证据；接口不可用（旧后端）就退回名单值，不显示空白徽章。
+  useEffect(() => {
+    const id = runId.trim();
+    if (!id) return;
+    // 旧后端没有该接口时静默跳过，徽章退回名单里的紧凑申报。
+    if (typeof api.getRunRegime !== "function") return;
+    let cancelled = false;
+    api
+      .getRunRegime(id)
+      .then((res) => {
+        if (cancelled || !res.strategy_style) return;
+        setRegimeStyleCache((prev) => ({ ...prev, [id]: res.strategy_style }));
+      })
+      .catch(() => {
+        // 404/网络问题都只是少了证据细节，徽章仍可用名单数据渲染。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  const activeRegimeStyle = useMemo(() => {
+    const id = runId.trim();
+    if (!id) return null;
+    return regimeStyleCache[id] ?? runs.find((r) => r.run_id === id)?.strategy_style ?? null;
+  }, [runId, regimeStyleCache, runs]);
 
   const runCostCompare = async () => {
     const id = runId.trim();
@@ -1739,6 +1772,15 @@ export function Monitor() {
       )}
 
       <div className="flex flex-col gap-2">
+        {/* 当前回测的设计市况：放在持仓股一栏上方，点开就是同一套证据弹窗。 */}
+        {activeRegimeStyle ? (
+          <div className="flex flex-col gap-1" data-testid="holdings-regime">
+            <div className="text-xs font-medium text-muted-foreground">
+              {t("monitor.holdingsRegimeTitle")}
+            </div>
+            <RegimeChip style={activeRegimeStyle} onClick={() => setRegimeRunId(runId.trim())} />
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
             <h2 className="text-lg font-semibold">{t("monitor.holdings")}</h2>
@@ -1966,11 +2008,28 @@ export function Monitor() {
           runs={runs}
           activeRunId={runId}
           deleting={deleting}
+          regimeStyles={regimeStyleCache}
+          onOpenRegime={(id) => setRegimeRunId(id)}
           onClose={() => setMaintainOpen(false)}
           onRequestDelete={(id) => setPendingDeleteId(id)}
           onRename={renameRunTitle}
         />
       )}
+
+      {regimeRunId ? (
+        <RegimePanelModal
+          runId={regimeRunId}
+          initialStyle={
+            regimeStyleCache[regimeRunId] ??
+            runs.find((r) => r.run_id === regimeRunId)?.strategy_style ??
+            null
+          }
+          onClose={() => setRegimeRunId(null)}
+          onSaved={(style) =>
+            setRegimeStyleCache((prev) => ({ ...prev, [regimeRunId]: style }))
+          }
+        />
+      ) : null}
 
       <ConfirmDialog
         open={Boolean(pendingDeleteId)}
@@ -2016,6 +2075,8 @@ function RunSourceMaintainModal({
   runs,
   activeRunId,
   deleting,
+  regimeStyles,
+  onOpenRegime,
   onClose,
   onRequestDelete,
   onRename,
@@ -2023,6 +2084,9 @@ function RunSourceMaintainModal({
   runs: RunListItem[];
   activeRunId: string;
   deleting: boolean;
+  /** 已保存的市况申报缓存（页级共享，保证持仓股栏与这里显示同一个值）。 */
+  regimeStyles: Record<string, StrategyStyle>;
+  onOpenRegime: (runId: string) => void;
   onClose: () => void;
   onRequestDelete: (runId: string) => void;
   onRename: (runId: string, title: string) => Promise<void>;
@@ -2148,6 +2212,18 @@ function RunSourceMaintainModal({
                           {metricsBits}
                         </div>
                       ) : null}
+                      {r.strategy_style?.style_label ? (
+                        <div className="mt-0.5 break-words text-[11px] text-muted-foreground">
+                          {`风格：${r.strategy_style.style_label}`}
+                          {r.strategy_style.timing_of_declaration === "retrospective"
+                            ? " · 事后补记"
+                            : ""}
+                        </div>
+                      ) : null}
+                      <RegimeChip
+                        style={regimeStyles[r.run_id] ?? r.strategy_style}
+                        onClick={() => onOpenRegime(r.run_id)}
+                      />
                       <div className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">
                         {r.run_id}
                         {isActive ? (

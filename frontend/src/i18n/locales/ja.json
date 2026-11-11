@@ -596,6 +596,7 @@
     "regimeExitThreshold": "終了しきい値"
   },
   "monitor": {
+    "holdingsRegimeTitle": "このバックテストの設計相場（クリックで根拠を表示）",
     "title": "シグナルモニター",
     "subtitle": "検証済みバックテスト戦略で少数銘柄を継続追跡し、売買/様子見を提案します——相場端末ではありません。",
     "symbols": "銘柄",

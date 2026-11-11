@@ -596,6 +596,7 @@
     "regimeExitThreshold": "이탈 임계값"
   },
   "monitor": {
+    "holdingsRegimeTitle": "이 백테스트의 설계 장세(클릭하면 근거 표시)",
     "title": "시그널 모니터",
     "subtitle": "검증된 백테스트 전략으로 소수 종목을 추적하고 매수/매도/관망을 제안합니다 — 시세 단말이 아닙니다.",
     "symbols": "종목",

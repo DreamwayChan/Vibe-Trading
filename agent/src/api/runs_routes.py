@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
-from src.api.models import UpdateRunRequest
+from src.api.models import RegimeOverrideRequest, UpdateRunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,35 @@ def _load_json_file(path: Path) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
     return None
+
+
+def _compact_strategy_style(style: Any) -> Any:
+    """Trim the regime declaration for the run list.
+
+    The full evidence block is ~7 KB per run; the list only needs the verdict
+    and the three cross-checks. Full detail is served by
+    ``GET /runs/{run_id}/regime``.
+    """
+    if not isinstance(style, dict):
+        return style
+    evidence = style.get("designed_regime_evidence")
+    if not isinstance(evidence, dict):
+        return style
+    out = {k: v for k, v in style.items() if k != "designed_regime_evidence"}
+    checks = evidence.get("checks") or {}
+    empirical = dict(checks.get("empirical") or {})
+    empirical.pop("by_regime", None)
+    out["designed_regime_checks"] = {
+        "coverage": checks.get("coverage") or {},
+        "empirical": empirical,
+        "prior": checks.get("prior") or {},
+    }
+    panel = evidence.get("panel") or {}
+    out["designed_regime_panel"] = {
+        key: panel.get(key)
+        for key in ("window", "panel_symbols", "labeled_days", "trend_r2", "trend_slope_ann", "regime_share")
+    }
+    return out
 
 
 def _load_csv_to_dict(path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -580,6 +609,12 @@ def register_runs_routes(
                 display_title = stored_title or prompt_text
 
             run_context = load_run_context(d)
+            style_decl = None
+            config_file = d / "config.json"
+            if config_file.exists():
+                config_data = _load_json_file(config_file)
+                if config_data:
+                    style_decl = _compact_strategy_style(config_data.get("strategy_style"))
             results.append(RunInfo(
                 run_id=run_id,
                 status=status_val,
@@ -595,6 +630,7 @@ def register_runs_routes(
                 end_date=run_context.get("end_date"),
                 has_signal_engine=has_signal_engine,
                 archived=archived,
+                strategy_style=style_decl,
             ))
 
         return results
@@ -676,6 +712,79 @@ def register_runs_routes(
                 )
 
         return {"status": "updated", "run_id": run_id, "title": cleaned_title}
+
+    def _run_dir_or_404(run_id: str) -> Path:
+        _host_validate_path_param(run_id, "run_id")
+        runs_root = _host_RUNS_DIR().resolve()
+        run_dir = (runs_root / run_id).resolve()
+        try:
+            run_dir.relative_to(runs_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid run_id") from exc
+        if not run_dir.is_dir():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run {run_id} not found",
+            )
+        return run_dir
+
+    @app.get("/runs/{run_id}/regime", dependencies=[Depends(require_auth)])
+    async def get_run_regime(run_id: str):
+        """Design-regime declaration + the evidence behind it.
+
+        Returns the stored ``strategy_style`` block verbatim: the value of record
+        is whatever config.json says, so the UI never shows a live-computed
+        number that disagrees with the file.
+        """
+        run_dir = _run_dir_or_404(run_id)
+        config = _load_json_file(run_dir / "config.json") or {}
+        style = config.get("strategy_style")
+        if not style:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="该 run 没有 strategy_style 申报",
+            )
+        return {"run_id": run_id, "strategy_style": style}
+
+    @app.post("/runs/{run_id}/regime/infer", dependencies=[Depends(require_auth)])
+    async def infer_run_regime(run_id: str):
+        """Recompute the declaration from mechanics + panel data and persist it.
+
+        A manual override, or a regime declared ex-ante in the run's design
+        notes, keeps its value: only the evidence payload is refreshed.
+        """
+        run_dir = _run_dir_or_404(run_id)
+        from src.sector_pick.regime_infer import infer_run, write_strategy_style
+
+        try:
+            evidence = infer_run(run_dir)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        existing = (_load_json_file(run_dir / "config.json") or {}).get("strategy_style") or {}
+        try:
+            style = write_strategy_style(
+                run_dir,
+                evidence,
+                source=evidence["effective"]["source"],
+                override=existing.get("designed_regime_override"),
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"写入失败：{exc}") from exc
+        return {"run_id": run_id, "strategy_style": style}
+
+    @app.patch("/runs/{run_id}/regime", dependencies=[Depends(require_auth)])
+    async def patch_run_regime(run_id: str, req: RegimeOverrideRequest):
+        """Manual adjustment. ``designed_regime="auto"`` clears the override."""
+        run_dir = _run_dir_or_404(run_id)
+        from src.sector_pick.regime_infer import apply_override
+
+        try:
+            style = apply_override(run_dir, req.designed_regime, req.reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"写入失败：{exc}") from exc
+        return {"run_id": run_id, "strategy_style": style}
 
     @app.delete("/runs/{run_id}", dependencies=[Depends(require_auth)])
     async def delete_run(run_id: str):

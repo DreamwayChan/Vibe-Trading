@@ -62,6 +62,11 @@ class RunInfo(BaseModel):
     # strategy that failed the promotion gate does not keep offering itself as
     # a tradable source.
     archived: bool = False
+    # Declared strategy style from config.json ``strategy_style``. Descriptive
+    # only: it never feeds the validation gate, the tradable pool or any sizing
+    # rule, and ``timing_of_declaration`` says whether it is ex-ante or a
+    # retrospective backfill.
+    strategy_style: Optional[Dict[str, Any]] = None
 
 
 class UpdateRunRequest(BaseModel):
@@ -72,6 +77,24 @@ class UpdateRunRequest(BaseModel):
         None,
         description="Display title for Monitor/Reports lists",
         max_length=200,
+    )
+
+
+class RegimeOverrideRequest(BaseModel):
+    """Manual override of a board's declared design regime.
+
+    ``designed_regime="auto"`` clears the override and falls back to whatever
+    the inference (or an ex-ante design note) says.
+    """
+
+    designed_regime: str = Field(
+        ...,
+        description="bull | slow_bull | chop | bear | auto",
+    )
+    reason: str = Field(
+        "",
+        description="Why the human disagrees with the inferred value; required for an override",
+        max_length=500,
     )
 
 
