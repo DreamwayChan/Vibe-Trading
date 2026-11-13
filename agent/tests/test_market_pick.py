@@ -219,15 +219,16 @@ def test_all_below_ma20_recommends_nothing() -> None:
 def test_catalog_bk_union_and_aliases() -> None:
     assert catalog_key_for_board("BK1615", "金属铜") == "copper"
     assert catalog_key_for_board("BK1600", "医疗研发外包") == "cro"
-    assert catalog_key_for_board("BK0899", "CRO") == "cro0899"
-    assert catalog_key_for_board("BK1450") == "ac"
-    assert catalog_key_for_board("BK1400") == "ac"
-    assert catalog_key_for_board("BK1326") == "semeq"
-    assert catalog_key_for_board("BK1136") == "compute"
-    assert catalog_key_for_board("BK1340") == "compute"
-    assert catalog_key_for_board("BK1138") == "compute"
-    assert catalog_key_for_board("BK9999", "AI应用") == "aiapp"
-    assert catalog_key_for_board("BK0000", "没有这个板") is None
+    assert catalog_key_for_board("BK0722", "虚拟现实") == "vrar"
+    assert catalog_key_for_board("BK1715", "趋势股") == "trendstock"
+    assert catalog_key_for_board("BK1137", "存储芯片") == "memory"
+    assert catalog_key_for_board("BK1106", "创新药") == "drug"
+    # Name-only rows still resolve (panel may omit the BK token).
+    assert catalog_key_for_board("BK0000", "食品饮料") == "foodbev"
+    # Rows that were dropped with their deleted backtests must not resolve.
+    assert catalog_key_for_board("BK0899", "CRO") is None
+    assert catalog_key_for_board("BK1326") is None
+    assert catalog_key_for_board("BK9999", "没有这个板") is None
 
 
 def test_unique_symbols_dedupes_across_boards() -> None:

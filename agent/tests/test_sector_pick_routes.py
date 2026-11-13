@@ -30,10 +30,11 @@ def test_get_sector_pick_defaults_to_full_catalog(client: TestClient) -> None:
     response = client.get("/sector-pick")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["catalog"]) == 21
+    assert len(body["catalog"]) == 8
     assert body["result"] is None
     assert "robot" in body["enabled_keys"]
-    assert "broker" in body["enabled_keys"]
+    assert "copper" in body["enabled_keys"]
+    assert "broker" not in body["enabled_keys"]
     robot = next(row for row in body["catalog"] if row["key"] == "robot")
     assert robot["name"] == "人形机器人"
     assert "run_title" in robot
@@ -50,9 +51,10 @@ def test_put_persists_enabled_keys(client: TestClient) -> None:
     response = client.put("/sector-pick", json={"enabled_keys": ["copper", "robot"]})
     assert response.status_code == 200
     body = response.json()
-    assert body["enabled_keys"] == ["robot", "copper"]
+    # Persisted in catalog order (copper sits before robot on the shelf).
+    assert body["enabled_keys"] == ["copper", "robot"]
     again = client.get("/sector-pick")
-    assert again.json()["enabled_keys"] == ["robot", "copper"]
+    assert again.json()["enabled_keys"] == ["copper", "robot"]
 
 
 def test_scan_endpoint_uses_run_sector_pick_scan(

@@ -274,7 +274,7 @@ agent/prop_国泰君安_<板块>_最优.md        ← 冻结的研究提示词�
 
 | 概念 | 行为 |
 |---|---|
-| 目录 | 21 行。每行绑定板块（或 `∪` 并集）、获胜变体、确认腿、研究提示词，以及存放已验证 `signal_engine.py` 的 `agent/runs/<run_id>` |
+| 目录 | 8 行，每行都必须指向一份仍然存在的回测。绑定板块（或 `∪` 并集）、获胜变体、确认腿、研究提示词，以及存放已验证 `signal_engine.py` 的 `agent/runs/<run_id>`。run 被删掉的行只会在页面上显示「回测缺失」——按报告列表重建目录，不要放着不管 |
 | 实时打分 | 板块等权价格 vs MA20 择时乘数 + 20 日收益 + 确认腿通过率 |
 | ThemeLock | 排名第一只是**观察图**；持久化的 lock 才是**指令**。健康的书会一直保留，直到它触发出局门槛，或者挑战者**连续 2 次扫描**领先且分差**大于 0.25** |
 | 指数 bear | 仍会推进挑战者的连续计数、也可能切换 lock key，但绝不开新书 |
@@ -421,7 +421,7 @@ A 股引擎（`agent/backtest/engines/china_a.py`）对 `\d{6}\.(SZ|SH|BJ)` 代�
       <h3>🀄 A 股研究闭环</h3>
       <div align="left">
         • 市场优选：沪深300 状态 + 板块双轨扫描<br>
-        • 优选板块：21 个已验证板块 + 单主题 ThemeLock<br>
+        • 优选板块：8 个已验证板块 + 单主题 ThemeLock<br>
         • 监控看板：持仓、盘中临时日线、10 日情景推演
       </div>
     </td>
@@ -480,7 +480,7 @@ vibe-trading alpha bench --zoo gtja191 --universe csi300 --period 2018-2025 --to
 # A 股研究闭环（Web UI 界面）
 vibe-trading serve --port 8899
 # → /market-pick   沪深300 状态 + 板块排名，给出 1 个可执行标的
-# → /sector-pick   对 21 个已验证板块打分，维护 ThemeLock
+# → /sector-pick   对 8 个已验证板块打分，维护 ThemeLock
 # → /monitor       持仓、逐股结构、10 交易日情景推演
 ```
 
@@ -1385,7 +1385,7 @@ Vibe-Trading/
 │   │   │   └── store.py            #   每日快照 + 历史
 │   │   │
 │   │   ├── sector_pick/            # ★ 本分支：已验证板块排序
-│   │   │   ├── catalog.py          #   21 条精选「最优」配方 → prop md + run_id
+│   │   │   ├── catalog.py          #   8 条精选「最优」配方 → prop md + run_id
 │   │   │   ├── scan.py             #   逐行打分，取锁定书的持仓
 │   │   │   ├── score.py            #   等权/MA20 择时 + 确认腿通过率 + 20 日收益
 │   │   │   └── theme_lock.py       #   单主题锁，2 日 / 0.25 挑战者规则

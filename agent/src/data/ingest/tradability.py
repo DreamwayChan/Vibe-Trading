@@ -30,6 +30,19 @@ __all__ = ["daily"]
 DEFAULT_PANEL_SESSIONS = 250
 
 
+def _as_date(value: Any) -> dt.date:
+    """Coerce a ``date``/``datetime``/ISO string to a ``date``.
+
+    ``hub.resolve_as_of().date`` is a ``YYYY-MM-DD`` *string*, so the default
+    window has to be normalised before any calendar arithmetic on it.
+    """
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return pd.Timestamp(value).date()
+
+
 def daily(
     *,
     start: str | None = None,
@@ -65,8 +78,8 @@ def daily(
 
     from src.data import hub
 
-    as_of = hub.resolve_as_of().date
-    end_day = pd.Timestamp(end).date() if end else as_of
+    as_of = hub.resolve_as_of().date  # ISO string, not a date object
+    end_day = _as_date(end) if end else _as_date(as_of)
 
     watermark = bar_store.watermark("1d")
     if not watermark:
@@ -74,13 +87,20 @@ def daily(
         return report
 
     if start:
-        start_day = pd.Timestamp(start).date()
+        start_day = _as_date(start)
     else:
         sessions = calendar.trading_days(
             (end_day - dt.timedelta(days=DEFAULT_PANEL_SESSIONS * 2)).isoformat(),
             end_day.isoformat(),
         )
-        start_day = pd.Timestamp(sessions[-DEFAULT_PANEL_SESSIONS]).date()
+        # A young lake has far fewer than DEFAULT_PANEL_SESSIONS sessions; take
+        # what exists instead of raising IndexError on the full-window slice.
+        window = sessions[-DEFAULT_PANEL_SESSIONS:]
+        if not window:
+            report.start, report.end = end_day.isoformat(), end_day.isoformat()
+            report.notes.append("区间内没有交易日")
+            return report
+        start_day = _as_date(window[0])
 
     report.start, report.end = start_day.isoformat(), end_day.isoformat()
     sessions = calendar.trading_days(report.start, report.end)

@@ -16,6 +16,7 @@ import {
   List,
   Loader2,
   ShieldCheck,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import { CandlestickChart } from "@/components/charts/CandlestickChart";
 import { EquityChart } from "@/components/charts/EquityChart";
 import { MetricsCard } from "@/components/chat/MetricsCard";
 import { ValidationPanel } from "@/components/charts/ValidationPanel";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { Skeleton, SkeletonMetrics, SkeletonChart } from "@/components/common/Skeleton";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
@@ -135,6 +137,9 @@ export function RunDetail() {
   const [chartLoadingSymbols, setChartLoadingSymbols] = useState<Record<string, boolean>>({});
   const [bulkChartLoading, setBulkChartLoading] = useState(false);
   const [bulkChartProgress, setBulkChartProgress] = useState<ChartLoadProgress>({ done: 0, total: 0 });
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const chartCacheRef = useRef<ChartCache>({});
   const cancelBulkChartLoadRef = useRef(false);
   const runGenerationRef = useRef(0);
@@ -166,6 +171,9 @@ export function RunDetail() {
     setChartLoadingSymbols({});
     setBulkChartLoading(false);
     setBulkChartProgress({ done: 0, total: 0 });
+    setDeleteOpen(false);
+    setDeleting(false);
+    setDeleteError(null);
 
     if (!runId) {
       setLoading(false);
@@ -323,6 +331,36 @@ export function RunDetail() {
     cancelBulkChartLoadRef.current = true;
   }
 
+  /**
+   * Leave a just-deleted report: step back to whatever opened it (usually the
+   * report list), or replace with /reports when the detail page was opened
+   * directly (no in-app history to go back to).
+   */
+  function leaveAfterDelete() {
+    const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (historyIndex > 0) navigate(-1);
+    else navigate("/reports", { replace: true });
+  }
+
+  /** Permanently delete this run directory, then leave the detail page. */
+  async function confirmDelete() {
+    if (!runId || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteRun(runId);
+      leaveAfterDelete();
+    } catch (err) {
+      setDeleting(false);
+      setDeleteOpen(false);
+      setDeleteError(
+        err instanceof Error && err.message
+          ? `${i18n.t("runDetail.deleteRunFailed")}: ${err.message}`
+          : i18n.t("runDetail.deleteRunFailed"),
+      );
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -336,8 +374,29 @@ export function RunDetail() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           {ok ? <CheckCircle2 className="h-5 w-5 text-success" /> : <XCircle className="h-5 w-5 text-danger" />}
-          <h1 className="font-mono text-sm font-medium">{runId}</h1>
+          <h1 className="min-w-0 truncate font-mono text-sm font-medium">{runId}</h1>
           {run.elapsed_seconds && <span className="text-xs text-muted-foreground">{run.elapsed_seconds.toFixed(1)}s</span>}
+          <div className="ms-auto flex min-w-0 items-center gap-2">
+            {deleteError ? (
+              <span role="alert" className="max-w-xs truncate text-xs text-destructive" title={deleteError}>
+                {deleteError}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError(null);
+                setDeleteOpen(true);
+              }}
+              disabled={deleting}
+              aria-label={i18n.t("runDetail.deleteRun")}
+              title={i18n.t("runDetail.deleteRun")}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-destructive/30 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              {deleting ? i18n.t("runDetail.deletingRun") : i18n.t("runDetail.deleteRun")}
+            </button>
+          </div>
         </div>
         {run.prompt && <p className="text-sm text-muted-foreground">{run.prompt}</p>}
         {run.metrics && <MetricsCard metrics={run.metrics as Record<string, number>} />}
@@ -407,6 +466,27 @@ export function RunDetail() {
           {tab === "code" && <CodeTab code={code} />}
         </ErrorBoundary>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title={i18n.t("runDetail.deleteRunTitle")}
+        description={i18n.t("runDetail.deleteRunDesc")}
+        confirmLabel={deleting ? i18n.t("runDetail.deletingRun") : i18n.t("runDetail.deleteRunConfirm")}
+        cancelLabel={i18n.t("runDetail.deleteRunCancel")}
+        tone="destructive"
+        onConfirm={() => {
+          void confirmDelete();
+        }}
+        onCancel={() => {
+          if (!deleting) setDeleteOpen(false);
+        }}
+      >
+        {runId ? (
+          <p className="break-all rounded-md border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-foreground">
+            {runId}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }

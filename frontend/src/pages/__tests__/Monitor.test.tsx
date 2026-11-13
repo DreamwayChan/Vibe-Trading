@@ -183,7 +183,7 @@ describe("Monitor page", () => {
     await waitFor(() => {
       expect(screen.getAllByText("600519.SH").length).toBeGreaterThan(0);
     });
-    expect(api.listRuns).toHaveBeenCalledWith(50, { strategyReady: true });
+    expect(api.listRuns).toHaveBeenCalledWith(100);
     expect(screen.getByText("signal crossed into long")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "buy" })).toBeInTheDocument();
     expect(screen.getByText("Long")).toBeInTheDocument();
@@ -580,6 +580,7 @@ describe("Monitor page", () => {
       </MemoryRouter>,
     );
 
+    await user.click(await screen.findByRole("button", { name: "Write a decision" }));
     await user.click(await screen.findByRole("button", { name: "Show example" }));
     const gallery = await screen.findByTestId("journal-sample");
     expect(within(gallery).getByText(/beat expectations/)).toBeInTheDocument();
@@ -738,9 +739,10 @@ describe("Monitor page", () => {
     });
   });
 
-  it("does not list chat-only runs returned without strategyReady filtering", async () => {
-    // Backend should already filter; assert the page asks for strategy-ready runs
-    // and only renders what listRuns returns (no fallback to unfiltered chat runs).
+  it("lists engine runs in the picker and keeps archived ones out of it", async () => {
+    // The picker only offers bindable sources. Archived runs are still in the
+    // report library, so they live in 维护来源 (rename/delete) instead of being
+    // rendered as greyed rows nobody can pick.
     vi.mocked(api.listRuns).mockResolvedValue([
       {
         run_id: "run_with_engine",
@@ -748,6 +750,21 @@ describe("Monitor page", () => {
         created_at: "2024-01-01",
         prompt: "backtest",
         has_signal_engine: true,
+      },
+      {
+        run_id: "run_archived",
+        status: "success",
+        created_at: "2024-01-02",
+        prompt: "archived backtest",
+        has_signal_engine: true,
+        archived: true,
+      },
+      {
+        run_id: "run_chat_only",
+        status: "success",
+        created_at: "2024-01-03",
+        prompt: "微信上随便问问",
+        has_signal_engine: false,
       },
     ]);
     vi.mocked(api.getMonitor).mockResolvedValue({
@@ -767,20 +784,97 @@ describe("Monitor page", () => {
     );
 
     await waitFor(() => {
-      expect(api.listRuns).toHaveBeenCalledWith(50, { strategyReady: true });
+      expect(api.listRuns).toHaveBeenCalledWith(100);
     });
     const options = screen.getAllByRole("option").map((el) => el.textContent || "");
     expect(options.some((label) => label.includes("run_with_engine"))).toBe(true);
     expect(options.some((label) => label.includes("20260727_132619_15_ad36af"))).toBe(true);
-    // Chat-only runs must not be mixed into the strategy-ready list from listRuns.
+    // Chat-only runs must not be mixed into the strategy-source list.
     expect(options.some((label) => label.includes("微信上随便问问"))).toBe(false);
+    // Archived runs are not bindable, so they are not offered at all.
+    expect(options.some((label) => label.includes("run_archived"))).toBe(false);
+    expect(screen.queryByText(/archived reports/i)).not.toBeInTheDocument();
+
+    // They stay reachable where they can still be managed.
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /manage sources/i })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: /manage sources/i }));
+    const maintainDialog = await screen.findByRole("dialog", { name: /manage strategy sources/i });
+    expect(within(maintainDialog).getByText(/run_archived/)).toBeInTheDocument();
+    expect(within(maintainDialog).getByText(/^Archived$/)).toBeInTheDocument();
+  });
+
+  it("keeps the decision form folded until it is expanded", async () => {
+    // The five-field form is only needed while writing a decision; the pool
+    // status and the history stay visible without it.
+    const user = userEvent.setup();
+    vi.mocked(api.listMonitorJournal).mockResolvedValue([]);
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/decision journal/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText("Thesis")).not.toBeInTheDocument();
+    expect(screen.queryByText(/show example/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /write a decision/i }));
+    expect(await screen.findByLabelText("Thesis")).toBeInTheDocument();
+    expect(screen.getByText(/show example/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /hide form/i }));
+    expect(screen.queryByLabelText("Thesis")).not.toBeInTheDocument();
+  });
+
+  it("shows the linked hypothesis status and blocks a rejected one", async () => {
+    // A passing gate is not enough: when the run's own hypothesis was rejected
+    // the board must say so and keep the pool closed.
+    vi.mocked(api.getMonitor).mockResolvedValue({
+      symbols: ["600519.SH"],
+      strategy: { type: "run_dir", run_id: "run_1" },
+      last_scan_at: "2024-01-02T00:00:00+00:00",
+      suggestions: [
+        {
+          symbol: "600519.SH",
+          action: "buy",
+          position: "long",
+          reason: "signal crossed into long",
+          as_of: "2024-01-02",
+          tradable: false,
+          block_reasons: ["hypothesis_rejected"],
+        },
+      ],
+      holdings: [],
+      ops: { entered: [], exited: [], held: [] },
+      schedule: null,
+      tradable: false,
+      tradable_reasons: ["hypothesis_rejected"],
+      hypothesis: { id: "hyp_1", status: "rejected", title: "虚拟现实 mom_only" },
+    });
+
+    render(
+      <MemoryRouter>
+        <Monitor />
+      </MemoryRouter>,
+    );
+
+    const chip = await screen.findByTestId("hypothesis-chip");
+    expect(chip).toHaveTextContent("Hypothesis: rejected");
+    expect(chip).toHaveAttribute("title", "虚拟现实 mom_only");
+    expect(screen.getByText(/linked hypothesis rejected/i)).toBeInTheDocument();
   });
 
   it("switching strategy loads that board's symbols and suggestions", async () => {
     const user = userEvent.setup();
     vi.mocked(api.listRuns).mockResolvedValue([
-      { run_id: "run_1", status: "success", created_at: "2024-01-01", prompt: "demo" },
-      { run_id: "run_2", status: "success", created_at: "2024-01-02", prompt: "other" },
+      { run_id: "run_1", status: "success", created_at: "2024-01-01", prompt: "demo", has_signal_engine: true },
+      { run_id: "run_2", status: "success", created_at: "2024-01-02", prompt: "other", has_signal_engine: true },
     ]);
     vi.mocked(api.updateMonitor).mockImplementation(async (body) => {
       const rid = body.strategy?.run_id || "";
@@ -880,6 +974,7 @@ describe("Monitor page", () => {
         created_at: "2024-01-01",
         prompt: "demo",
         title: "创新药",
+        has_signal_engine: true,
       },
       {
         run_id: "run_2",
@@ -887,6 +982,7 @@ describe("Monitor page", () => {
         created_at: "2024-01-02",
         prompt: "other",
         title: "质量确认",
+        has_signal_engine: true,
       },
     ]);
     vi.mocked(api.deleteRun).mockResolvedValue({ status: "deleted", run_id: "run_2" });
@@ -947,6 +1043,7 @@ describe("Monitor page", () => {
         excess_return: -0.2585,
         sharpe: 0.284,
         max_drawdown: -0.27,
+        has_signal_engine: true,
       },
       {
         run_id: "run_2",
@@ -954,6 +1051,7 @@ describe("Monitor page", () => {
         created_at: "2024-01-02",
         prompt: "other",
         title: "质量确认",
+        has_signal_engine: true,
       },
     ]);
     vi.mocked(api.renameRun).mockResolvedValue({

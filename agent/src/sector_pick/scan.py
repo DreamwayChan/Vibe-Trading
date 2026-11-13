@@ -34,7 +34,12 @@ from src.monitor.trend_regime import (
     summarize_panel,
 )
 from src.monitor.universe import load_run_universe
-from src.sector_pick.catalog import CATALOG, SectorRecipe, recipe_by_key
+from src.sector_pick.catalog import (
+    CATALOG,
+    SectorRecipe,
+    missing_run_keys,
+    recipe_by_key,
+)
 from src.sector_pick.models import SectorPickResult, SectorScore
 from src.sector_pick.theme_lock import (
     CHALLENGER_CONFIRM_DAYS,
@@ -93,6 +98,15 @@ def run_sector_pick_scan(
     as_of_date = as_of or date.today()
     root = runs_root or RUNS_DIR
     enabled = {str(key).strip() for key in enabled_keys if str(key).strip()}
+    # A deleted backtest cannot be scored; say so once instead of showing a
+    # quietly empty row on the board.
+    for key in missing_run_keys(runs_root=root):
+        if key in enabled:
+            logger.warning(
+                "sector-pick catalog row %s points at a missing backtest; "
+                "the board will show 回测缺失 until the row is repaired",
+                key,
+            )
     irs = load_confirm_irs()
     source, interval = _source_interval_for_enabled(enabled, root)
 

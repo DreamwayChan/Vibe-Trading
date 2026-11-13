@@ -20,8 +20,25 @@ A buy is also blocked when its A-share risk flags include ST, limit-up,
 a one-word board, or an extreme consecutive-board streak. Those flags are
 stamped by the scan from bars already in hand. Sells are not blocked.
 
-A run id from the frozen 「最优」 catalog is an uncausal scan. Journal and
-gate can both pass and the pool still stays closed (``uncausal_scan``).
+A run id from the frozen 「最优」 catalog is an uncausal scan: it was picked
+off the research shelf, not driven by a hypothesis, so the pool stays closed
+(``uncausal_scan``) even when the journal and the gate both pass. The shelf is
+rebuilt from surviving reports, though, so a run a board is bound to can be
+swept onto it later. That case is not a recipe: a gate pass plus a journal
+signal whose hypothesis resolves in the registry (and is not rejected) keeps
+the run in the pool. See ``src.monitor.uncausal`` for the split.
+
+A run carrying an ``ARCHIVED`` marker was retired on purpose (superseded, or
+deduped away by a better run on the same theme). The strategy picker already
+hides it; the pool must agree, otherwise a rescan quietly re-promotes it
+(reason ``archived``).
+
+The linked research hypothesis is read from the registry and stamped onto the
+board. A hypothesis whose own invalidation fired is ``rejected``: the premise
+failed even when the numbers cleared the gate, so the pool stays closed
+(reason ``hypothesis_rejected``). The status is surfaced either way — a board
+that says "in the pool" while research says "rejected" is exactly the
+contradiction this stamp exists to remove.
 """
 
 from __future__ import annotations
@@ -35,12 +52,29 @@ from backtest.validation import evaluate_run_validation
 from src.hypotheses.journal import DecisionJournal, DecisionSignal, is_stale
 from src.monitor.ashare_risk import buy_block_reasons
 from src.monitor.models import MonitorConfig, MonitorSuggestion
-from src.monitor.uncausal import UNCAUSAL_SCAN, block_actionable, is_uncausal_scan
+from src.monitor.uncausal import (
+    UNCAUSAL_SCAN,
+    block_actionable,
+    is_uncausal_scan,
+    linked_decision_record,
+)
 from src.strategy_store.models import artifact_matches_run
 
 logger = logging.getLogger(__name__)
 
 _ACTIONABLE = {"buy", "sell"}
+
+ARCHIVED = "archived"
+HYPOTHESIS_REJECTED = "hypothesis_rejected"
+
+
+def is_archived_run(run_dir: Path | None) -> bool:
+    """True when the run directory carries an ``ARCHIVED`` marker file.
+
+    The marker is created by the strategy-picker dedupe: the run keeps its
+    artifacts and stays in history, but it no longer represents its theme.
+    """
+    return run_dir is not None and (Path(run_dir) / "ARCHIVED").is_file()
 
 
 @dataclass
@@ -52,6 +86,59 @@ class Admission:
     validation_gate: dict[str, Any]
     decision_signal: dict[str, Any] | None
     bars_source: str | None
+    hypothesis: dict[str, Any] | None = None
+
+
+def _hypothesis_snapshot(hypothesis_id: str) -> dict[str, Any] | None:
+    """Registry row for one hypothesis id, or ``None`` when it is unknown.
+
+    A registry read is advisory: a missing/corrupt file must not fail a scan,
+    it just leaves the board without a hypothesis stamp.
+    """
+    hid = str(hypothesis_id or "").strip()
+    if not hid:
+        return None
+    try:
+        from src.hypotheses.registry import HypothesisRegistry
+
+        for hyp in HypothesisRegistry().list():
+            if hyp.hypothesis_id == hid:
+                return {
+                    "id": hyp.hypothesis_id,
+                    "status": hyp.status,
+                    "title": hyp.title,
+                    "updated_at": hyp.updated_at,
+                }
+    except Exception as exc:  # noqa: BLE001 — never fail admission on a registry read
+        logger.warning("monitor hypothesis lookup failed for %s: %s", hid, exc)
+    return None
+
+
+def linked_hypothesis(
+    strategy_entry: DecisionSignal | None,
+    symbol_entries: dict[str, DecisionSignal],
+) -> dict[str, Any] | None:
+    """Resolve the research hypothesis behind this run's journal entries.
+
+    The strategy-wide entry wins; per-symbol entries cover boards that only
+    logged symbol-level signals. The first id that resolves in the registry is
+    returned, so a broken link does not hide a later valid one.
+    """
+    ids: list[str] = []
+    if strategy_entry is not None:
+        ids.append(str(getattr(strategy_entry, "hypothesis_id", "") or ""))
+    for entry in symbol_entries.values():
+        ids.append(str(getattr(entry, "hypothesis_id", "") or ""))
+    seen: set[str] = set()
+    for hid in ids:
+        key = hid.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        state = _hypothesis_snapshot(key)
+        if state is not None:
+            return state
+    return None
 
 
 def journal_key_for(strategy: Any) -> str:
@@ -188,6 +275,12 @@ def evaluate_admission(
     except ValueError:
         journal_error = "journal_unreadable"
 
+    hypothesis = (
+        None
+        if journal_error
+        else linked_hypothesis(strategy_entry, symbol_entries)
+    )
+
     if run_dir is None:
         gate = {
             "passed": False,
@@ -233,12 +326,35 @@ def evaluate_admission(
         )
         for suggestion in suggestions
     ]
-    if is_uncausal_scan(run_key):
+    decided = False
+    if gate_passed:
+        # The entry that carries the decision: the strategy-wide record, else
+        # the first tradable symbol record. Both count as "entered the loop".
+        record = strategy_entry
+        if record is None or not record.tradable:
+            record = next(
+                (entry for entry in symbol_entries.values() if entry.tradable), None
+            )
+        if record is not None:
+            decided = linked_decision_record(record.to_dict(), hypothesis)
+
+    if is_uncausal_scan(run_key, decided=decided):
         # A frozen factor scan is not a causal hypothesis. Fields and the
         # validation gate can both pass; the pool still stays closed.
         reasons.append(UNCAUSAL_SCAN)
         pool = False
         annotated = block_actionable(annotated)
+    if is_archived_run(run_dir):
+        # Retired on purpose. The picker hides the run, so the pool must too.
+        reasons.append(ARCHIVED)
+        pool = False
+        annotated = block_actionable(annotated, ARCHIVED)
+    if hypothesis is not None and hypothesis.get("status") == "rejected":
+        # The run's own invalidation fired. Numbers can still clear the gate;
+        # the premise did not, so this is research, not a live instruction.
+        reasons.append(HYPOTHESIS_REJECTED)
+        pool = False
+        annotated = block_actionable(annotated, HYPOTHESIS_REJECTED)
     signal_payload = strategy_entry.to_dict() if strategy_entry is not None else None
     admission = Admission(
         tradable=pool,
@@ -246,6 +362,7 @@ def evaluate_admission(
         validation_gate=gate,
         decision_signal=signal_payload,
         bars_source=bars_source,
+        hypothesis=hypothesis,
     )
     return admission, annotated
 
@@ -306,6 +423,7 @@ def apply_admission(
     config.validation_gate = admission.validation_gate
     config.decision_signal = admission.decision_signal
     config.bars_source = admission.bars_source
+    config.hypothesis = admission.hypothesis
     if strategy_store is not None:
         stamp_strategy_store(
             strategy_store,

@@ -126,6 +126,33 @@ def test_catalog_run_does_not_fill_even_when_the_signal_says_tradable(tmp_path: 
     assert {row["reason"] for row in report.skipped} == {"uncausal_scan"}
 
 
+def test_catalog_run_with_decision_record_still_fills(tmp_path: Path) -> None:
+    """A shelved run that carries a decision record is a live board, not a recipe."""
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    config = _config([_suggestion(tradable=True)], run_id=run_id)
+    config.validation_gate = {"passed": True, "reasons": []}
+    config.decision_signal = {"signal_id": "sig_x", "hypothesis_id": "hyp_x"}
+    config.hypothesis = {"id": "hyp_x", "status": "validated", "title": "cro rank"}
+    report = _step(tmp_path, config, {SYMBOL: _bar()}, max_position=1.0)
+    assert len(report.fills) == 1
+
+
+def test_catalog_run_is_sealed_when_the_hypothesis_was_rejected(tmp_path: Path) -> None:
+    """A tested-and-failed premise cannot license a shelf run back into the book."""
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    config = _config([_suggestion(tradable=True)], run_id=run_id)
+    config.validation_gate = {"passed": True, "reasons": []}
+    config.decision_signal = {"signal_id": "sig_x", "hypothesis_id": "hyp_x"}
+    config.hypothesis = {"id": "hyp_x", "status": "rejected", "title": "cro rank"}
+    report = _step(tmp_path, config, {SYMBOL: _bar()}, max_position=1.0)
+    assert report.fills == []
+    assert {row["reason"] for row in report.skipped} == {"uncausal_scan"}
+
+
 def test_buy_fill_matches_china_a_costs(tmp_path: Path) -> None:
     engine = ChinaAEngine({})
     report = _step(

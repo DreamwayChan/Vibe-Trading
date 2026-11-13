@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Reports } from "../Reports";
 
 const apiMock = vi.hoisted(() => ({
   listRuns: vi.fn(),
+  deleteRun: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/api", () => ({
 describe("Reports page", () => {
   beforeEach(() => {
     apiMock.listRuns.mockReset();
+    apiMock.deleteRun.mockReset();
   });
 
   it("lists backtest reports newest first with Full Report links and skips non-report runs", async () => {
@@ -86,5 +88,63 @@ describe("Reports page", () => {
 
     expect(screen.queryByText("aapl-report")).not.toBeInTheDocument();
     expect(screen.getByText("msft-report")).toBeInTheDocument();
+  });
+
+  it("deletes a report only after the destructive confirm dialog is accepted", async () => {
+    apiMock.listRuns.mockResolvedValue([
+      {
+        run_id: "keep-report",
+        status: "success",
+        created_at: "2026-06-04T00:00:00Z",
+        prompt: "Keep me",
+        total_return: 0.12,
+      },
+      {
+        run_id: "stale-report",
+        status: "success",
+        created_at: "2026-06-03T00:00:00Z",
+        prompt: "Delete me",
+        total_return: 0.01,
+      },
+    ]);
+    apiMock.deleteRun.mockResolvedValue({ status: "deleted", run_id: "stale-report" });
+
+    render(<Reports />, { wrapper: MemoryRouter });
+    await screen.findByText("stale-report");
+
+    // The row button opens a confirm dialog and does NOT delete by itself.
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    expect(deleteButtons).toHaveLength(2);
+    fireEvent.click(deleteButtons[1]);
+    expect(apiMock.deleteRun).not.toHaveBeenCalled();
+    expect(await screen.findByText("Delete backtest report?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(apiMock.deleteRun).toHaveBeenCalledWith("stale-report"));
+    await waitFor(() => expect(screen.queryByText("stale-report")).not.toBeInTheDocument());
+    expect(screen.getByText("keep-report")).toBeInTheDocument();
+  });
+
+  it("keeps the row and reports the error when deletion fails", async () => {
+    apiMock.listRuns.mockResolvedValue([
+      {
+        run_id: "locked-report",
+        status: "success",
+        created_at: "2026-06-04T00:00:00Z",
+        prompt: "Locked",
+        total_return: 0.12,
+      },
+    ]);
+    apiMock.deleteRun.mockRejectedValue(new Error("Run is in use"));
+
+    render(<Reports />, { wrapper: MemoryRouter });
+    await screen.findByText("locked-report");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Run is in use");
+    expect(screen.getByText("locked-report")).toBeInTheDocument();
   });
 });

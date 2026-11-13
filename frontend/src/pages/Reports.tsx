@@ -10,8 +10,10 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Trash2,
   XCircle,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { api, type RunListItem } from "@/lib/api";
 import { formatMetricVal } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -31,11 +33,17 @@ export function Reports() {
   const [endDate, setEndDate] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("created_desc");
   const [error, setError] = useState<string | null>(null);
+  /** Run queued for the destructive confirm dialog (null = dialog closed). */
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  /** Run currently being deleted on the server (blocks double-submit). */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function loadReports(mode: "initial" | "refresh" = "refresh") {
     if (mode === "initial") setLoading(true);
     else setRefreshing(true);
     setError(null);
+    setActionError(null);
     try {
       const list = await api.listRuns(REPORT_SCAN_LIMIT);
       setRuns(Array.isArray(list) ? list.filter(isBacktestReportRun) : []);
@@ -51,6 +59,33 @@ export function Reports() {
   useEffect(() => {
     void loadReports("initial");
   }, []);
+
+  /**
+   * Permanently delete a run directory (report + charts + monitor board).
+   *
+   * The row is dropped optimistically only after the server confirms, so a
+   * failed delete leaves the list intact and surfaces the reason inline.
+   */
+  async function confirmDelete() {
+    const targetId = (pendingDeleteId || "").trim();
+    if (!targetId || deletingId) return;
+    setDeletingId(targetId);
+    setActionError(null);
+    try {
+      await api.deleteRun(targetId);
+      setRuns((prev) => prev.filter((run) => run.run_id !== targetId));
+      setPendingDeleteId(null);
+    } catch (err) {
+      setPendingDeleteId(null);
+      setActionError(
+        err instanceof Error && err.message
+          ? `${t("reports.deleteRunFailed")}: ${err.message}`
+          : t("reports.deleteRunFailed"),
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const statusOptions = useMemo(() => {
     const values = Array.from(new Set(runs.map((run) => run.status || "unknown"))).sort();
@@ -158,6 +193,16 @@ export function Reports() {
           {t("reports.count", { shown: filtered.length, total: runs.length })}
         </div>
 
+        {actionError ? (
+          <section
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0 break-words">{actionError}</span>
+          </section>
+        ) : null}
+
         {loading ? (
           <div className="grid gap-3">
             {[1, 2, 3, 4].map((item) => (
@@ -189,16 +234,53 @@ export function Reports() {
         {!loading && !error && filtered.length > 0 ? (
           <section className="grid gap-3">
             {filtered.map((run) => (
-              <ReportRow key={run.run_id} run={run} />
+              <ReportRow
+                key={run.run_id}
+                run={run}
+                deleting={deletingId === run.run_id}
+                deleteDisabled={deletingId !== null}
+                onRequestDelete={setPendingDeleteId}
+              />
             ))}
           </section>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteId)}
+        title={t("reports.deleteRunTitle")}
+        description={t("reports.deleteRunDesc")}
+        confirmLabel={deletingId ? t("reports.deletingRun") : t("reports.deleteRunConfirm")}
+        cancelLabel={t("reports.deleteRunCancel")}
+        tone="destructive"
+        onConfirm={() => {
+          void confirmDelete();
+        }}
+        onCancel={() => {
+          if (!deletingId) setPendingDeleteId(null);
+        }}
+      >
+        {pendingDeleteId ? (
+          <p className="break-all rounded-md border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-foreground">
+            {pendingDeleteId}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
 
-function ReportRow({ run }: { run: RunListItem }) {
+function ReportRow({
+  run,
+  deleting,
+  deleteDisabled,
+  onRequestDelete,
+}: {
+  run: RunListItem;
+  deleting: boolean;
+  deleteDisabled: boolean;
+  onRequestDelete: (runId: string) => void;
+}) {
   const { t } = useTranslation();
   return (
     <article className="rounded-md border p-4 transition hover:border-primary/40 hover:bg-muted/30">
@@ -247,6 +329,17 @@ function ReportRow({ run }: { run: RunListItem }) {
               <GitCompare className="h-3.5 w-3.5" />
               {t("reports.compare")}
             </Link>
+            <button
+              type="button"
+              onClick={() => onRequestDelete(run.run_id)}
+              disabled={deleteDisabled}
+              aria-label={t("reports.deleteRun")}
+              title={t("reports.deleteRun")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              {deleting ? t("reports.deletingRun") : t("reports.deleteRun")}
+            </button>
           </div>
         </div>
       </div>

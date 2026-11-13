@@ -74,6 +74,12 @@ class DataLoader:
             requested granularity, a finer stored interval is aggregated up; if
             neither exists the mapping is empty and the caller's fallback chain
             goes to the network.
+
+        Note:
+            Frames are the *stored* (unadjusted) prices. Callers that need a
+            comparable multi-year series must rebase — the backtest entry point
+            does it once in ``backtest.runner._apply_price_adjust`` so the lake
+            itself keeps one contract and the cache write-back stays raw.
         """
         validate_date_range(start_date, end_date)
         del fields

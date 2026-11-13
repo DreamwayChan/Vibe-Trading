@@ -273,7 +273,7 @@ Research-only. Sector Pick ranks **already researched** sectors — the candidat
 
 | Concept | Behaviour |
 |---|---|
-| Catalog | 21 rows. Each binds a board (or a `∪` union of boards), the winning variant, its confirm legs, the research prompt, and the `agent/runs/<run_id>` holding the validated `signal_engine.py` |
+| Catalog | 8 rows, all pointing at a surviving backtest. Each binds a board (or a `∪` union of boards), the winning variant, its confirm legs, the research prompt, and the `agent/runs/<run_id>` holding the validated `signal_engine.py`. A row whose run was deleted fails soft and renders 回测缺失 — rebuild the shelf from the report list instead of leaving it to rot |
 | Live score | equal-weight board price vs MA20 timing multiplier + 20-day return + confirm-leg pass rate |
 | ThemeLock | rank-1 is the **observation map**; the persisted lock is the **order**. A healthy book is kept until it fails the leftover-book gate, or a challenger leads for **2 consecutive scans** *and* beats it by a real score gap (**> 0.25**) |
 | Index bear | still ticks the challenger streak and may switch the lock key, but never opens a new book |

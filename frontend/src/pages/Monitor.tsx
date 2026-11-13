@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { BookOpen, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, Crosshair, Eye, ExternalLink, GitCompare, Loader2, Pencil, Play, RotateCcw, Save, Trash2, Wrench, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
 import { LoopStatus } from "@/components/monitor/LoopStatus";
@@ -16,6 +16,7 @@ import {
   type MonitorDayOps,
   type MonitorHistorySummary,
   type MonitorHolding,
+  type MonitorHypothesis,
   type MonitorJournalEntry,
   type MonitorSuggestion,
   type ProcessDecision,
@@ -367,6 +368,8 @@ const REASON_I18N = {
   invalidated: "monitor.reasonInvalidated",
   paper_book_decay: "monitor.reasonPaperBookDecay",
   uncausal_scan: "monitor.reasonUncausalScan",
+  archived: "monitor.reasonArchived",
+  hypothesis_rejected: "monitor.reasonHypothesisRejected",
   not_actionable: "monitor.reasonNotActionable",
   ashare_st: "monitor.reasonAshareSt",
   ashare_limit_up: "monitor.reasonAshareLimitUp",
@@ -419,7 +422,25 @@ type PoolView = {
   tradable_reasons?: string[];
   bars_source?: string | null;
   validation_gate?: Record<string, unknown> | null;
+  hypothesis?: MonitorHypothesis | null;
 };
+
+/** Registry status on the board; unknown codes fall through as plain text. */
+const HYPOTHESIS_STATUS_I18N = {
+  rejected: "monitor.hypothesisRejected",
+  validated: "monitor.hypothesisValidated",
+  monitoring: "monitor.hypothesisMonitoring",
+  testing: "monitor.hypothesisTesting",
+  exploring: "monitor.hypothesisExploring",
+} as const;
+
+type HypothesisStatusKey =
+  (typeof HYPOTHESIS_STATUS_I18N)[keyof typeof HYPOTHESIS_STATUS_I18N];
+
+function hypothesisStatusLabel(status: string, t: TFunction): string {
+  const key = (HYPOTHESIS_STATUS_I18N as Record<string, HypothesisStatusKey | undefined>)[status];
+  return key ? t(key) : status;
+}
 
 type GateCheckView = {
   passed?: boolean;
@@ -663,6 +684,13 @@ export function Monitor() {
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
   const [runs, setRuns] = useState<RunListItem[]>([]);
+  /**
+   * Runs carrying an ``ARCHIVED`` marker: kept on disk and in the report
+   * library, but not bindable as a strategy source. They are kept out of the
+   * picker (an unselectable row only adds noise) and shown in 维护来源, where
+   * they can still be renamed or deleted.
+   */
+  const [archivedRuns, setArchivedRuns] = useState<RunListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -707,6 +735,9 @@ export function Monitor() {
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalRows, setJournalRows] = useState<MonitorJournalEntry[]>([]);
   const [journalFilter, setJournalFilter] = useState("");
+  // The five-field form is only needed when a decision is being written, so it
+  // stays folded: the pool status and the history are the parts read daily.
+  const [journalFormOpen, setJournalFormOpen] = useState(false);
   const [journalSampleOpen, setJournalSampleOpen] = useState(false);
   const [journalSampleKind, setJournalSampleKind] = useState<JournalSampleKind>("stock");
   const [costCompare, setCostCompare] = useState<CostCompareReport | null>(null);
@@ -826,13 +857,17 @@ export function Monitor() {
       try {
         const [monitor, runList] = await Promise.all([
           api.getMonitor(),
-          // Only strategy-ready runs: chat/Q&A sessions create run dirs without
-          // signal_engine.py and must not appear in this picker.
-          api.listRuns(50, { strategyReady: true }).catch(() => [] as RunListItem[]),
+          // Fetch every run, then split locally: the picker must hide chat/Q&A
+          // dirs (no signal_engine.py) while still showing archived strategy
+          // runs as disabled options, so it does not look like reports vanished.
+          api.listRuns(100).catch(() => [] as RunListItem[]),
         ]);
         if (cancelled) return;
         applyBoard(monitor);
-        setRuns(Array.isArray(runList) ? runList : []);
+        const allRuns = Array.isArray(runList) ? runList : [];
+        const usableRuns = allRuns.filter((run) => run.has_signal_engine && !run.archived);
+        setRuns(usableRuns.slice(0, 50));
+        setArchivedRuns(allRuns.filter((run) => run.has_signal_engine && run.archived));
         // Previously bound chat-only runs stay in state so the user can see why
         // scan fails; the orphan option below labels them as unusable.
         await refreshHistory(monitor.strategy?.run_id || "");
@@ -848,6 +883,20 @@ export function Monitor() {
       cancelled = true;
     };
   }, [t]);
+
+  /**
+   * Label for the bound run when the picker does not carry it (archived, chat
+   * run from an older board, or outside the top-50 slice). Without it the
+   * select would render blank while the board is actually bound; it is one
+   * option for the current value, never a second choice.
+   */
+  const boundRunOption = useMemo(() => {
+    const id = runId.trim();
+    if (!id || runs.some((r) => r.run_id === id)) return null;
+    return archivedRuns.some((r) => r.run_id === id)
+      ? `${id} · ${t("monitor.strategyOptionArchived")}`
+      : t("monitor.strategyOrphanRun", { runId: id });
+  }, [runId, runs, archivedRuns, t]);
 
   const suggestions = useMemo(
     () => sortSuggestions(board?.suggestions || []),
@@ -987,6 +1036,7 @@ export function Monitor() {
               tradable_reasons: detail.tradable_reasons,
               bars_source: detail.bars_source,
               validation_gate: detail.validation_gate,
+              hypothesis: detail.hypothesis,
             }
           : null,
       );
@@ -1008,6 +1058,7 @@ export function Monitor() {
           tradable_reasons: board.tradable_reasons,
           bars_source: board.bars_source,
           validation_gate: board.validation_gate,
+          hypothesis: board.hypothesis,
         }
       : null);
   const gateNotes = pool && !pool.tradable ? gateFailureNotes(pool.validation_gate, t) : null;
@@ -1188,6 +1239,7 @@ export function Monitor() {
     try {
       await api.deleteRun(targetId);
       setRuns((prev) => prev.filter((r) => r.run_id !== targetId));
+      setArchivedRuns((prev) => prev.filter((r) => r.run_id !== targetId));
       setPendingDeleteId(null);
       // If the deleted run was the active source, clear the board pointer.
       if (runId.trim() === targetId) {
@@ -1215,6 +1267,9 @@ export function Monitor() {
       const result = await api.renameRun(targetId, cleaned);
       const savedTitle = (result.title || cleaned).trim();
       setRuns((prev) =>
+        prev.map((r) => (r.run_id === targetId ? { ...r, title: savedTitle } : r)),
+      );
+      setArchivedRuns((prev) =>
         prev.map((r) => (r.run_id === targetId ? { ...r, title: savedTitle } : r)),
       );
     } catch (e) {
@@ -1289,11 +1344,7 @@ export function Monitor() {
             className="w-full px-3 py-2 rounded-md border bg-background text-sm disabled:opacity-50"
           >
             <option value="">{t("monitor.pickRun")}</option>
-            {runId.trim() && !runs.some((r) => r.run_id === runId) ? (
-              <option value={runId}>
-                {t("monitor.strategyOrphanRun", { runId })}
-              </option>
-            ) : null}
+            {boundRunOption ? <option value={runId}>{boundRunOption}</option> : null}
             {runs.map((r) => (
               <option key={r.run_id} value={r.run_id}>
                 {formatRunListOption(r)}
@@ -1404,16 +1455,34 @@ export function Monitor() {
             <h2 className="text-lg font-semibold">{t("monitor.journalTitle")}</h2>
             <p className="text-xs text-muted-foreground mt-0.5">{t("monitor.journalHint")}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setJournalSampleOpen((open) => !open)}
-            aria-expanded={journalSampleOpen}
-            aria-controls="journal-sample"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            {journalSampleOpen ? t("monitor.journalSampleHide") : t("monitor.journalSampleToggle")}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {journalFormOpen && (
+              <button
+                type="button"
+                onClick={() => setJournalSampleOpen((open) => !open)}
+                aria-expanded={journalSampleOpen}
+                aria-controls="journal-sample"
+                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                {journalSampleOpen ? t("monitor.journalSampleHide") : t("monitor.journalSampleToggle")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setJournalFormOpen((open) => !open)}
+              aria-expanded={journalFormOpen}
+              aria-controls="journal-form"
+              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {journalFormOpen ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              {journalFormOpen ? t("monitor.journalFormCollapse") : t("monitor.journalFormExpand")}
+            </button>
+          </div>
         </div>
         {pool && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -1428,6 +1497,24 @@ export function Monitor() {
             >
               {pool.tradable ? t("monitor.gateIn") : t("monitor.gateOut")}
             </span>
+            {pool.hypothesis && (
+              <span
+                data-testid="hypothesis-chip"
+                title={pool.hypothesis.title || pool.hypothesis.id || ""}
+                className={cn(
+                  "inline-flex rounded px-1.5 py-0.5 text-xs font-medium",
+                  pool.hypothesis.status === "rejected"
+                    ? "bg-destructive/15 text-destructive"
+                    : pool.hypothesis.status === "validated"
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                {t("monitor.hypothesisChip", {
+                  status: hypothesisStatusLabel(pool.hypothesis.status || "", t),
+                })}
+              </span>
+            )}
             {pool.bars_source && (
               <span className="text-xs text-muted-foreground">
                 {t("monitor.barsSource", { source: barsLabel(pool.bars_source, t) })}
@@ -1453,7 +1540,7 @@ export function Monitor() {
             </p>
           </div>
         )}
-        {journalSampleOpen && (
+        {journalFormOpen && journalSampleOpen && (
           <div
             id="journal-sample"
             data-testid="journal-sample"
@@ -1507,131 +1594,135 @@ export function Monitor() {
             </button>
           </div>
         )}
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input
-            type="text"
-            value={journalHypothesis}
-            onChange={(e) => setJournalHypothesis(e.target.value)}
-            placeholder={t("monitor.journalHypothesis")}
-            aria-label={t("monitor.journalHypothesis")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-          <input
-            type="text"
-            value={journalSymbol}
-            onChange={(e) => setJournalSymbol(e.target.value)}
-            placeholder={t("monitor.journalSymbol")}
-            aria-label={t("monitor.journalSymbol")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
-          />
-          <input
-            type="text"
-            value={journalObservation}
-            onChange={(e) => setJournalObservation(e.target.value)}
-            placeholder={t("monitor.journalObservation")}
-            aria-label={t("monitor.journalObservation")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalCausal}
-            onChange={(e) => setJournalCausal(e.target.value)}
-            placeholder={t("monitor.journalHypothesisCausal")}
-            aria-label={t("monitor.journalHypothesisCausal")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalLogic}
-            onChange={(e) => setJournalLogic(e.target.value)}
-            placeholder={t("monitor.journalLogic")}
-            aria-label={t("monitor.journalLogic")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalValidation}
-            onChange={(e) => setJournalValidation(e.target.value)}
-            placeholder={t("monitor.journalValidationPlan")}
-            aria-label={t("monitor.journalValidationPlan")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalThesis}
-            onChange={(e) => setJournalThesis(e.target.value)}
-            placeholder={t("monitor.journalThesis")}
-            aria-label={t("monitor.journalThesis")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <input
-            type="text"
-            value={journalInvalidation}
-            onChange={(e) => setJournalInvalidation(e.target.value)}
-            placeholder={t("monitor.journalInvalidation")}
-            aria-label={t("monitor.journalInvalidation")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
-          />
-          <div
-            role="group"
-            aria-label={t("monitor.journalInvalidationSide")}
-            className="flex flex-wrap items-center gap-3 px-1 text-sm"
-          >
-            {(["", "below", "above"] as const).map((side) => (
-              <label key={side || "none"} className="inline-flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="journal-invalidation-side"
-                  value={side}
-                  checked={journalSide === side}
-                  onChange={() => setJournalSide(side)}
-                />
-                {side === "below"
-                  ? t("monitor.journalInvalidationBelow")
-                  : side === "above"
-                    ? t("monitor.journalInvalidationAbove")
-                    : t("monitor.journalInvalidationSide")}
-              </label>
-            ))}
-          </div>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={journalPrice}
-            onChange={(e) => setJournalPrice(e.target.value)}
-            placeholder={t("monitor.journalInvalidationPrice")}
-            aria-label={t("monitor.journalInvalidationPrice")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
-          />
-          <input
-            type="text"
-            value={journalPosition}
-            onChange={(e) => setJournalPosition(e.target.value)}
-            placeholder={t("monitor.journalPosition")}
-            aria-label={t("monitor.journalPosition")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-          <input
-            type="text"
-            value={journalRisk}
-            onChange={(e) => setJournalRisk(e.target.value)}
-            placeholder={t("monitor.journalRisk")}
-            aria-label={t("monitor.journalRisk")}
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm"
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={saveDecision}
-            disabled={journalSaving || saving || scanning || resetting || !strategyBound}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
-          >
-            {journalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {journalSaving ? t("monitor.journalSaving") : t("monitor.journalSubmit")}
-          </button>
-          {journalError && <span className="text-sm text-destructive">{journalError}</span>}
-        </div>
+        {journalFormOpen && (
+          <>
+            <div id="journal-form" className="grid gap-2 sm:grid-cols-2">
+              <input
+                type="text"
+                value={journalHypothesis}
+                onChange={(e) => setJournalHypothesis(e.target.value)}
+                placeholder={t("monitor.journalHypothesis")}
+                aria-label={t("monitor.journalHypothesis")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+              />
+              <input
+                type="text"
+                value={journalSymbol}
+                onChange={(e) => setJournalSymbol(e.target.value)}
+                placeholder={t("monitor.journalSymbol")}
+                aria-label={t("monitor.journalSymbol")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
+              />
+              <input
+                type="text"
+                value={journalObservation}
+                onChange={(e) => setJournalObservation(e.target.value)}
+                placeholder={t("monitor.journalObservation")}
+                aria-label={t("monitor.journalObservation")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <input
+                type="text"
+                value={journalCausal}
+                onChange={(e) => setJournalCausal(e.target.value)}
+                placeholder={t("monitor.journalHypothesisCausal")}
+                aria-label={t("monitor.journalHypothesisCausal")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <input
+                type="text"
+                value={journalLogic}
+                onChange={(e) => setJournalLogic(e.target.value)}
+                placeholder={t("monitor.journalLogic")}
+                aria-label={t("monitor.journalLogic")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <input
+                type="text"
+                value={journalValidation}
+                onChange={(e) => setJournalValidation(e.target.value)}
+                placeholder={t("monitor.journalValidationPlan")}
+                aria-label={t("monitor.journalValidationPlan")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <input
+                type="text"
+                value={journalThesis}
+                onChange={(e) => setJournalThesis(e.target.value)}
+                placeholder={t("monitor.journalThesis")}
+                aria-label={t("monitor.journalThesis")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <input
+                type="text"
+                value={journalInvalidation}
+                onChange={(e) => setJournalInvalidation(e.target.value)}
+                placeholder={t("monitor.journalInvalidation")}
+                aria-label={t("monitor.journalInvalidation")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm sm:col-span-2"
+              />
+              <div
+                role="group"
+                aria-label={t("monitor.journalInvalidationSide")}
+                className="flex flex-wrap items-center gap-3 px-1 text-sm"
+              >
+                {(["", "below", "above"] as const).map((side) => (
+                  <label key={side || "none"} className="inline-flex items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="journal-invalidation-side"
+                      value={side}
+                      checked={journalSide === side}
+                      onChange={() => setJournalSide(side)}
+                    />
+                    {side === "below"
+                      ? t("monitor.journalInvalidationBelow")
+                      : side === "above"
+                        ? t("monitor.journalInvalidationAbove")
+                        : t("monitor.journalInvalidationSide")}
+                  </label>
+                ))}
+              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={journalPrice}
+                onChange={(e) => setJournalPrice(e.target.value)}
+                placeholder={t("monitor.journalInvalidationPrice")}
+                aria-label={t("monitor.journalInvalidationPrice")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm font-mono"
+              />
+              <input
+                type="text"
+                value={journalPosition}
+                onChange={(e) => setJournalPosition(e.target.value)}
+                placeholder={t("monitor.journalPosition")}
+                aria-label={t("monitor.journalPosition")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+              />
+              <input
+                type="text"
+                value={journalRisk}
+                onChange={(e) => setJournalRisk(e.target.value)}
+                placeholder={t("monitor.journalRisk")}
+                aria-label={t("monitor.journalRisk")}
+                className="w-full px-3 py-2 rounded-md border bg-background text-sm"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={saveDecision}
+                disabled={journalSaving || saving || scanning || resetting || !strategyBound}
+                className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+              >
+                {journalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {journalSaving ? t("monitor.journalSaving") : t("monitor.journalSubmit")}
+              </button>
+              {journalError && <span className="text-sm text-destructive">{journalError}</span>}
+            </div>
+          </>
+        )}
         {strategyBound && (
           <div className="flex flex-col gap-2 border-t pt-3" data-testid="journal-history">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2005,7 +2096,7 @@ export function Monitor() {
 
       {maintainOpen && (
         <RunSourceMaintainModal
-          runs={runs}
+          runs={[...runs, ...archivedRuns]}
           activeRunId={runId}
           deleting={deleting}
           regimeStyles={regimeStyleCache}
@@ -2226,6 +2317,11 @@ function RunSourceMaintainModal({
                       />
                       <div className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">
                         {r.run_id}
+                        {r.archived ? (
+                          <span className="ms-2 rounded bg-muted px-1 py-0.5 font-sans text-[10px]">
+                            {t("monitor.strategyOptionArchived")}
+                          </span>
+                        ) : null}
                         {isActive ? (
                           <span className="ms-2 text-primary">{t("monitor.maintainRunsActive")}</span>
                         ) : null}

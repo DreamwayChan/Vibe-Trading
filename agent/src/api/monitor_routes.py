@@ -266,6 +266,8 @@ class MonitorResponse(BaseModel):
     validation_gate: Optional[Dict[str, Any]] = None
     decision_signal: Optional[Dict[str, Any]] = None
     bars_source: Optional[str] = None
+    # Linked research hypothesis as of this scan (id/status/title).
+    hypothesis: Optional[Dict[str, Any]] = None
     # Held symbols with no tradable, fresh, non-invalidated journal entry.
     journal_alerts: List[str] = Field(default_factory=list)
 
@@ -376,6 +378,7 @@ class HistoryDetailResponse(BaseModel):
     validation_gate: Optional[Dict[str, Any]] = None
     decision_signal: Optional[Dict[str, Any]] = None
     decision: Optional[Dict[str, Any]] = None
+    hypothesis: Optional[Dict[str, Any]] = None
 
 
 def _display_holdings(holdings, decision):
@@ -417,6 +420,7 @@ def _to_response(config: MonitorConfig) -> MonitorResponse:
         validation_gate=config.validation_gate,
         decision_signal=config.decision_signal,
         bars_source=config.bars_source,
+        hypothesis=config.hypothesis,
         journal_alerts=_journal_alerts(config),
     )
 
@@ -887,4 +891,5 @@ def register_monitor_routes(
             validation_gate=snap.validation_gate,
             decision_signal=snap.decision_signal,
             decision=snap.decision.to_dict() if snap.decision is not None else None,
+            hypothesis=snap.hypothesis,
         )

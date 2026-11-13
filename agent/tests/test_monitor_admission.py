@@ -170,6 +170,196 @@ def test_catalog_run_stays_research_when_journal_and_gate_pass(
     assert stamped.tradable is False
 
 
+def test_catalog_run_with_decision_record_keeps_pool(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shelf row does not revoke a run that entered the hypothesis loop.
+
+    The 「最优」 shelf is rebuilt from surviving reports, so it can sweep up the
+    very run a board is bound to. Being displayed there is not evidence that
+    the run skipped the loop: gate pass + journal + registered hypothesis is.
+    """
+    from src.hypotheses.registry import HypothesisRegistry
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    runs = isolated_home / "runs"
+    _write_run(runs, run_id, _passing_validation())
+    hyp = HypothesisRegistry().create(
+        title="cro rank persists",
+        thesis="Rank persists inside the board for a week.",
+        status="validated",
+    )
+    DecisionJournal().record(
+        run_id=run_id,
+        hypothesis_id=hyp.hypothesis_id,
+        thesis="Rank persists inside the board for a week.",
+        invalidation="Exit if the close leaves the board.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+    )
+    assert result.tradable is True
+    assert "uncausal_scan" not in result.tradable_reasons
+    assert result.suggestions[0].tradable is True
+    assert result.hypothesis is not None
+    assert result.hypothesis["id"] == hyp.hypothesis_id
+
+
+def test_catalog_run_with_failed_gate_stays_research(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record is gate-aware: numbers that failed cannot license the shelf row."""
+    from src.hypotheses.registry import HypothesisRegistry
+    from src.sector_pick.catalog import CATALOG
+
+    run_id = CATALOG[0].run_id
+    runs = isolated_home / "runs"
+    validation = _passing_validation()
+    validation["bootstrap"] = {"ci_lower": -0.4}
+    _write_run(runs, run_id, validation)
+    hyp = HypothesisRegistry().create(
+        title="cro rank persists",
+        thesis="Rank persists inside the board for a week.",
+        status="validated",
+    )
+    DecisionJournal().record(
+        run_id=run_id,
+        hypothesis_id=hyp.hypothesis_id,
+        thesis="Rank persists inside the board for a week.",
+        invalidation="Exit if the close leaves the board.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+    )
+    assert result.tradable is False
+    assert "bootstrap_ci_lower" in result.tradable_reasons
+    assert "uncausal_scan" in result.tradable_reasons
+
+
+def test_archived_run_stays_research_when_journal_and_gate_pass(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ARCHIVED`` means retired on purpose: the picker hides it, so must the pool.
+
+    Without this rule a deduped run keeps ``tradable=true`` on its board and a
+    rescan quietly re-promotes a source the picker no longer offers.
+    """
+    run_id = "20260101_000000_00_deduped"
+    runs = isolated_home / "runs"
+    run_dir = _write_run(runs, run_id, _passing_validation())
+    (run_dir / "ARCHIVED").write_text("superseded by a better run\n", encoding="utf-8")
+    DecisionJournal().record(
+        run_id=run_id,
+        thesis="Because the book rebalances weekly, therefore the rank persists.",
+        invalidation="Exit on a close below the entry week's low.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+    )
+    assert result.suggestions[0].action == "buy"
+    assert result.tradable is False
+    assert "archived" in result.tradable_reasons
+    assert result.suggestions[0].tradable is False
+    assert "archived" in result.suggestions[0].block_reasons
+
+
+def test_rejected_hypothesis_keeps_pool_closed(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rejected premise stays research even when the gate and journal pass.
+
+    The board used to say "in the pool" while the hypothesis registry said
+    rejected: numbers cannot validate a premise whose own invalidation fired.
+    """
+    run_id = "20260101_000000_00_rej01"
+    runs = isolated_home / "runs"
+    _write_run(runs, run_id, _passing_validation())
+    from src.hypotheses.registry import HypothesisRegistry
+
+    hyp = HypothesisRegistry().create(
+        title="gap revert",
+        thesis="Names revert after a gap.",
+        status="rejected",
+    )
+    DecisionJournal().record(
+        run_id=run_id,
+        hypothesis_id=hyp.hypothesis_id,
+        thesis="Names revert after a gap.",
+        invalidation="Exit on a close above the gap high.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+    )
+    assert result.suggestions[0].action == "buy"
+    assert result.tradable is False
+    assert "hypothesis_rejected" in result.tradable_reasons
+    assert result.hypothesis is not None
+    assert result.hypothesis["status"] == "rejected"
+    assert result.suggestions[0].tradable is False
+    assert "hypothesis_rejected" in result.suggestions[0].block_reasons
+
+
+def test_validated_hypothesis_is_stamped_and_pool_stays_open(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stamp is read-only for every other status: validated still trades."""
+    run_id = "20260101_000000_00_val01"
+    runs = isolated_home / "runs"
+    _write_run(runs, run_id, _passing_validation())
+    from src.hypotheses.registry import HypothesisRegistry
+
+    hyp = HypothesisRegistry().create(
+        title="gap revert",
+        thesis="Names revert after a gap.",
+        status="validated",
+    )
+    DecisionJournal().record(
+        run_id=run_id,
+        hypothesis_id=hyp.hypothesis_id,
+        thesis="Names revert after a gap.",
+        invalidation="Exit on a close above the gap high.",
+        planned_position="2% NAV",
+        planned_risk="max loss 0.4% NAV",
+        **FIVE_FIELDS,
+    )
+    _patch_fetch(monkeypatch)
+    result = run_monitor_scan(
+        MonitorConfig(symbols=["600519.SH"], strategy=StrategyRef(type="run_dir", run_id=run_id)),
+        as_of=date(2024, 6, 7),
+        runs_root=runs,
+    )
+    assert result.tradable is True
+    assert result.tradable_reasons == []
+    assert result.hypothesis is not None
+    assert result.hypothesis["status"] == "validated"
+    assert result.hypothesis["id"] == hyp.hypothesis_id
+
+
 def test_scan_admits_pool_when_journal_and_gate_pass(
     isolated_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

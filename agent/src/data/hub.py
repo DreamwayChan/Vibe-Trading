@@ -729,6 +729,26 @@ def adjusted_bars(
     return adjusted
 
 
+def rebase_long_frame(frame: pd.DataFrame, mode: str = "qfq") -> pd.DataFrame:
+    """Public view of :func:`_rebase_on_factor` for callers holding a long frame.
+
+    The backtest loader already has ``adj_factor`` in hand, so it must not
+    re-query the lake just to reuse the one rebasing routine. An empty result
+    keeps the input columns so callers can fall back sanely.
+
+    Args:
+        frame: Long frame with ``symbol``, ``date`` and ``adj_factor``.
+        mode: ``"qfq"`` or ``"hfq"``.
+
+    Returns:
+        The rebased frame; ``frame.attrs["missing_factor"]`` counts dropped rows.
+    """
+    adjusted, dropped = _rebase_on_factor(frame, str(mode).lower())
+    adjusted.attrs["missing_factor"] = dropped
+    adjusted.attrs["adjust"] = str(mode).lower()
+    return adjusted
+
+
 def _attach_daily_factor(frame: pd.DataFrame) -> pd.DataFrame:
     """Give each intraday row the ``adj_factor`` of its session.
 

@@ -6,6 +6,7 @@ import type { RunData } from "@/lib/api";
 const apiMock = vi.hoisted(() => ({
   getRun: vi.fn(),
   getRunCode: vi.fn(),
+  deleteRun: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
@@ -26,7 +27,10 @@ function deferred<T>() {
 
 function renderRunDetail(path = "/runs/old") {
   const router = createMemoryRouter(
-    [{ path: "/runs/:runId", element: <RunDetail /> }],
+    [
+      { path: "/runs/:runId", element: <RunDetail /> },
+      { path: "/reports", element: <div>report-list-stub</div> },
+    ],
     { initialEntries: [path] },
   );
   render(<RouterProvider router={router} />);
@@ -37,6 +41,7 @@ describe("RunDetail page", () => {
   beforeEach(() => {
     apiMock.getRun.mockReset();
     apiMock.getRunCode.mockReset();
+    apiMock.deleteRun.mockReset();
   });
 
   it("does not let an older route load replace the current run or code", async () => {
@@ -150,5 +155,41 @@ describe("RunDetail page", () => {
     expect(screen.queryByRole("option", { name: "OLD" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Trades" }));
     expect(screen.queryByText("OLD TRADE")).not.toBeInTheDocument();
+  });
+
+  it("deletes the run only after confirmation and returns to the report list", async () => {
+    apiMock.getRun.mockResolvedValue({ status: "success", run_id: "old", prompt: "Old run" });
+    apiMock.getRunCode.mockResolvedValue({});
+    apiMock.deleteRun.mockResolvedValue({ status: "deleted", run_id: "old" });
+
+    renderRunDetail();
+    expect(await screen.findByText("Old run")).toBeInTheDocument();
+
+    // The header button opens the confirm dialog — it must not delete by itself.
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(apiMock.deleteRun).not.toHaveBeenCalled();
+    expect(await screen.findByText("Delete this backtest report?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(apiMock.deleteRun).toHaveBeenCalledWith("old"));
+    // No in-app history in this router, so it falls back to the report list.
+    expect(await screen.findByText("report-list-stub")).toBeInTheDocument();
+  });
+
+  it("stays on the detail page and reports the error when deletion fails", async () => {
+    apiMock.getRun.mockResolvedValue({ status: "success", run_id: "old", prompt: "Old run" });
+    apiMock.getRunCode.mockResolvedValue({});
+    apiMock.deleteRun.mockRejectedValue(new Error("Run is in use"));
+
+    renderRunDetail();
+    expect(await screen.findByText("Old run")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Run is in use");
+    expect(screen.getByText("Old run")).toBeInTheDocument();
+    expect(screen.queryByText("report-list-stub")).not.toBeInTheDocument();
   });
 });

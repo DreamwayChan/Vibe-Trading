@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.monitor.models import WEIGHT_EPSILON, MonitorConfig
-from src.monitor.uncausal import UNCAUSAL_SCAN, is_uncausal_scan
+from src.monitor.uncausal import UNCAUSAL_SCAN, board_decision_record, is_uncausal_scan
 from src.paper_book.models import Intent
 
 
@@ -23,9 +23,11 @@ def resolve_intents(
     seen: set[str] = set()
 
     run_id = str(getattr(getattr(config, "strategy", None), "run_id", "") or "")
-    if is_uncausal_scan(run_id):
+    if is_uncausal_scan(run_id, decided=board_decision_record(config)):
         # A schedule that omits ``tradable`` still defaults it to true.
-        # That default must not fill a frozen 「最优」 recipe.
+        # That default must not fill a frozen 「最优」 recipe. A board that
+        # carries a decision record (gate pass + journal linked to a live
+        # hypothesis) is not a recipe and falls through to the row checks.
         for suggestion in config.suggestions:
             action = suggestion.action
             if action not in ("buy", "sell"):

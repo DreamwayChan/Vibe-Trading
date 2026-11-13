@@ -252,6 +252,33 @@ def test_tradability_builds_from_stored_daily_bars(lake, sessions, monkeypatch):
     assert panel["limit_up"].iloc[-1] > panel["pre_close"].iloc[-1]
 
 
+def test_tradability_defaults_window_from_as_of(lake, sessions, monkeypatch):
+    """No ``start``/``end``: the window is derived from the resolved as-of.
+
+    ``hub.resolve_as_of().date`` is an ISO *string*, so the default branch has to
+    normalise it before subtracting days from it — doing calendar arithmetic on
+    the string raised ``TypeError`` and failed the whole job.
+    """
+    monkeypatch.setattr("src.data.ingest.bars._tushare_available", lambda: False)
+    monkeypatch.setattr("src.data.ingest.bars._fetch_tencent_raw_daily", _stub_tencent())
+    ingest.run("bars_daily", start="2026-09-01", end="2026-09-11", symbols=["600519.SH"])
+
+    from src.data import hub
+
+    monkeypatch.setattr(hub, "resolve_as_of", lambda *a, **k: hub.AsOf("2026-09-11", True, "test"))
+
+    payload = ingest.run("tradability")
+
+    assert payload["status"] == "done", payload
+    report = payload["report"]
+    assert report["end"] == "2026-09-11"
+    # The default window is the last 250 sessions ending at the as-of date.
+    assert len(sessions(report["start"], report["end"])) == 250
+    # ...but the panel only covers sessions the lake actually holds bars for
+    # (build_panel clips to each symbol's own range rather than inventing halts).
+    assert report["rows"] == len(sessions("2026-09-01", "2026-09-11"))
+
+
 # ---------------------------------------------------------------------------
 # Job policy
 # ---------------------------------------------------------------------------

@@ -802,6 +802,11 @@ export interface RunListItem {
   /** True when the run has code/signal_engine.py (Monitor can bind it). */
   has_signal_engine?: boolean;
   /**
+   * True when the run dir carries an ``ARCHIVED`` marker: hidden from the
+   * Monitor picker's selectable list (still listed, greyed, for transparency).
+   */
+  archived?: boolean;
+  /**
    * Declared strategy style from config.json. Descriptive only — it never
    * feeds the validation gate or the tradable pool.
    */
@@ -1033,6 +1038,8 @@ export interface MonitorBoard {
   validation_gate?: Record<string, unknown> | null;
   decision_signal?: Record<string, unknown> | null;
   bars_source?: string | null;
+  /** Research hypothesis this run's journal links to, as of the scan. */
+  hypothesis?: MonitorHypothesis | null;
   /** Held symbols with no tradable journal entry. */
   journal_alerts?: string[];
 }
@@ -1125,6 +1132,16 @@ export interface MonitorHistoryDetail {
   validation_gate?: Record<string, unknown> | null;
   decision_signal?: Record<string, unknown> | null;
   decision?: ProcessDecision | null;
+  /** Research hypothesis this run's journal links to, as of the scan. */
+  hypothesis?: MonitorHypothesis | null;
+}
+
+/** Registry row stamped onto a monitor board by admission. */
+export interface MonitorHypothesis {
+  id?: string;
+  status?: string;
+  title?: string;
+  updated_at?: string;
 }
 
 /** Denomination of the ETF-OI denominator. */

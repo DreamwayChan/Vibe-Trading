@@ -1390,6 +1390,24 @@ def _fetch_auto(
 
 
 _DAILY_INTERVALS = frozenset({"1d", "d", "day", "daily"})
+_PRICE_ADJUST_MODES = frozenset({"none", "qfq", "hfq"})
+
+
+def _price_adjust_mode(config: dict) -> str:
+    """Adjustment to request from the lake; ``qfq`` unless config says otherwise.
+
+    Reading stored prices means an ex-dividend day is booked as a loss and a
+    split as a crash, which distorts both the equity curve and any "beat the
+    equal-weight benchmark" claim. ``config['price_adjust']`` overrides with
+    ``none`` (reproduce an old raw-price run) or ``hfq``.
+    """
+    mode = str(config.get("price_adjust") or "qfq").strip().lower()
+    if mode not in _PRICE_ADJUST_MODES:
+        raise ValueError(
+            f"未知 price_adjust：{mode!r}（可用 none / qfq / hfq）"
+        )
+    return mode
+
 
 
 def _data_center_eligible(config: dict) -> bool:
@@ -1426,10 +1444,85 @@ def fetch_data_map(config: dict, *, allow_partial: bool = False) -> DataFetchRes
     are written back so the next backtest, scan, or chart reads the cache.
     Intraday intervals, local files, and fundamental fields keep the loader
     path: they are not the daily lake contract.
+
+    Frames served by the lake come back rebased onto ``adj_factor`` — see
+    :func:`_apply_price_adjust`. Leave the adjustment on for anything that reads
+    a multi-month price series: an unadjusted window books every ex-dividend day
+    as a loss and every split as a crash.
     """
     if _data_center_eligible(config):
-        return _fetch_data_map_via_center(config, allow_partial=allow_partial)
-    return _fetch_data_map_upstream(config, allow_partial=allow_partial)
+        result = _fetch_data_map_via_center(config, allow_partial=allow_partial)
+    else:
+        result = _fetch_data_map_upstream(config, allow_partial=allow_partial)
+    return _apply_price_adjust(result, config)
+
+
+def _apply_price_adjust(result: DataFetchResult, config: dict) -> DataFetchResult:
+    """Rebase lake-served frames onto ``adj_factor`` (``price_adjust``, default qfq).
+
+    Runs once, after the lake and any gap splices are assembled, so a symbol that
+    was half served from the cache and half from the vendor still gets a single
+    scaling. The lake keeps unadjusted prices; this is the only place the
+    backtest turns them into a comparable series.
+    """
+    mode = _price_adjust_mode(config)
+    sources = [str(name) for name in (result.effective_sources or [])]
+    if mode == "none" or "lake" not in sources or not result.data_map:
+        return result
+
+    from src.data import bars as bar_store
+    from src.data.hub import rebase_long_frame
+
+    codes = sorted(result.data_map)
+    try:
+        factor_rows = bar_store.load_bars(
+            "1d",
+            symbols=codes,
+            start=str(config.get("start_date") or ""),
+            end=str(config.get("end_date") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001 — a missing factor must not void the run
+        logger.warning("复权因子读取失败，回落到原始价：%s", exc)
+        return result
+    if factor_rows.empty or "adj_factor" not in factor_rows.columns:
+        logger.warning("湖内没有 adj_factor，回落到原始价：%d 只", len(codes))
+        return result
+
+    factors = factor_rows[["symbol", "date", "adj_factor"]].copy()
+    factors["symbol"] = factors["symbol"].astype(str)
+
+    pieces = []
+    for symbol, frame in result.data_map.items():
+        part = frame.reset_index()
+        part = part.rename(columns={part.columns[0]: "date"})
+        part["symbol"] = str(symbol)
+        part["date"] = pd.to_datetime(part["date"])
+        mine = factors[factors["symbol"] == str(symbol)]
+        merged = part.merge(mine, on=["symbol", "date"], how="left")
+        # A bar whose factor is null takes the one in force that day: factors
+        # only step on ex-dates, so the previous value is the honest one.
+        merged["adj_factor"] = merged["adj_factor"].ffill()
+        pieces.append(merged)
+
+    long_frame = pd.concat(pieces, ignore_index=True)
+    rebased = rebase_long_frame(long_frame, mode)
+    dropped = int(rebased.attrs.get("missing_factor") or 0)
+    if dropped:
+        logger.warning("复权后剔除 %d 根无因子的K线", dropped)
+
+    data_map: dict[str, Any] = {}
+    for symbol, part in rebased.groupby("symbol", sort=True):
+        part = part.set_index("date").sort_index()
+        data_map[str(symbol)] = part[
+            [c for c in ("open", "high", "low", "close", "volume") if c in part.columns]
+        ]
+    return DataFetchResult(
+        data_map=data_map,
+        codes=result.codes,
+        source=result.source,
+        loader=_AutoLoader(data_map),
+        effective_sources=list(result.effective_sources or []),
+    )
 
 
 def _fetch_data_map_via_center(config: dict, *, allow_partial: bool) -> DataFetchResult:

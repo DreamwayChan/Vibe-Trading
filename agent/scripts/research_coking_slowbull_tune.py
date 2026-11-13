@@ -239,6 +239,26 @@ def _rebalance_mask(dates: pd.DatetimeIndex, mode: str) -> np.ndarray:
     return (~week_id.duplicated(keep="first")).to_numpy()
 
 
+def _px_at(close, i, code):
+    """Last settled close at or before row ``i``; None if never traded.
+
+    A suspension leaves NaN in the panel on days the rest of the universe
+    still trades. Using that NaN as the entry price makes every later
+    comparison false (``(peak - px) / peak >= 0.15`` is False when any term is
+    NaN), so a stop written against it never fires and the name rides an
+    unbounded drawdown with no protection. Fall back to the last traded close
+    instead of recording NaN.
+    """
+    try:
+        col = close[code].iloc[: i + 1]
+    except KeyError:
+        return None
+    col = col[col.notna()]
+    if col.empty:
+        return None
+    return float(col.iloc[-1])
+
+
 def _exit_reason(code, px, rank_row, entry_px, peak_px, entry_rank, hold_days, check_band, k: Knobs):
     cost = entry_px.get(code)
     peak = peak_px.get(code, px)
@@ -265,8 +285,8 @@ def _select(rank_row, conf_row, holdings, entry_px, peak_px, entry_rank, hold_da
     must_exit = set()
     keep_candidates = []
     for c in sorted(holdings):
-        px = float(close.iloc[i][c])
-        if pd.isna(px):
+        px = _px_at(close, i, c)
+        if px is None:
             must_exit.add(c)
             continue
         if _exit_reason(c, px, rank_row, entry_px, peak_px, entry_rank, hold_days, True, k) is not None:
@@ -348,7 +368,9 @@ def _build_weights(sort_score: pd.DataFrame, confirm_ok: pd.DataFrame, close: pd
                 wv = timing_scale / n_sel
                 for c in selected:
                     current[c] = wv
-                    px = float(close.iloc[i][c])
+                    px = _px_at(close, i, c)
+                    if px is None:
+                        continue
                     if c not in holdings:
                         entry_px[c] = px
                         peak_px[c] = px
@@ -369,8 +391,8 @@ def _build_weights(sort_score: pd.DataFrame, confirm_ok: pd.DataFrame, close: pd
             for c in sorted(holdings):
                 if prev_w.get(c, 0.0) <= 0:
                     continue
-                px = float(close.iloc[i][c])
-                if pd.isna(px):
+                px = _px_at(close, i, c)
+                if px is None:
                     continue
                 peak_px[c] = max(peak_px.get(c, px), px)
                 hold_days[c] = hold_days.get(c, 0) + 1

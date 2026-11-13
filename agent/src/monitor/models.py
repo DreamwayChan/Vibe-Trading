@@ -212,6 +212,8 @@ class MonitorDaySnapshot:
     tradable_reasons: list[str] = field(default_factory=list)
     validation_gate: dict[str, Any] | None = None
     decision_signal: dict[str, Any] | None = None
+    # Linked research hypothesis (id/status/title) as of this scan.
+    hypothesis: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -232,6 +234,7 @@ class MonitorDaySnapshot:
             "tradable_reasons": list(self.tradable_reasons),
             "validation_gate": self.validation_gate,
             "decision_signal": self.decision_signal,
+            "hypothesis": self.hypothesis,
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
@@ -277,6 +280,7 @@ class MonitorDaySnapshot:
             tradable_reasons=_reason_list(raw.get("tradable_reasons")),
             validation_gate=_dict_or_none(raw.get("validation_gate")),
             decision_signal=_dict_or_none(raw.get("decision_signal")),
+            hypothesis=_dict_or_none(raw.get("hypothesis")),
         )
 
 
@@ -306,6 +310,8 @@ class MonitorConfig:
     validation_gate: dict[str, Any] | None = None
     decision_signal: dict[str, Any] | None = None
     bars_source: str | None = None
+    # Linked research hypothesis (id/status/title), stamped by admission.
+    hypothesis: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -321,6 +327,7 @@ class MonitorConfig:
             "validation_gate": self.validation_gate,
             "decision_signal": self.decision_signal,
             "bars_source": self.bars_source,
+            "hypothesis": self.hypothesis,
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
@@ -359,6 +366,7 @@ class MonitorConfig:
             validation_gate=_dict_or_none(raw.get("validation_gate")),
             decision_signal=_dict_or_none(raw.get("decision_signal")),
             bars_source=_optional_str(raw.get("bars_source")),
+            hypothesis=_dict_or_none(raw.get("hypothesis")),
         )
 
 

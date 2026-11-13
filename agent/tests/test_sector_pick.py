@@ -15,6 +15,7 @@ from src.sector_pick.catalog import (
     SectorRecipe,
     default_enabled_keys,
     load_run_display_title,
+    missing_run_keys,
     recipe_by_key,
     validate_enabled_keys,
 )
@@ -48,21 +49,49 @@ from src.sector_pick.store import (
 
 def test_catalog_has_unique_keys_and_recipes() -> None:
     keys = [row.key for row in CATALOG]
-    assert len(keys) == 21
-    assert len(set(keys)) == 21
-    assert recipe_by_key("robot") is not None
-    assert recipe_by_key("robot").variant == "f0_prime"
-    assert recipe_by_key("broker").use_max_veto is True
-    assert recipe_by_key("cro") is not None
+    assert len(keys) == 8
+    assert len(set(keys)) == 8
     assert recipe_by_key("cro").confirm_ids == ("gtja191_171", "gtja191_075")
     assert recipe_by_key("cro").use_max_veto is False
-    assert recipe_by_key("cro0899") is not None
-    assert recipe_by_key("cro0899").confirm_ids == ("gtja191_171", "gtja191_054")
+    assert recipe_by_key("copper").run_id == "20261111_111500_05_H8_copper_081_160_qfq"
+    # Momentum-only recipe: empty confirm legs must stay empty (coverage reads 1.0).
+    assert recipe_by_key("vrar").confirm_ids == ()
+    assert recipe_by_key("trendstock").confirm_ids == ("qlib158_cord30", "qlib158_ksft")
+    assert recipe_by_key("broker") is None
     assert recipe_by_key("missing") is None
 
 
+def test_catalog_rows_point_at_surviving_backtests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row whose run dir was deleted only renders 「回测缺失」; report it."""
+    alive = tmp_path / "run_alive" / "code"
+    alive.mkdir(parents=True)
+    (alive / "signal_engine.py").write_text("# engine\n", encoding="utf-8")
+    rows = (
+        _recipe("alive", "run_alive"),
+        _recipe("gone", "run_gone"),
+    )
+    monkeypatch.setattr("src.sector_pick.catalog.CATALOG", rows)
+    assert missing_run_keys(runs_root=tmp_path) == ["gone"]
+
+
+def _recipe(key: str, run_id: str) -> SectorRecipe:
+    return SectorRecipe(
+        key=key,
+        name=key,
+        panel=f"{key} BK0001",
+        confirm_ids=(),
+        use_max_veto=False,
+        run_id=run_id,
+        prop_file="prop_x.md",
+        variant="f0_prime",
+    )
+
+
 def test_load_run_display_title_matches_monitor_rename(tmp_path: Path) -> None:
-    run_dir = tmp_path / "20260725_184000_05_F0_robot_124_178"
+    recipe = recipe_by_key("robot")
+    run_dir = tmp_path / recipe.run_id
     (run_dir / "code").mkdir(parents=True)
     (run_dir / "code" / "signal_engine.py").write_text("# engine\n", encoding="utf-8")
     label = "F0'最优确认-人形机器人-124+178"
@@ -76,7 +105,7 @@ def test_load_run_display_title_matches_monitor_rename(tmp_path: Path) -> None:
     missing_title, missing_present = load_run_display_title("nope", runs_root=tmp_path)
     assert missing_present is False
     assert missing_title is None
-    annotated = recipe_by_key("robot").annotated_dict(runs_root=tmp_path)
+    annotated = recipe.annotated_dict(runs_root=tmp_path)
     assert annotated["run_title"] == label
     assert annotated["run_missing"] is False
     assert annotated["name"] == "人形机器人"
@@ -87,7 +116,8 @@ def test_validate_enabled_keys_rejects_unknown() -> None:
     with pytest.raises(ValueError, match="unknown sector key"):
         validate_enabled_keys(["robot", "not-a-board"])
     assert validate_enabled_keys([]) == []
-    assert validate_enabled_keys(["broker", "robot"]) == ["robot", "broker"]
+    # Output follows catalog order, not the caller's order.
+    assert validate_enabled_keys(["robot", "copper"]) == ["copper", "robot"]
 
 
 def _close_trend(n: int = 40, start: float = 10.0, step: float = 0.2) -> pd.DataFrame:
@@ -355,6 +385,12 @@ def test_build_untradable_reason_uses_leader_skip() -> None:
 def test_pick_tradable_skips_residual_index_leader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Hermetic shelf: book-health selection, not the curated catalog contents.
+    shelf = {
+        "machine": _recipe("machine", "run_machine"),
+        "speceq": _recipe("speceq", "run_speceq"),
+    }
+    monkeypatch.setattr("src.sector_pick.scan.recipe_by_key", shelf.get)
     leftover = SectorScore(
         key="machine", name="工业母机", panel="x",
         run_id="20260726_084500_03_F0_machine_171_054", variant="f0_prime",
@@ -538,6 +574,13 @@ def test_same_day_rescan_does_not_count_as_second_challenger_day(
 def test_bear_scan_ticks_challenger_and_steals_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Hermetic shelf: this test is about the bear/lock path, not about which
+    # recipes the curated catalog happens to ship today.
+    monkeypatch.setattr(
+        "src.sector_pick.scan.CATALOG",
+        (_recipe("vrar", "run_vrar"), _recipe("speceq", "run_speceq")),
+    )
+
     def _fake_score(recipe, **_kwargs):
         if recipe.key == "vrar":
             return SectorScore(
@@ -616,6 +659,12 @@ def test_bear_scan_ticks_challenger_and_steals_lock(
 def test_lock_switches_on_residual_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Hermetic shelf: lock handoff on leftover-book failure.
+    shelf = {
+        "machine": _recipe("machine", "run_machine"),
+        "speceq": _recipe("speceq", "run_speceq"),
+    }
+    monkeypatch.setattr("src.sector_pick.scan.recipe_by_key", shelf.get)
     leftover = SectorScore(
         key="machine", name="工业母机", panel="x",
         run_id="20260726_084500_03_F0_machine_171_054", variant="f0_prime",
@@ -718,7 +767,9 @@ def test_store_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     state.enabled_keys = ["robot", "copper"]
     save_state(state)
     loaded = load_state()
-    assert loaded.enabled_keys == ["robot", "copper"]
+    # save_state re-orders to catalog order, so the roundtrip is order-stable
+    # but not caller-ordered.
+    assert loaded.enabled_keys == ["copper", "robot"]
 
 
 def test_store_keeps_explicit_empty_enabled(

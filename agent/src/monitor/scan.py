@@ -176,6 +176,7 @@ def run_monitor_scan(
             tradable_reasons=list(config.tradable_reasons),
             validation_gate=config.validation_gate,
             decision_signal=config.decision_signal,
+            hypothesis=config.hypothesis,
         )
         try:
             save_day_snapshot(snapshot)
