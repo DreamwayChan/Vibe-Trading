@@ -92,6 +92,8 @@ def test_every_source_carries_the_entry_price_guard() -> None:
     expected = [(rel, 4) for rel, _n, _f in SOURCES]
     expected += [(rel, 3) for rel in SHADOWS]
     for rel, calls in expected:
+        if rel.startswith("runs/") and not (AGENT / rel).exists():
+            continue
         src = _read(rel)
         assert "float(close.iloc[i][c])" not in src, f"{rel}: unguarded entry price"
         assert src.count("_px_at(close, i, c)") == calls, f"{rel}: call sites changed"
@@ -120,6 +122,8 @@ def test_template_engine_stops_a_name_entered_during_suspension(rel: str, name, 
     nothing forces an exit and the position simply rides a 20% drop with every
     stop comparing against NaN and returning False.
     """
+    if rel.startswith("runs/") and not (AGENT / rel).exists():
+        pytest.skip(f"{rel} is gitignored under agent/runs/ on clean checkouts")
     engine = _load_class(rel, name, fmt)()
     engine.top_n = 1
     engine.band = 2

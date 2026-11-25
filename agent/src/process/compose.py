@@ -38,6 +38,7 @@ def compose(
     overlays_raw: dict[str, Any] | None = None,
     previous: Decision | None = None,
     horizons: Mapping[str, Any] | None = None,
+    breadth: Mapping[str, Any] | None = None,
 ) -> Decision:
     """Run the waterfall and return a single official Decision.
 
@@ -60,7 +61,12 @@ def compose(
     trace: list[TraceStep] = []
 
     allow_new, size_cap, mandate_step = _mandate_gate(
-        rules, regime=regime, stance=stance, provisional=provisional, horizons=horizons
+        rules,
+        regime=regime,
+        stance=stance,
+        provisional=provisional,
+        horizons=horizons,
+        breadth=breadth,
     )
     trace.append(mandate_step)
     if not mandate_step.passed:
@@ -144,6 +150,8 @@ def compose(
     raw.setdefault("provisional", provisional)
     if horizons:
         raw.setdefault("horizons", dict(horizons))
+    if breadth:
+        raw.setdefault("breadth", dict(breadth))
 
     return Decision(
         action=action,
@@ -198,8 +206,9 @@ def _mandate_gate(
     stance: str,
     provisional: bool,
     horizons: Mapping[str, Any] | None = None,
+    breadth: Mapping[str, Any] | None = None,
 ) -> tuple[bool, float, TraceStep]:
-    """Constitution first: shorts, bear, provisional bars, empty stance."""
+    """Constitution first: shorts, bear, provisional bars, breadth ice-point, empty stance."""
     allow_new = True
     size_cap = float(rules.book_nav_cap)
     veto: str | None = None
@@ -255,6 +264,31 @@ def _mandate_gate(
             passed=False,
             veto=veto,
         )
+
+    if isinstance(breadth, Mapping) and bool(breadth.get("sufficient_sample")):
+        b_state = str(breadth.get("state") or "").strip().lower()
+        b_cap = str(breadth.get("stance_cap") or "").strip().lower()
+        b_summary = str(breadth.get("summary") or "").strip()
+        if b_state == "cold" or b_cap == "none":
+            allow_new = False
+            size_cap = min(size_cap, float(rules.book_nav_cap) * float(rules.half_watch_mult))
+            veto = "mandate:breadth_cold"
+            thoughts.append(
+                f"全市场赚钱效应处于退潮冰点（{b_summary or '亏钱效应扩散'}）。"
+                "即便权重指数尚未破位，题材与中小盘接力胜率极低，宪法关掉新开仓。"
+            )
+            conclusion = "全市场亏钱效应冰点：暂停新买，已有仓控制风险。"
+            return allow_new, size_cap, TraceStep(
+                gate="mandate",
+                title="过程宪法",
+                thought=" ".join(thoughts),
+                conclusion=conclusion,
+                passed=False,
+                veto=veto,
+            )
+        if b_cap == "half_watch":
+            size_cap = min(size_cap, float(rules.book_nav_cap) * float(rules.half_watch_mult))
+            thoughts.append(f"全市场赚钱效应分化（{b_summary}），主题仓位上限折半收紧。")
 
     if stance == "none" and regime != "chop":
         # F0 already said none (e.g. no scored board). Chop+none still goes

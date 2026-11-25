@@ -66,6 +66,7 @@ def decision_for_scan(
     mandate: ProcessMandate | None = None,
     extra_overlays: Mapping[str, Any] | None = None,
     horizons: Mapping[str, Any] | None = None,
+    breadth: Mapping[str, Any] | None = None,
 ) -> Decision:
     """Daily-scan compose. Analog is omitted unless the caller passes calls."""
     rules = mandate or DEFAULT_MANDATE
@@ -78,6 +79,8 @@ def decision_for_scan(
         overlays.update(dict(extra_overlays))
     if horizons:
         overlays.setdefault("horizons", dict(horizons))
+    if breadth:
+        overlays.setdefault("breadth", dict(breadth))
     return compose(
         market_regime=market_regime,
         f0_stance=f0_stance,
@@ -89,6 +92,7 @@ def decision_for_scan(
         overlays_raw=overlays,
         previous=previous,
         horizons=horizons,
+        breadth=breadth,
     )
 
 

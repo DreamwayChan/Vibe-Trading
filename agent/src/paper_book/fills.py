@@ -10,12 +10,16 @@ from __future__ import annotations
 from backtest.engines.china_a import (
     ChinaAEngine,
     _bar_date,
-    _is_st_row,
+    _bar_is_st,
     _bar_suspended,
-    _calc_pct_change,
+    _calc_exec_pct_change,
+    _exec_price,
+    _is_star_board,
+    _is_st_row,
     _panel_value,
     _price_limit,
     _row_suspended,
+    min_buy_lot,
 )
 from backtest.models import Position
 
@@ -71,18 +75,18 @@ def explain_block(
         return "suspended"
 
     if panel is not None and not bool(panel.get("band_mismatch")):
-        close = _float_or_none(bar.get("close") if hasattr(bar, "get") else None)
-        if close is not None:
+        exec_px = _exec_price(bar)
+        if exec_px is not None:
             limit_up = _panel_value(panel, "limit_up")
             limit_down = _panel_value(panel, "limit_down")
-            if direction == 1 and limit_up is not None and close >= limit_up - 0.005:
+            if direction == 1 and limit_up is not None and exec_px >= limit_up - 0.005:
                 return "limit_up"
-            if direction == 0 and limit_down is not None and close <= limit_down + 0.005:
+            if direction == 0 and limit_down is not None and exec_px <= limit_down + 0.005:
                 return "limit_down"
 
-    pct = _calc_pct_change(bar)
+    pct = _calc_exec_pct_change(bar)
     if pct is not None:
-        limit = _price_limit(symbol)
+        limit = _price_limit(symbol, is_st=_is_st_row(bar, panel))
         if direction == 1 and pct >= limit - 0.001:
             return "limit_up"
         if direction == 0 and pct <= -limit + 0.001:
@@ -108,17 +112,29 @@ def mark_price(bar) -> float | None:
     return None
 
 
-def affordable_buy(engine: ChinaAEngine, cash: float, ref: float, desired: float) -> tuple[int, float, float]:
-    """Largest 100-share lot whose slipped notional plus commission fits in ``cash``."""
+def affordable_buy(
+    engine: ChinaAEngine,
+    cash: float,
+    ref: float,
+    desired: float,
+    symbol: str | None = None,
+) -> tuple[int, float, float]:
+    """Largest valid lot whose slipped notional plus commission fits in ``cash``."""
     fill = float(engine.apply_slippage(ref, 1))
     if fill <= 0:
         return 0, fill, 0.0
-    shares = int(engine.round_size(desired, fill))
-    while shares >= 100:
+    min_lot = min_buy_lot(symbol)
+    step = 1 if _is_star_board(symbol) else 100
+    shares = int(engine.round_size(desired, fill, symbol=symbol))
+    if shares >= min_lot and shares * fill > cash:
+        # Fast jump close to affordable shares before stepping down for fees.
+        approx = int(engine.round_size(cash / fill, fill, symbol=symbol))
+        shares = min(shares, approx)
+    while shares >= min_lot:
         commission = float(engine.calc_commission(shares, fill, 1, is_open=True))
         if shares * fill + commission <= cash + 1e-6:
             return shares, fill, commission
-        shares -= 100
+        shares -= step
     return 0, fill, 0.0
 
 
@@ -133,7 +149,8 @@ def try_buy(
 ) -> tuple[Fill | None, Unfilled | None, float]:
     """Buy the gap to ``target_shares``. Returns the fill, an unfilled row, and cash left."""
     delta = int(target_shares) - int(held_shares)
-    if delta < 100:
+    min_lot = min_buy_lot(symbol)
+    if delta < min_lot:
         return None, None, cash
     close = mark_price(bar)
     ref = ref_price(bar)
@@ -142,9 +159,9 @@ def try_buy(
     if not engine.can_execute(symbol, 1, bar):
         reason = explain_block(engine, symbol, 1, bar, None)
         return None, Unfilled(symbol, "buy", delta, reason), cash
-    shares, fill, commission = affordable_buy(engine, cash, ref, delta)
-    if shares < 100:
-        reason = "zero_size" if delta < 100 else "insufficient_cash"
+    shares, fill, commission = affordable_buy(engine, cash, ref, delta, symbol=symbol)
+    if shares < min_lot:
+        reason = "zero_size" if delta < min_lot else "insufficient_cash"
         return None, Unfilled(symbol, "buy", delta, reason), cash
     notional = shares * fill
     cash_after = cash - notional - commission

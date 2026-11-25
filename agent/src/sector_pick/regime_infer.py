@@ -160,7 +160,9 @@ def _isotime() -> str:
 
 def overrides_path() -> Path:
     """Where manual overrides are journaled (outside any run dir)."""
-    env = os.environ.get("VIBE_TRADING_REGIME_OVERRIDES")
+    from src.config.accessor import read_env
+
+    env = read_env("VIBE_TRADING_REGIME_OVERRIDES")
     if env:
         return Path(env)
     return Path.home() / ".vibe-trading" / "regime_overrides.json"

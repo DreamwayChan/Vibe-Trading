@@ -135,6 +135,9 @@ def run_market_pick_scan(
     for board in universe:
         rows.append(_score_board(board, data_map, plans))
 
+    from src.data.breadth import compute_breadth_from_map
+
+    breadth_snap = compute_breadth_from_map(data_map, as_of=as_of_date.isoformat())
     gates = load_catalog_gates(as_of_date.isoformat())
     winner, stance = assign_board_scores(
         rows, market_regime=market_regime, catalog_gates=gates
@@ -143,6 +146,14 @@ def run_market_pick_scan(
     reason = build_reason(
         winner, stance, market_regime=market_regime, map_row=map_row, horizons=horizons
     )
+    if breadth_snap.sufficient_sample:
+        if breadth_snap.stance_cap == "none" and stance != "none":
+            stance = "none"
+            winner = None
+            reason = f"{reason} ｜ {breadth_snap.summary}"
+        elif breadth_snap.stance_cap == "half_watch" and stance == "full":
+            stance = "half_watch"
+            reason = f"{reason} ｜ {breadth_snap.summary}"
     scanned_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     recommended = winner.bk if winner is not None and stance != "none" else None
     coverage = member_coverage(universe)
@@ -164,6 +175,7 @@ def run_market_pick_scan(
         bars_source=fetch_stats.label(),
         boards=rows,
         horizons=horizons,
+        breadth=breadth_snap.to_dict(),
     )
 
 

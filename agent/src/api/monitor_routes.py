@@ -232,6 +232,7 @@ class SuggestionResponse(BaseModel):
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
     risk_flags: List[str] = Field(default_factory=list)
+    exec_as_of: Optional[str] = None
 
 
 class HoldingResponse(BaseModel):
@@ -270,6 +271,8 @@ class MonitorResponse(BaseModel):
     hypothesis: Optional[Dict[str, Any]] = None
     # Held symbols with no tradable, fresh, non-invalidated journal entry.
     journal_alerts: List[str] = Field(default_factory=list)
+    conviction: Optional[Dict[str, Any]] = None
+    trade_plan: Optional[Dict[str, Any]] = None
 
 
 class RecordSignalRequest(BaseModel):
@@ -318,10 +321,6 @@ class JournalEntryResponse(BaseModel):
     tradable: bool = False
     block_reasons: List[str] = Field(default_factory=list)
     outcome: Optional[Dict[str, Any]] = None
-    # Recomputed on read, not the value stored at write time: a row keeps its
-    # ``tradable`` snapshot forever, but expiry depends on "now". Without these
-    # two fields the history list would still say "tradable" for a row the
-    # admission gate is already rejecting as ``stale_journal``.
     stale: bool = False
     age_days: Optional[int] = None
 
@@ -379,6 +378,41 @@ class HistoryDetailResponse(BaseModel):
     decision_signal: Optional[Dict[str, Any]] = None
     decision: Optional[Dict[str, Any]] = None
     hypothesis: Optional[Dict[str, Any]] = None
+    conviction: Optional[Dict[str, Any]] = None
+    trade_plan: Optional[Dict[str, Any]] = None
+
+
+class RealPositionBody(BaseModel):
+    symbol: str
+    shares: int
+    cost_price: float
+    name: str = ""
+    buy_date: str = ""
+    stop_price: Optional[float] = None
+    note: str = ""
+
+
+class UpdateMyPortfolioRequest(BaseModel):
+    total_capital: float = 200_000.0
+    available_cash: Optional[float] = None
+    max_positions: int = 3
+    max_stop_loss_pct: float = 0.10
+    risk_per_trade_pct: float = 0.015
+    min_trade_amount: float = 10_000.0
+    min_rebalance_delta_pct: float = 0.03
+    positions: List[RealPositionBody] = Field(default_factory=list)
+
+
+class AdvisoryRequest(BaseModel):
+    symbol: str
+    user_note: str = ""
+    use_llm: bool = True
+
+
+class DailyCloseRequest(BaseModel):
+    as_of: Optional[str] = None
+    with_market_pick: bool = False
+    settle_paper_book: bool = True
 
 
 def _display_holdings(holdings, decision):
@@ -422,6 +456,8 @@ def _to_response(config: MonitorConfig) -> MonitorResponse:
         bars_source=config.bars_source,
         hypothesis=config.hypothesis,
         journal_alerts=_journal_alerts(config),
+        conviction=config.conviction,
+        trade_plan=config.trade_plan,
     )
 
 
@@ -892,4 +928,106 @@ def register_monitor_routes(
             decision_signal=snap.decision_signal,
             decision=snap.decision.to_dict() if snap.decision is not None else None,
             hypothesis=snap.hypothesis,
+            conviction=snap.conviction,
+            trade_plan=snap.trade_plan,
         )
+
+    @app.get(
+        "/monitor/my-portfolio",
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_my_portfolio() -> Dict[str, Any]:
+        """Return the user's personal real-account portfolio settings and holdings."""
+        from src.monitor.my_portfolio import load_my_portfolio
+
+        return load_my_portfolio().to_dict()
+
+    @app.put(
+        "/monitor/my-portfolio",
+        dependencies=[Depends(require_auth)],
+    )
+    async def put_my_portfolio(body: UpdateMyPortfolioRequest) -> Dict[str, Any]:
+        """Save real-account capital/holdings and instantly recompute the board's trade plan."""
+        from src.monitor.advisory import _infer_as_of, _infer_exec_day
+        from src.monitor.conviction import ConvictionSummary, build_conviction_summary
+        from src.monitor.my_portfolio import MyPortfolio, save_my_portfolio
+        from src.monitor.trade_plan import build_trade_plan
+
+        portfolio = save_my_portfolio(MyPortfolio.from_dict(body.model_dump()))
+        config = load_monitor()
+        try:
+            as_of = _infer_as_of(config)
+            exec_day = _infer_exec_day(config, as_of)
+            existing_breadth = (config.conviction or {}).get("breadth") if isinstance(config.conviction, dict) else None
+            conv = build_conviction_summary(
+                config,
+                as_of=as_of,
+                breadth=existing_breadth,
+                max_focus=portfolio.max_positions,
+            )
+            plan = build_trade_plan(
+                config,
+                as_of=as_of,
+                exec_session=exec_day,
+                conviction=conv,
+                portfolio=portfolio,
+            )
+            config.conviction = conv.to_dict()
+            config.trade_plan = plan.to_dict()
+            save_monitor(config)
+        except Exception as exc:  # noqa: BLE001 — portfolio save still succeeded
+            logger.warning("trade_plan recompute on portfolio update skipped: %s", exc)
+        return {
+            "portfolio": portfolio.to_dict(),
+            "board": _to_response(config).model_dump(),
+        }
+
+    @app.post(
+        "/monitor/advisory",
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_monitor_advisory(body: AdvisoryRequest) -> Dict[str, Any]:
+        """On-demand Pre-Trade AI Copilot (Advisory Only — never alters tradable or caps)."""
+        from src.monitor.advisory import generate_symbol_advisory
+
+        symbol = str(body.symbol or "").strip()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="symbol is required")
+        config = load_monitor()
+        report = generate_symbol_advisory(
+            config,
+            symbol,
+            user_note=body.user_note,
+            use_llm=body.use_llm,
+        )
+        return report.to_dict()
+
+    @app.post(
+        "/monitor/daily-close",
+        dependencies=[Depends(require_auth)],
+    )
+    async def post_monitor_daily_close(
+        body: DailyCloseRequest = DailyCloseRequest(),
+    ) -> Dict[str, Any]:
+        """Run the 16:30 post-close routine (scan + conviction + trade plan + paper book)."""
+        from src.daily_routine import run_daily_close_routine
+
+        try:
+            result = run_daily_close_routine(
+                as_of=body.as_of,
+                run_market_pick=body.with_market_pick,
+                settle_paper_book=body.settle_paper_book,
+            )
+        except MonitorScanError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("daily-close routine failed")
+            raise HTTPException(status_code=500, detail=f"daily-close failed: {exc}") from exc
+        board = load_monitor()
+        return {
+            "routine": result,
+            "board": _to_response(board).model_dump(),
+        }
+

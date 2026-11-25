@@ -336,9 +336,10 @@ def _config_for_day(
     elif signals_by_day is not None and day in signals_by_day:
         chosen, source = _config_from_signals(config, day, signals_by_day[day]), "schedule"
     elif use_snapshots:
-        snapshot = _load_snapshot(config, day)
-        if snapshot is not None:
-            chosen, source = _config_from_snapshot(config, snapshot), "snapshot"
+        prev_day = _previous_session_offline(day)
+        snapshot = _load_snapshot(config, prev_day) if prev_day else None
+        if snapshot is not None and not snapshot.provisional:
+            chosen, source = _config_from_snapshot(config, snapshot, exec_day=day), "snapshot"
         elif _board_applies(config, day):
             chosen, source = config, "board"
         else:
@@ -356,11 +357,30 @@ def _config_for_day(
     return seal_monitor_config(chosen), source
 
 
+def _previous_session_offline(day: str) -> str | None:
+    """Previous A-share session before ``day`` using cached calendar or weekdays."""
+    try:
+        from src.data.calendar import cached_previous_trading_day
+
+        cached = cached_previous_trading_day(day, 1)
+        if cached:
+            return cached
+    except Exception:  # noqa: BLE001 — weekday fallback
+        pass
+    cur = dt.date.fromisoformat(day) - dt.timedelta(days=1)
+    while cur.weekday() >= 5:
+        cur -= dt.timedelta(days=1)
+    return cur.isoformat()
+
+
 def _board_applies(config: MonitorConfig, day: str) -> bool:
     for suggestion in config.suggestions:
         if suggestion.action not in ("buy", "sell"):
             continue
-        if suggestion.as_of and suggestion.as_of != day:
+        if suggestion.exec_as_of:
+            if suggestion.exec_as_of != day:
+                continue
+        elif suggestion.as_of and suggestion.as_of != day:
             continue
         return True
     return False
@@ -382,14 +402,30 @@ def _load_snapshot(config: MonitorConfig, day: str) -> MonitorDaySnapshot | None
     return load_day_snapshot(run_id, day)
 
 
-def _config_from_snapshot(base: MonitorConfig, snapshot: MonitorDaySnapshot) -> MonitorConfig:
+def _config_from_snapshot(
+    base: MonitorConfig,
+    snapshot: MonitorDaySnapshot,
+    *,
+    exec_day: str | None = None,
+) -> MonitorConfig:
+    from dataclasses import replace
+
     cfg = MonitorConfig.from_dict(base.to_dict())
-    cfg.suggestions = list(snapshot.suggestions)
+    stamped: list[MonitorSuggestion] = []
+    for item in snapshot.suggestions:
+        if exec_day and not item.provisional:
+            stamped.append(replace(item, exec_as_of=exec_day))
+        else:
+            stamped.append(item)
+    cfg.suggestions = stamped
     cfg.holdings = list(snapshot.holdings)
     cfg.ops = snapshot.ops
+    cfg.decision = snapshot.decision
     cfg.tradable = bool(snapshot.tradable)
     cfg.tradable_reasons = list(snapshot.tradable_reasons)
     cfg.validation_gate = snapshot.validation_gate
+    cfg.decision_signal = snapshot.decision_signal
+    cfg.hypothesis = snapshot.hypothesis
     return cfg
 
 

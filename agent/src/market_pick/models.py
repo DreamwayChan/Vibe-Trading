@@ -141,6 +141,8 @@ class MarketPickResult:
     boards: list[BoardScore] = field(default_factory=list)
     # Short / medium / long CSI 300 split. Medium == market_regime.
     horizons: dict[str, Any] | None = None
+    # Whole-market breadth thermometer (adv/dec, MA20%, limit-up/down, relay premium).
+    breadth: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -162,6 +164,8 @@ class MarketPickResult:
         }
         if self.horizons:
             payload["horizons"] = dict(self.horizons)
+        if self.breadth:
+            payload["breadth"] = dict(self.breadth)
         return payload
 
     @classmethod
@@ -198,4 +202,5 @@ class MarketPickResult:
             bars_source=_bars_source(raw.get("bars_source")),
             boards=boards,
             horizons=raw.get("horizons") if isinstance(raw.get("horizons"), dict) else None,
+            breadth=raw.get("breadth") if isinstance(raw.get("breadth"), dict) else None,
         )
