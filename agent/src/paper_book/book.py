@@ -131,6 +131,7 @@ def step_day(
     symbols = _symbols(state, replay_intents)
     day_bars = dict(bars) if bars is not None else load_day_bars(symbols, day)
     day_bars = {_norm_symbol(key): value for key, value in day_bars.items()}
+    _apply_corporate_actions(state, day_bars)
 
     max_position = _fraction("max position", _position_cap(max_position))
     max_drawdown = _fraction("max drawdown", _drawdown_cap(max_drawdown))
@@ -455,11 +456,15 @@ def _buy_intent(
         return None, Unfilled(intent.symbol, "buy", 0, "bad_price")
     slipped = float(engine.apply_slippage(ref, 1))
     target_value = intent.target_weight * nav
-    target_shares = int(engine.round_size(target_value / slipped, slipped)) if slipped > 0 else 0
+    target_shares = (
+        int(engine.round_size(target_value / slipped, slipped, symbol=intent.symbol))
+        if slipped > 0
+        else 0
+    )
     desired_target = target_shares
     held = state.positions.get(intent.symbol)
     held_shares = held.shares if held is not None else 0
-    volume_cap = _volume_limit_shares(bar, max_volume_ratio)
+    volume_cap = _volume_limit_shares(bar, max_volume_ratio, symbol=intent.symbol)
     if volume_cap is not None and target_shares > volume_cap:
         target_shares = volume_cap
         if liquidity_clipped is not None:
@@ -688,20 +693,103 @@ def _bar_on(frame: pd.DataFrame, as_of: str) -> pd.Series | None:
     row = frame.loc[mask].iloc[-1]
     data = {str(key): row[key] for key in row.index}
     data["trade_date"] = day
+    earlier = frame.loc[normalized < day]
+    if not earlier.empty:
+        if "close" in earlier.columns:
+            try:
+                prev_c = float(earlier["close"].iloc[-1])
+                if prev_c > 0 and prev_c == prev_c:
+                    data["prev_close_unadj"] = prev_c
+            except (TypeError, ValueError):
+                pass
+        if "adj_factor" in earlier.columns:
+            try:
+                prev_adj = float(earlier["adj_factor"].iloc[-1])
+                if prev_adj > 0 and prev_adj == prev_adj:
+                    data["prev_adj_factor"] = prev_adj
+            except (TypeError, ValueError):
+                pass
+
     pre_close = data.get("pre_close")
     pre_ok = False
     try:
         pre_ok = pre_close is not None and float(pre_close) > 0 and float(pre_close) == float(pre_close)
     except (TypeError, ValueError):
         pre_ok = False
-    if not pre_ok:
-        earlier = frame.loc[normalized < day]
-        if not earlier.empty and "close" in earlier.columns:
-            data["pre_close"] = float(earlier["close"].iloc[-1])
+    if not pre_ok and "prev_close_unadj" in data:
+        data["pre_close"] = data["prev_close_unadj"]
     return pd.Series(data)
 
 
-def _volume_limit_shares(bar: pd.Series, max_volume_ratio: float) -> int | None:
+def _positive_cell(bar: pd.Series, key: str) -> float | None:
+    if key not in getattr(bar, "index", []):
+        return None
+    raw = bar.get(key)
+    try:
+        if raw is None or pd.isna(raw):
+            return None
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return val if val > 0 and val == val else None
+
+
+def _apply_corporate_actions(
+    state: BookState,
+    bars: Mapping[str, pd.Series],
+) -> None:
+    """Settle overnight cash dividends and stock splits from ``adj_factor`` steps.
+
+    Unadjusted lake bars drop on ex-dividend and split dates while ``adj_factor``
+    steps up by ``prev_close / ex_ref_price``. Without this adjustment an
+    ex-right gap books a phantom loss on held shares and can trip the 15%
+    drawdown or return-deviation circuit breaker.
+    """
+    for symbol, position in list(state.positions.items()):
+        old_shares = position.shares
+        if old_shares <= 0:
+            continue
+        bar = bars.get(symbol)
+        if bar is None:
+            continue
+        adj_curr = _positive_cell(bar, "adj_factor")
+        adj_prev = _positive_cell(bar, "prev_adj_factor")
+        if adj_curr is None or adj_prev is None:
+            continue
+        adj_ratio = adj_curr / adj_prev
+        if adj_ratio <= 1.0005:
+            continue
+        prev_close = _positive_cell(bar, "prev_close_unadj") or (
+            position.last_price if position.last_price > 0 else None
+        )
+        if prev_close is None or prev_close <= 0:
+            continue
+
+        ex_ref = prev_close / adj_ratio
+        # Stock split / bonus shares (10送转N, N >= 1 -> ratio >= 1.10).
+        split_mult = 1.0
+        if adj_ratio >= 1.095:
+            tenths = int((adj_ratio - 1.0) * 10.0 + 1e-6)
+            if tenths >= 1:
+                candidate = 1.0 + tenths / 10.0
+                if candidate <= adj_ratio + 1e-6:
+                    split_mult = candidate
+
+        if split_mult > 1.0:
+            for lot in position.lots:
+                lot.shares = max(int(round(lot.shares * split_mult)), 0)
+                lot.price = lot.price / split_mult
+
+        new_shares = position.shares
+        cash_div = max(0.0, old_shares * prev_close - new_shares * ex_ref)
+        if cash_div > 1e-6:
+            state.cash += cash_div
+        position.last_price = ex_ref
+
+
+def _volume_limit_shares(
+    bar: pd.Series, max_volume_ratio: float, *, symbol: str | None = None
+) -> int | None:
     """Board-lot-rounded buy cap from bar volume; ``None`` means disabled/unavailable."""
     if max_volume_ratio <= 0:
         return None
@@ -716,4 +804,8 @@ def _volume_limit_shares(bar: pd.Series, max_volume_ratio: float) -> int | None:
         return None
     if cap <= 0:
         return 0
+    from backtest.engines.china_a import _is_star_board
+
+    if _is_star_board(symbol):
+        return cap if cap >= 200 else 0
     return max((cap // 100) * 100, 0)

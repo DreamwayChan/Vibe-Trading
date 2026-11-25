@@ -115,7 +115,19 @@ def run_monitor_scan(
     config.ops = ops
     config.last_scan_at = scanned_at
 
+    from src.data.breadth import compute_breadth_from_map, load_breadth_from_lake
+    from src.data.event_risk import assess_event_risks
+    from src.monitor.conviction import build_conviction_summary
+    from src.monitor.my_portfolio import load_my_portfolio
+    from src.monitor.trade_plan import build_trade_plan
     from src.process.attach import decision_for_scan, implied_book_stance, market_regime_from_holdings
+
+    scan_data_map: dict[str, pd.DataFrame] = snap_meta.pop("_data_map", None) or {}
+    breadth_snap = compute_breadth_from_map(scan_data_map, as_of=as_of_iso)
+    if not breadth_snap.sufficient_sample:
+        lake_breadth = load_breadth_from_lake(as_of_iso)
+        if lake_breadth is not None:
+            breadth_snap = lake_breadth
 
     regime = market_regime_from_holdings(holdings)
     horizons = None
@@ -132,6 +144,7 @@ def run_monitor_scan(
         provisional=bool(snap_meta.get("provisional")),
         as_of=as_of_iso,
         horizons=horizons,
+        breadth=breadth_snap.to_dict(),
     )
 
     # Journal + cost-aware validation. Suggestions stay on the board either
@@ -152,6 +165,37 @@ def run_monitor_scan(
         config.tradable = False
         config.tradable_reasons = ["admission_error"]
         config.bars_source = snap_meta.get("bars_source")
+
+    # Build personal Top 2-3 conviction funnel + risk-sized next-session trade plan.
+    try:
+        my_book = load_my_portfolio()
+        cand_syms = sorted(
+            {h.symbol.upper() for h in config.holdings if h.symbol}
+            | {s.symbol.upper() for s in config.suggestions if s.symbol}
+            | {p.symbol.upper() for p in my_book.positions if p.symbol}
+        )
+        ev_flags = assess_event_risks(cand_syms, as_of=as_of_iso, data_map=scan_data_map)
+        conv_summary = build_conviction_summary(
+            config,
+            as_of=as_of_iso,
+            data_map=scan_data_map,
+            breadth=breadth_snap,
+            event_flags_by_symbol=ev_flags,
+            max_focus=my_book.max_positions,
+        )
+        exec_session = _next_session_offline(as_of_date)
+        plan_sheet = build_trade_plan(
+            config,
+            as_of=as_of_iso,
+            exec_session=exec_session,
+            conviction=conv_summary,
+            portfolio=my_book,
+            data_map=scan_data_map,
+        )
+        config.conviction = conv_summary.to_dict()
+        config.trade_plan = plan_sheet.to_dict()
+    except Exception as exc:  # noqa: BLE001 — never fail scan on advisory overlays
+        logger.warning("monitor conviction/trade_plan build failed: %s", exc)
 
     # Persist daily snapshot (same-day overwrite) for history UI / overnight
     # baseline. Intraday writes are display-only: the next same-day scan still
@@ -177,6 +221,8 @@ def run_monitor_scan(
             validation_gate=config.validation_gate,
             decision_signal=config.decision_signal,
             hypothesis=config.hypothesis,
+            conviction=config.conviction,
+            trade_plan=config.trade_plan,
         )
         try:
             save_day_snapshot(snapshot)
@@ -306,9 +352,36 @@ def _scan_run_dir(
         if is_provisional:
             snap_meta["provisional"] = True
 
-        # Suggestions stay scoped to the configured watchlist.
-        if symbol not in watchlist:
+    current_weights = weights_from_signal_map(signal_map)
+    # Always diff against the last holdings scan *before* today. Same-day
+    # rescans overwrite today's file for UI only and must not become each
+    # other's baseline — each click is a fresh realtime recalculation.
+    prev_snap = load_previous_snapshot(run_id, as_of_iso)
+    previous_weights = (
+        previous_weights_from_holdings(prev_snap.holdings) if prev_snap else None
+    )
+    holdings, ops = build_holdings_and_ops(
+        current_weights,
+        previous_weights,
+        meta_by_symbol=meta_by_symbol,
+    )
+
+    # Explicit watchlist scopes the alert table; an empty watchlist auto-tracks
+    # active strategy holdings and exits so zero-config boards still emit signals.
+    tracked_symbols = (
+        watchlist
+        if watchlist
+        else ({s.upper() for s in current_weights} | {s.upper() for s in ops.exited})
+    )
+    next_session = _next_session_offline(as_of_date)
+
+    for symbol in data_map:
+        if symbol.upper() not in tracked_symbols:
             continue
+        info = meta_by_symbol[symbol]
+        bar_as_of = info["data_as_of"]
+        last_price = info["price"]
+        is_provisional = info["provisional"]
         series = signal_map.get(symbol)
         if series is None:
             suggestions.append(
@@ -324,30 +397,18 @@ def _scan_run_dir(
                 )
             )
             continue
-        suggestions.append(
-            _map_series_to_suggestion(
-                symbol,
-                series,
-                as_of_iso,
-                data_as_of=bar_as_of,
-                price=last_price,
-                provisional=is_provisional,
-            )
+        item = _map_series_to_suggestion(
+            symbol,
+            series,
+            as_of_iso,
+            data_as_of=bar_as_of,
+            price=last_price,
+            provisional=is_provisional,
         )
+        if not is_provisional:
+            item.exec_as_of = next_session
+        suggestions.append(item)
 
-    current_weights = weights_from_signal_map(signal_map)
-    # Always diff against the last holdings scan *before* today. Same-day
-    # rescans overwrite today's file for UI only and must not become each
-    # other's baseline — each click is a fresh realtime recalculation.
-    prev_snap = load_previous_snapshot(run_id, as_of_iso)
-    previous_weights = (
-        previous_weights_from_holdings(prev_snap.holdings) if prev_snap else None
-    )
-    holdings, ops = build_holdings_and_ops(
-        current_weights,
-        previous_weights,
-        meta_by_symbol=meta_by_symbol,
-    )
     # Dual-track tape action (hold / buy_dip / reduce) — not enter/trim.
     # CSI 300 is fetched after generate so the index never enters the engine.
     holdings = _stamp_holdings_trend(
@@ -361,6 +422,7 @@ def _scan_run_dir(
     from src.monitor.ashare_risk import stamp_suggestions
 
     stamp_suggestions(suggestions, data_map, as_of=as_of_iso)
+    snap_meta["_data_map"] = data_map
     return suggestions, holdings, ops, snap_meta
 
 
@@ -401,6 +463,27 @@ def reset_csi300_trend_memo() -> None:
     """Drop the in-process CSI 300 tape cache (tests / new calendar day)."""
     global _CSI300_TREND_MEMO
     _CSI300_TREND_MEMO = None
+
+
+def _next_session_offline(day: date) -> str:
+    """Next A-share trading session from cached lake calendar, else next weekday.
+
+    Never contacts the network so offline unit scans stay deterministic.
+    """
+    try:
+        from src.data import calendar as cal
+
+        dates = cal._cache or cal._read_cache()
+        if dates:
+            later = [d for d in dates if d > day]
+            if later:
+                return later[0].isoformat()
+    except Exception:  # noqa: BLE001 — weekday fallback
+        pass
+    cur = day + timedelta(days=1)
+    while cur.weekday() >= 5:
+        cur += timedelta(days=1)
+    return cur.isoformat()
 
 
 def _csi300_frame_for_trends(

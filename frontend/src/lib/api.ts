@@ -288,6 +288,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getMyPortfolio: () => request<MyPortfolio>(`/monitor/my-portfolio`),
+  updateMyPortfolio: (body: UpdateMyPortfolioRequest) =>
+    request<{ portfolio: MyPortfolio; board: MonitorBoard }>(`/monitor/my-portfolio`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  requestMonitorAdvisory: (body: { symbol: string; user_note?: string; use_llm?: boolean }) =>
+    request<MonitorAdvisoryReport>(`/monitor/advisory`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  runMonitorDailyClose: (
+    body: { as_of?: string; with_market_pick?: boolean; settle_paper_book?: boolean } = {},
+  ) =>
+    request<{ routine: DailyCloseRoutineResult; board: MonitorBoard }>(`/monitor/daily-close`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getMarketPick: () => request<MarketPickBoard>(`/market-pick`),
   scanMarketPick: (body: { force?: boolean } = {}) =>
     request<MarketPickBoard>(`/market-pick/scan`, {
@@ -1042,6 +1060,178 @@ export interface MonitorBoard {
   hypothesis?: MonitorHypothesis | null;
   /** Held symbols with no tradable journal entry. */
   journal_alerts?: string[];
+  /** Five-dimension conviction funnel (Top 2-3 focus picks + breadth). */
+  conviction?: MonitorConvictionSummary | null;
+  /** Personal next-session actionable trade plan sheet. */
+  trade_plan?: MonitorTradePlanSheet | null;
+}
+
+export interface BreadthSnapshotData {
+  as_of: string;
+  sample_size: number;
+  sufficient_sample: boolean;
+  adv_ratio?: number | null;
+  above_ma20_ratio?: number | null;
+  limit_up_count?: number;
+  limit_down_count?: number;
+  prev_limit_up_premium?: number | null;
+  volume_ma20_ratio?: number | null;
+  state: "warm" | "neutral" | "cold" | string;
+  stance_cap: "full" | "half_watch" | "none" | string;
+  score: number;
+  summary: string;
+}
+
+export interface MonitorConvictionItem {
+  symbol: string;
+  action: string;
+  stars: number;
+  tier: "focus" | "watch" | "avoid" | string;
+  is_focus: boolean;
+  vetoed: boolean;
+  veto_reasons: string[];
+  climate_score: number;
+  sector_score: number;
+  setup_score: number;
+  track_score: number;
+  safety_score: number;
+  board_name?: string | null;
+  board_rank?: number | null;
+  bias_ma20?: number | null;
+  evidence: string[];
+  cautions: string[];
+}
+
+export interface MonitorConvictionSummary {
+  as_of: string;
+  max_focus: number;
+  focus_symbols: string[];
+  stance: string;
+  headline: string;
+  breadth?: BreadthSnapshotData | null;
+  items: MonitorConvictionItem[];
+}
+
+export interface PlannedOrderRow {
+  symbol: string;
+  action:
+    | "buy_focus"
+    | "stop_exit"
+    | "signal_exit"
+    | "hold_keep"
+    | "slot_full_watch"
+    | "skip_small_delta"
+    | string;
+  title: string;
+  ref_close: number;
+  planned_shares: number;
+  planned_amount: number;
+  capital_weight: number;
+  ideal_buy_low?: number | null;
+  ideal_buy_high?: number | null;
+  chase_stop_above?: number | null;
+  stop_price?: number | null;
+  stop_distance_pct?: number | null;
+  target_price?: number | null;
+  reward_risk_ratio?: number | null;
+  max_loss_rmb?: number | null;
+  max_loss_capital_pct?: number | null;
+  held_shares: number;
+  sellable_shares: number;
+  cost_price?: number | null;
+  unrealized_pnl_pct?: number | null;
+  stars?: number | null;
+  board_name?: string | null;
+  broker_tip: string;
+  reason: string;
+  warnings: string[];
+}
+
+export interface MonitorTradePlanSheet {
+  as_of: string;
+  exec_session: string;
+  total_capital: number;
+  effective_cash: number;
+  max_positions: number;
+  held_count: number;
+  slots_available: number;
+  max_stop_loss_pct: number;
+  risk_per_trade_pct: number;
+  summary_note: string;
+  position_actions: PlannedOrderRow[];
+  entry_plans: PlannedOrderRow[];
+}
+
+export interface RealPositionItem {
+  symbol: string;
+  shares: number;
+  cost_price: number;
+  name?: string;
+  buy_date?: string;
+  stop_price?: number | null;
+  note?: string;
+}
+
+export interface MyPortfolio {
+  total_capital: number;
+  available_cash?: number | null;
+  effective_cash: number;
+  max_positions: number;
+  max_stop_loss_pct: number;
+  risk_per_trade_pct: number;
+  min_trade_amount: number;
+  min_rebalance_delta_pct: number;
+  positions: RealPositionItem[];
+  updated_at?: string;
+}
+
+export interface UpdateMyPortfolioRequest {
+  total_capital: number;
+  available_cash?: number | null;
+  max_positions: number;
+  max_stop_loss_pct: number;
+  risk_per_trade_pct: number;
+  min_trade_amount?: number;
+  min_rebalance_delta_pct?: number;
+  positions: RealPositionItem[];
+}
+
+export interface AdvisoryJournalDraft {
+  symbol: string;
+  observation: string;
+  hypothesis: string;
+  logic: string;
+  validation_plan: string;
+  invalidation: string;
+  thesis: string;
+  planned_position: string;
+  planned_risk: string;
+  invalidation_price?: number | null;
+  invalidation_side?: string | null;
+}
+
+export interface MonitorAdvisoryReport {
+  symbol: string;
+  as_of: string;
+  generated_at: string;
+  mode: "llm" | "rule_fallback" | string;
+  advisory_only: boolean;
+  verdict: "execute_plan" | "probe_small" | "wait_skip" | "exit_discipline" | string;
+  verdict_label: string;
+  confidence_note: string;
+  supporting_points: string[];
+  devil_advocate_risks: string[];
+  tomorrow_playbook: string[];
+  narrative: string;
+  context_digest: Record<string, unknown>;
+  journal_draft: AdvisoryJournalDraft;
+  boundary_note: string;
+}
+
+export interface DailyCloseRoutineResult {
+  as_of: string;
+  steps: Array<Record<string, unknown>>;
+  digest_markdown: string;
 }
 
 export interface RecordMonitorSignalRequest {

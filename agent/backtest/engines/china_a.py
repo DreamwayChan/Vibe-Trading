@@ -139,20 +139,18 @@ class ChinaAEngine(BaseEngine):
         if bool(_panel_value(row, "band_mismatch")):
             return self._heuristic_allows(symbol=row.get("symbol"), direction=direction, bar=bar)
 
-        close = bar.get("close")
-        try:
-            close = None if close is None or pd.isna(close) else float(close)
-        except (TypeError, ValueError):
-            close = None
-
-        if close is not None:
+        # Orders execute at the bar open when present (falling back to close
+        # when open is missing). Checking 15:00 close for a 09:30 open order
+        # would leak intraday future moves into fill eligibility.
+        exec_px = _exec_price(bar)
+        if exec_px is not None:
             # Half a cent of tolerance: limit prices are rounded to the tick, so
-            # an exact equality test misses a close that sits on the band.
+            # an exact equality test misses a price that sits on the band.
             limit_up = _panel_value(row, "limit_up")
             limit_down = _panel_value(row, "limit_down")
-            if direction == 1 and limit_up is not None and close >= limit_up - 0.005:
+            if direction == 1 and limit_up is not None and exec_px >= limit_up - 0.005:
                 return False
-            if direction == 0 and limit_down is not None and close <= limit_down + 0.005:
+            if direction == 0 and limit_down is not None and exec_px <= limit_down + 0.005:
                 return False
         return True
 
@@ -160,19 +158,32 @@ class ChinaAEngine(BaseEngine):
         """Pre-panel price-limit rule, kept for rows the panel cannot vouch for."""
         if not self.enforce_price_limits:
             return True
-        pct_chg = _calc_pct_change(bar)
+        pct_chg = _calc_exec_pct_change(bar)
         if pct_chg is None:
             return True
-        limit = _price_limit(symbol)
+        is_st = _bar_is_st(bar)
+        limit = _price_limit(symbol or "", is_st=is_st)
         if direction == 1 and pct_chg >= limit - 0.001:
             return False
         if direction == 0 and pct_chg <= -limit + 0.001:
             return False
         return True
 
+    def round_size(
+        self, raw_size: float, price: float, symbol: str | None = None
+    ) -> float:
+        """Round down to exchange-valid share lots.
 
-    def round_size(self, raw_size: float, price: float) -> float:
-        """Round down to 100-share lots."""
+        Shanghai STAR Market (``688xxx``) requires at least 200 shares per buy
+        order, with 1-share increments above 200. Mainboard / ChiNext round down
+        to 100-share lots.
+        """
+        if raw_size <= 0 or raw_size != raw_size:
+            return 0
+        code = symbol if symbol is not None else getattr(self, "_active_symbol", "")
+        if _is_star_board(code):
+            whole = int(raw_size)
+            return float(whole) if whole >= 200 else 0
         return max(int(raw_size / 100) * 100, 0)
 
     def calc_commission(self, size: float, price: float, _direction: int, is_open: bool) -> float:
@@ -214,6 +225,53 @@ def _bar_date(bar: pd.Series):
     if hasattr(bar, "name") and hasattr(bar.name, "date"):
         return bar.name.date()
     return None
+
+
+def _exec_price(bar: pd.Series) -> float | None:
+    """Observable execution price at rebalance time.
+
+    On a full OHLC bar (``high`` and ``low`` present), orders at the morning
+    rebalance see ``open`` — checking ``close`` would leak afternoon moves.
+    Synthetic unit-test fixtures that omit ``high``/``low`` and only vary
+    ``close`` fall back to ``close`` when ``close`` is positive.
+    """
+    idx = set(getattr(bar, "index", []))
+    has_ohlc = "high" in idx and "low" in idx
+    keys = ("open", "close") if has_ohlc else ("close", "open")
+    for key in keys:
+        if idx and key not in idx and not hasattr(bar, key):
+            continue
+        raw = bar.get(key) if hasattr(bar, "get") else None
+        try:
+            if raw is not None and not pd.isna(raw) and float(raw) > 0:
+                return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _calc_exec_pct_change(bar: pd.Series) -> float | None:
+    """Price move observable when the order executes (open vs pre_close when present)."""
+    pre_close = bar.get("pre_close") if hasattr(bar, "get") else None
+    try:
+        pre = None if pre_close is None or pd.isna(pre_close) else float(pre_close)
+    except (TypeError, ValueError):
+        pre = None
+    exec_px = _exec_price(bar)
+    if exec_px is not None and pre is not None and pre > 0:
+        return (exec_px - pre) / pre
+    return _calc_pct_change(bar)
+
+
+def _is_star_board(symbol: str | None) -> bool:
+    """True for Shanghai STAR Market (科创板 688xxx)."""
+    code = str(symbol or "").strip().split(".", 1)[0]
+    return code.startswith("688")
+
+
+def min_buy_lot(symbol: str | None) -> int:
+    """Minimum valid buy order size: 200 shares on STAR Market, 100 elsewhere."""
+    return 200 if _is_star_board(symbol) else 100
 
 
 # Note: china_futures and global_futures have variants that prioritise

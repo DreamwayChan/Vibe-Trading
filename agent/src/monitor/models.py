@@ -87,6 +87,8 @@ class MonitorSuggestion:
     # A-share markers from the bar in use: st, limit_up, one_word,
     # consecutive_board, extreme_board. Empty when the scan had no bars.
     risk_flags: list[str] = field(default_factory=list)
+    # Next trading session when a settled close signal becomes executable (T+1 open).
+    exec_as_of: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -118,6 +120,7 @@ class MonitorSuggestion:
             tradable=bool(raw.get("tradable", False)),
             block_reasons=_reason_list(raw.get("block_reasons")),
             risk_flags=_reason_list(raw.get("risk_flags")),
+            exec_as_of=_optional_str(raw.get("exec_as_of")),
         )
 
 
@@ -214,6 +217,10 @@ class MonitorDaySnapshot:
     decision_signal: dict[str, Any] | None = None
     # Linked research hypothesis (id/status/title) as of this scan.
     hypothesis: dict[str, Any] | None = None
+    # Five-dimension conviction funnel (Top 2-3 focus picks + breadth).
+    conviction: dict[str, Any] | None = None
+    # Next-session personal trade plan sheet (entry band, stop loss, shares).
+    trade_plan: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -238,6 +245,10 @@ class MonitorDaySnapshot:
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
+        if self.conviction is not None:
+            payload["conviction"] = dict(self.conviction)
+        if self.trade_plan is not None:
+            payload["trade_plan"] = dict(self.trade_plan)
         return payload
 
     @classmethod
@@ -281,6 +292,8 @@ class MonitorDaySnapshot:
             validation_gate=_dict_or_none(raw.get("validation_gate")),
             decision_signal=_dict_or_none(raw.get("decision_signal")),
             hypothesis=_dict_or_none(raw.get("hypothesis")),
+            conviction=_dict_or_none(raw.get("conviction")),
+            trade_plan=_dict_or_none(raw.get("trade_plan")),
         )
 
 
@@ -312,6 +325,9 @@ class MonitorConfig:
     bars_source: str | None = None
     # Linked research hypothesis (id/status/title), stamped by admission.
     hypothesis: dict[str, Any] | None = None
+    # Five-dimension conviction funnel + personal next-day trade plan.
+    conviction: dict[str, Any] | None = None
+    trade_plan: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -331,6 +347,10 @@ class MonitorConfig:
         }
         if self.decision is not None:
             payload["decision"] = self.decision.to_dict()
+        if self.conviction is not None:
+            payload["conviction"] = dict(self.conviction)
+        if self.trade_plan is not None:
+            payload["trade_plan"] = dict(self.trade_plan)
         return payload
 
     @classmethod
@@ -367,6 +387,8 @@ class MonitorConfig:
             decision_signal=_dict_or_none(raw.get("decision_signal")),
             bars_source=_optional_str(raw.get("bars_source")),
             hypothesis=_dict_or_none(raw.get("hypothesis")),
+            conviction=_dict_or_none(raw.get("conviction")),
+            trade_plan=_dict_or_none(raw.get("trade_plan")),
         )
 
 

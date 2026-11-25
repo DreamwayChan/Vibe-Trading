@@ -6,12 +6,14 @@ import { BookOpen, ChevronDown, ChevronUp, Crosshair, Eye, ExternalLink, GitComp
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ForecastPanel } from "@/components/monitor/ForecastPanel";
 import { LoopStatus } from "@/components/monitor/LoopStatus";
+import { PersonalCopilotPanel } from "@/components/monitor/PersonalCopilotPanel";
 import { RegimeChip, RegimePanelModal } from "@/components/monitor/RegimeDeclaration";
 import { DecisionCard } from "@/components/process/DecisionCard";
 import { HorizonStrip } from "@/components/process/HorizonStrip";
 import { TermHint } from "@/components/process/TermHint";
 import {
   api,
+  type AdvisoryJournalDraft,
   type MonitorBoard,
   type MonitorDayOps,
   type MonitorHistorySummary,
@@ -821,6 +823,25 @@ export function Monitor() {
     setJournalError(null);
   };
 
+  const applyCopilotJournalDraft = (draft: AdvisoryJournalDraft) => {
+    setJournalFormOpen(true);
+    setJournalSymbol(draft.symbol || "");
+    setJournalThesis(draft.thesis || "");
+    setJournalObservation(draft.observation || "");
+    setJournalCausal(draft.hypothesis || "");
+    setJournalLogic(draft.logic || "");
+    setJournalValidation(draft.validation_plan || "");
+    setJournalInvalidation(draft.invalidation || "");
+    setJournalPosition(draft.planned_position || "");
+    setJournalRisk(draft.planned_risk || "");
+    setJournalSide(draft.invalidation_side || (draft.invalidation_price != null ? "below" : ""));
+    setJournalPrice(draft.invalidation_price != null ? String(draft.invalidation_price) : "");
+    setJournalError(null);
+    window.setTimeout(() => {
+      document.getElementById("journal-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  };
+
   const applyBoard = (next: MonitorBoard) => {
     setBoard(next);
     setSymbolsText((next.symbols || []).join(", "));
@@ -1434,6 +1455,14 @@ export function Monitor() {
           {error}
         </div>
       )}
+
+      <PersonalCopilotPanel
+        runId={runId}
+        conviction={board?.conviction ?? null}
+        tradePlan={board?.trade_plan ?? null}
+        onBoardUpdated={(nextBoard) => applyBoard(nextBoard)}
+        onFillJournalDraft={applyCopilotJournalDraft}
+      />
 
       <LoopStatus
         runId={runId}

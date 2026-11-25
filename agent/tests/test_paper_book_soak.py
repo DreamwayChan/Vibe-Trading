@@ -405,24 +405,25 @@ def test_soak_uses_the_monitor_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline_calendar: None
 ) -> None:
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    day = "2026-01-06"
+    sig_day = "2026-01-05"
+    exec_day = "2026-01-06"
     save_day_snapshot(
         MonitorDaySnapshot(
-            as_of=day,
-            scanned_at="2026-01-06T15:00:00Z",
+            as_of=sig_day,
+            scanned_at="2026-01-05T15:00:00Z",
             run_id=RUN,
-            suggestions=[_suggestion(AAA, "buy", day)],
+            suggestions=[_suggestion(AAA, "buy", sig_day)],
             tradable=True,
         )
     )
     window = step_range(
-        start="2026-01-05",
-        end=day,
+        start=sig_day,
+        end=exec_day,
         config=_config(),
         root=tmp_path / "book",
         bars_by_day={
-            "2026-01-05": {AAA: _bar("2026-01-05")},
-            day: {AAA: _bar(day)},
+            sig_day: {AAA: _bar(sig_day)},
+            exec_day: {AAA: _bar(exec_day)},
         },
         engine=ChinaAEngine({}),
         threshold=1.0,
