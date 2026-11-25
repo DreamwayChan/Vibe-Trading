@@ -91,3 +91,6 @@ AGENTS.md
 wiki/alpha-library/manifest.json
 wiki/alpha-library/content/
 bench_report.json
+.idea/
+.workbuddy/
+.r3-tmp/

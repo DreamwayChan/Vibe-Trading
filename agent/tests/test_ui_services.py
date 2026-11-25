@@ -11,7 +11,41 @@ import pytest
 
 import backtest.runner as runner
 from backtest.loaders.base import NoAvailableSourceError
-from src.ui_services import reconstruct_price_series, build_trade_markers
+from src.ui_services import (
+    build_trade_markers,
+    load_price_series,
+    reconstruct_price_series,
+)
+
+
+@pytest.mark.parametrize("date_header", ["trade_date", "date", "timestamp"])
+def test_load_price_series_reads_any_ohlcv_date_header(
+    tmp_path: Path,
+    date_header: str,
+) -> None:
+    """ohlcv_*.csv must load regardless of the loader's index name.
+
+    The engine writes ``DataFrame.to_csv`` straight to disk, so the bar
+    date column is named after the active loader's index (``trade_date``
+    for eastmoney/yahoo, plain ``date`` for local/akshare frames). A
+    stricter reader silently yields zero bars and the detail chart shows
+    no candlesticks at all.
+    """
+    run_dir = tmp_path / "run"
+    artifacts = run_dir / "artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "ohlcv_600000.SH.csv").write_text(
+        f"{date_header},open,high,low,close,volume\n"
+        "2026-01-05,10.0,10.8,9.9,10.5,1200\n"
+        "2026-01-06,10.5,11.2,10.4,11.0,1500\n",
+        encoding="utf-8",
+    )
+
+    rows = load_price_series(run_dir)
+
+    assert [row["time"] for row in rows] == ["2026-01-05", "2026-01-06"]
+    assert {row["code"] for row in rows} == {"600000.SH"}
+    assert rows[-1]["close"] == 11.0
 
 
 def test_build_trade_markers_skips_end_of_backtest() -> None:

@@ -362,12 +362,59 @@ def build_indicator_series(
     return output
 
 
+#: Column names that may hold the bar date in ``ohlcv_{code}.csv``.
+#: The engine dumps ``DataFrame.to_csv`` directly, so the column is
+#: whatever the active loader named its index (``trade_date`` for
+#: eastmoney/yahoo/... , plain ``date`` for local/akshare style frames).
+_OHLCV_DATE_COLUMNS = (
+    "trade_date",
+    "date",
+    "timestamp",
+    "datetime",
+    "time",
+    "dt",
+    "day",
+)
+
+
+def _ohlcv_row_date(row: Dict[str, Any]) -> Optional[str]:
+    """Extract the bar date from one raw ``ohlcv_*.csv`` row.
+
+    Args:
+        row: A single CSV row as returned by ``csv.DictReader``.
+
+    Returns:
+        The raw date string, or ``None`` when the row carries no date.
+    """
+    for key in _OHLCV_DATE_COLUMNS:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    # Unnamed index column (DataFrame index without a name serializes
+    # to an empty header, which DictReader exposes under the "" key).
+    unnamed = row.get("")
+    if unnamed not in (None, ""):
+        return str(unnamed)
+    # Last resort: the leading column, when it looks like a date.
+    for key, value in row.items():
+        if not key or value in (None, ""):
+            continue
+        text = str(value).strip()
+        if (len(text) == 8 and text.isdigit()) or (
+            len(text) >= 10 and text[4] == "-" and text[7] == "-"
+        ):
+            return text
+        return None
+    return None
+
+
 def _load_ohlcv_artifacts(run_dir: Path) -> List[Dict[str, Any]]:
     """Read individual ohlcv_*.csv files saved by the backtest engine.
 
-    The engine writes ``ohlcv_{code}.csv`` per symbol with columns
-    ``trade_date,open,high,low,close,volume``. This function reads
-    them all and returns a flat list of normalized rows.
+    The engine writes ``ohlcv_{code}.csv`` per symbol with an OHLCV
+    table whose first column is the bar date. That column is named after
+    the loader's index (``trade_date``, ``date``, ``timestamp``, ...), so
+    the reader accepts every common spelling instead of assuming one.
 
     Args:
         run_dir: The run directory under ``runs/``.
@@ -385,7 +432,7 @@ def _load_ohlcv_artifacts(run_dir: Path) -> List[Dict[str, Any]]:
     for f in ohlcv_files:
         code = f.stem.removeprefix("ohlcv_")
         for r in load_csv_records(f):
-            ts = r.get("trade_date") or r.get("timestamp") or r.get("time") or r.get("")
+            ts = _ohlcv_row_date(r)
             if not ts:
                 continue
             rows.append({
